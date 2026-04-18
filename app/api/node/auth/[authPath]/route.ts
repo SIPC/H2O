@@ -11,7 +11,7 @@ type AuthPayload = {
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ authPath: string }> },
+  { params }: { params: Promise<{ authPath: string }> }
 ) {
   const { authPath } = await params
   const body = (await request.json()) as AuthPayload
@@ -48,7 +48,9 @@ export async function POST(
 
   // 1) 先校验节点路径是否合法且节点启用
   const node = db
-    .prepare(`SELECT id, name FROM nodes WHERE auth_path = ? AND status = 'enabled' LIMIT 1`)
+    .prepare(
+      `SELECT id, name FROM nodes WHERE auth_path = ? AND status = 'enabled' LIMIT 1`
+    )
     .get(authPath) as { id: number; name: string } | undefined
 
   if (!node) {
@@ -66,8 +68,12 @@ export async function POST(
 
   // 2) 用用户 token 匹配用户，同时校验账号状态
   const user = db
-    .prepare(`SELECT id, username, status FROM users WHERE auth_token = ? LIMIT 1`)
-    .get(body.auth) as { id: number; username: string; status: "active" | "disabled" } | undefined
+    .prepare(
+      `SELECT id, username, status FROM users WHERE auth_token = ? LIMIT 1`
+    )
+    .get(body.auth) as
+    | { id: number; username: string; status: "active" | "disabled" }
+    | undefined
 
   if (!user) {
     writeAuthLog({
@@ -107,7 +113,7 @@ export async function POST(
          AND s.expire_time > datetime('now')
          AND pn.node_id = ?
        ORDER BY s.expire_time DESC
-       LIMIT 1`,
+       LIMIT 1`
     )
     .get(user.id, node.id) as
     | { id: number; used_traffic_bytes: number; traffic_limit_bytes: number }
@@ -130,7 +136,9 @@ export async function POST(
   const nextUsage = activeSub.used_traffic_bytes + Math.floor(body.tx)
 
   if (nextUsage > activeSub.traffic_limit_bytes) {
-    db.prepare(`UPDATE subscriptions SET status = 'blocked' WHERE id = ?`).run(activeSub.id)
+    db.prepare(`UPDATE subscriptions SET status = 'blocked' WHERE id = ?`).run(
+      activeSub.id
+    )
     writeAuthLog({
       node_id: node.id,
       node_name: node.name,
@@ -143,7 +151,9 @@ export async function POST(
     return NextResponse.json({ ok: false, id: "" })
   }
 
-  db.prepare(`UPDATE subscriptions SET used_traffic_bytes = ? WHERE id = ?`).run(nextUsage, activeSub.id)
+  db.prepare(
+    `UPDATE subscriptions SET used_traffic_bytes = ? WHERE id = ?`
+  ).run(nextUsage, activeSub.id)
 
   writeAuthLog({
     node_id: node.id,

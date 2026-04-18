@@ -20,19 +20,25 @@ type AdminOverview = {
 
 export default function AdminPage() {
   const [user, setUser] = useState<SessionUser | null>(null)
-  const [overview, setOverview] = useState<AdminOverview>({ users: 0, nodes: 0, plans: 0, subscriptions: 0 })
+  const [overview, setOverview] = useState<AdminOverview>({
+    users: 0,
+    nodes: 0,
+    plans: 0,
+    subscriptions: 0,
+  })
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const [sessionRes, usersRes, nodesRes, plansRes, subsRes] = await Promise.all([
-        fetch("/api/auth/session"),
-        fetch("/api/admin/users"),
-        fetch("/api/admin/nodes"),
-        fetch("/api/admin/plans"),
-        fetch("/api/admin/subscriptions"),
-      ])
+      const [sessionRes, usersRes, nodesRes, plansRes, subsRes] =
+        await Promise.all([
+          fetch("/api/auth/session"),
+          fetch("/api/admin/users"),
+          fetch("/api/admin/nodes"),
+          fetch("/api/admin/plans"),
+          fetch("/api/admin/subscriptions"),
+        ])
 
       const sessionJson = await sessionRes.json()
       const usersJson = await usersRes.json()
@@ -73,25 +79,33 @@ export default function AdminPage() {
           <CardHeader>
             <CardTitle className="text-base">用户数</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{overview.users}</CardContent>
+          <CardContent className="text-2xl font-semibold">
+            {overview.users}
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-base">节点数</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{overview.nodes}</CardContent>
+          <CardContent className="text-2xl font-semibold">
+            {overview.nodes}
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-base">套餐数</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{overview.plans}</CardContent>
+          <CardContent className="text-2xl font-semibold">
+            {overview.plans}
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle className="text-base">订阅数</CardTitle>
           </CardHeader>
-          <CardContent className="text-2xl font-semibold">{overview.subscriptions}</CardContent>
+          <CardContent className="text-2xl font-semibold">
+            {overview.subscriptions}
+          </CardContent>
         </Card>
       </div>
     </div>

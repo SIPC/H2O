@@ -4,6 +4,8 @@ import { NextResponse } from "next/server"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { writeAdminEvent } from "@/lib/logs-db"
+import { getClientIp } from "@/lib/turnstile"
 
 type CreateNodeBody = {
   name?: string
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
     .prepare(
       `SELECT id, name, ip, port, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256, created_at
        FROM nodes
-       ORDER BY id DESC`,
+       ORDER BY id DESC`
     )
     .all()
   return NextResponse.json({ ok: true, data: rows })
@@ -35,12 +37,21 @@ export async function POST(request: Request) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
 
+  const ip = getClientIp(request)
   const body = (await request.json()) as CreateNodeBody
 
   if (!body.name || !body.ip || typeof body.port !== "number") {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null },
+    })
     return NextResponse.json(
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
-      { status: 400 },
+      { status: 400 }
     )
   }
 
@@ -58,14 +69,38 @@ export async function POST(request: Request) {
     const result = db
       .prepare(
         `INSERT INTO nodes(name, ip, port, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256)
-         VALUES (?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?)`
       )
-      .run(body.name, body.ip, body.port, authPath, sni, obfs, obfsPassword, insecure, pinSha256)
+      .run(
+        body.name,
+        body.ip,
+        body.port,
+        authPath,
+        sni,
+        obfs,
+        obfsPassword,
+        insecure,
+        pinSha256
+      )
+
+    const newNodeId = Number(result.lastInsertRowid)
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: true,
+      reason: "OK",
+      detail: {
+        nodeId: newNodeId,
+        name: body.name,
+        host: `${body.ip}:${body.port}`,
+      },
+    })
 
     return NextResponse.json({
       ok: true,
       data: {
-        id: Number(result.lastInsertRowid),
+        id: newNodeId,
         name: body.name,
         ip: body.ip,
         port: body.port,
@@ -73,9 +108,17 @@ export async function POST(request: Request) {
       },
     })
   } catch {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "CREATE_FAILED",
+      detail: { name: body.name },
+    })
     return NextResponse.json(
       { ok: false, error: { code: "CREATE_FAILED", message: "节点创建失败" } },
-      { status: 400 },
+      { status: 400 }
     )
   }
 }

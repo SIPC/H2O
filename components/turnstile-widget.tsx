@@ -16,12 +16,17 @@ function useMounted() {
   return useSyncExternalStore(
     () => () => {},
     () => true,
-    () => false,
+    () => false
   )
 }
 
 // Turnstile 组件封装：未配置 site key 时直接返回 null，组件在 onVerify 传回 token 后由父组件带去服务端
-export function TurnstileWidget({ onVerify, onExpire, onError, className }: Props) {
+export function TurnstileWidget({
+  onVerify,
+  onExpire,
+  onError,
+  className,
+}: Props) {
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
   const { resolvedTheme } = useTheme()
   const mounted = useMounted()

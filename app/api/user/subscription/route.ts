@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   if (!row) {
     return NextResponse.json(
       { ok: false, error: { code: "NOT_FOUND", message: "用户不存在" } },
-      { status: 404 },
+      { status: 404 }
     )
   }
 

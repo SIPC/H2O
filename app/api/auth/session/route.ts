@@ -8,6 +8,12 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    data: { user: { id: auth.user.id, username: auth.user.username, role: auth.user.role } },
+    data: {
+      user: {
+        id: auth.user.id,
+        username: auth.user.username,
+        role: auth.user.role,
+      },
+    },
   })
 }

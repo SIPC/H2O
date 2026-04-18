@@ -15,7 +15,7 @@ export async function GET(request: Request) {
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
        WHERE s.user_id = ?
-       ORDER BY s.expire_time DESC`,
+       ORDER BY s.expire_time DESC`
     )
     .all(auth.user.id)
 

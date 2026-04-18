@@ -7,6 +7,29 @@ import { getLogsDb } from "@/lib/logs-db"
 const MAX_PAGE_SIZE = 200
 const DEFAULT_PAGE_SIZE = 50
 
+// 白名单事件类型，非白名单值当作无筛选
+const VALID_EVENTS = new Set([
+  "LOGIN",
+  "REGISTER",
+  "LOGOUT",
+  "RESET_TOKEN_SELF",
+  "RESET_TOKEN_ADMIN",
+  "BOOTSTRAP_ADMIN",
+  "USER_CREATE",
+  "USER_UPDATE",
+  "USER_DELETE",
+  "NODE_CREATE",
+  "NODE_UPDATE",
+  "NODE_DELETE",
+  "PLAN_CREATE",
+  "PLAN_UPDATE",
+  "PLAN_DELETE",
+  "SUBSCRIPTION_CREATE",
+  "SUBSCRIPTION_UPDATE",
+  "SUBSCRIPTION_DELETE",
+  "SETTINGS_UPDATE",
+])
+
 export async function GET(request: Request) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
@@ -14,9 +37,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const successParam = url.searchParams.get("success")
   const username = url.searchParams.get("username")?.trim()
-  const nodeName = url.searchParams.get("nodeName")?.trim()
+  const eventParam = url.searchParams.get("event")?.trim()
 
-  // 按条件拼 WHERE，全部可选
   const conditions: string[] = []
   const values: Array<string | number> = []
 
@@ -30,9 +52,9 @@ export async function GET(request: Request) {
     values.push(`%${username}%`)
   }
 
-  if (nodeName) {
-    conditions.push("node_name LIKE ?")
-    values.push(`%${nodeName}%`)
+  if (eventParam && VALID_EVENTS.has(eventParam)) {
+    conditions.push("event = ?")
+    values.push(eventParam)
   }
 
   const whereClause = conditions.length
@@ -52,14 +74,14 @@ export async function GET(request: Request) {
 
   const db = getLogsDb()
   const countRow = db
-    .prepare(`SELECT COUNT(*) AS c FROM auth_logs ${whereClause}`)
+    .prepare(`SELECT COUNT(*) AS c FROM event_logs ${whereClause}`)
     .get(...values) as { c: number } | undefined
   const total = countRow?.c ?? 0
 
   const rows = db
     .prepare(
-      `SELECT id, created_at, node_id, node_name, user_id, username, ip, success, reason
-       FROM auth_logs
+      `SELECT id, created_at, event, user_id, username, ip, success, reason, detail
+       FROM event_logs
        ${whereClause}
        ORDER BY id DESC
        LIMIT ? OFFSET ?`

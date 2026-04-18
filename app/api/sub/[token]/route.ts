@@ -18,13 +18,15 @@ type SubscriptionAggregate = {
 }
 
 function buildUserInfoHeader(agg: SubscriptionAggregate) {
-  const expireTs = agg.maxExpire ? Math.floor(new Date(agg.maxExpire).getTime() / 1000) : 0
+  const expireTs = agg.maxExpire
+    ? Math.floor(new Date(agg.maxExpire).getTime() / 1000)
+    : 0
   return `upload=0; download=${agg.used}; total=${agg.total}; expire=${expireTs}`
 }
 
 export async function GET(
   request: Request,
-  { params }: { params: Promise<{ token: string }> },
+  { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params
 
@@ -54,7 +56,7 @@ export async function GET(
          AND s.status = 'active'
          AND s.expire_time > datetime('now')
          AND n.status = 'enabled'
-       ORDER BY n.id ASC`,
+       ORDER BY n.id ASC`
     )
     .all(user.id) as NodeRow[]
 
@@ -67,9 +69,11 @@ export async function GET(
          MAX(s.expire_time) AS max_expire
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
-       WHERE s.user_id = ? AND s.status = 'active'`,
+       WHERE s.user_id = ? AND s.status = 'active'`
     )
-    .get(user.id) as { used: number; total: number; max_expire: string | null } | undefined
+    .get(user.id) as
+    | { used: number; total: number; max_expire: string | null }
+    | undefined
 
   const agg: SubscriptionAggregate = {
     used: aggRow?.used ?? 0,
@@ -82,7 +86,8 @@ export async function GET(
 
   const url = new URL(request.url)
   const format = url.searchParams.get("format")
-  const body = format === "plain" ? plain : Buffer.from(plain, "utf8").toString("base64")
+  const body =
+    format === "plain" ? plain : Buffer.from(plain, "utf8").toString("base64")
 
   return new Response(body, {
     status: 200,

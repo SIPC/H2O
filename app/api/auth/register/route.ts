@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
+import { writeEventLog } from "@/lib/logs-db"
 import { hashPassword } from "@/lib/password"
+import { getSetting, SETTING_KEYS } from "@/lib/settings"
 import { createUserAuthToken } from "@/lib/tokens"
 import { getClientIp, verifyTurnstile } from "@/lib/turnstile"
 
@@ -12,47 +14,120 @@ type RegisterBody = {
 }
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as RegisterBody
+  const ip = getClientIp(request)
+  const body = (await request.json().catch(() => ({}))) as RegisterBody
 
-  if (!body.username || !body.password || body.password.length < 6) {
+  // 注册总开关关闭时直接拒绝
+  if (!getSetting<boolean>(SETTING_KEYS.registrationEnabled, true)) {
+    writeEventLog({
+      event: "REGISTER",
+      user_id: null,
+      username: body.username ?? null,
+      ip,
+      success: false,
+      reason: "REGISTRATION_DISABLED",
+    })
     return NextResponse.json(
-      { ok: false, error: { code: "INVALID_PAYLOAD", message: "用户名或密码不合法" } },
-      { status: 400 },
+      {
+        ok: false,
+        error: { code: "REGISTRATION_DISABLED", message: "注册已关闭" },
+      },
+      { status: 403 }
     )
   }
 
-  const turnstile = await verifyTurnstile(body.turnstileToken, getClientIp(request))
-  if (!turnstile.ok) {
+  if (!body.username || !body.password || body.password.length < 6) {
+    writeEventLog({
+      event: "REGISTER",
+      user_id: null,
+      username: body.username ?? null,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+    })
     return NextResponse.json(
-      { ok: false, error: { code: turnstile.code, message: turnstile.message } },
-      { status: 400 },
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "用户名或密码不合法" },
+      },
+      { status: 400 }
+    )
+  }
+
+  const turnstile = await verifyTurnstile(body.turnstileToken, ip)
+  if (!turnstile.ok) {
+    writeEventLog({
+      event: "REGISTER",
+      user_id: null,
+      username: body.username,
+      ip,
+      success: false,
+      reason: turnstile.code,
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: turnstile.code, message: turnstile.message },
+      },
+      { status: 400 }
     )
   }
 
   const db = getDb()
+  // 根据设置决定新用户初始状态：关闭时创建为 disabled 等管理员审核
+  const defaultActive = getSetting<boolean>(
+    SETTING_KEYS.newUserDefaultActive,
+    true
+  )
+  const status = defaultActive ? "active" : "disabled"
 
   try {
     const result = db
       .prepare(
         `INSERT INTO users(username, password_hash, auth_token, role, status, updated_at)
-         VALUES (?, ?, ?, 'user', 'active', datetime('now'))`,
+         VALUES (?, ?, ?, 'user', ?, datetime('now'))`
       )
-      .run(body.username, hashPassword(body.password), createUserAuthToken())
+      .run(
+        body.username,
+        hashPassword(body.password),
+        createUserAuthToken(),
+        status
+      )
+
+    const newUserId = Number(result.lastInsertRowid)
+    writeEventLog({
+      event: "REGISTER",
+      user_id: newUserId,
+      username: body.username,
+      ip,
+      success: true,
+      reason: "OK",
+      detail: JSON.stringify({ status }),
+    })
 
     return NextResponse.json({
       ok: true,
       data: {
         user: {
-          id: Number(result.lastInsertRowid),
+          id: newUserId,
           username: body.username,
           role: "user",
+          status,
         },
       },
     })
   } catch {
+    writeEventLog({
+      event: "REGISTER",
+      user_id: null,
+      username: body.username,
+      ip,
+      success: false,
+      reason: "USER_EXISTS",
+    })
     return NextResponse.json(
       { ok: false, error: { code: "USER_EXISTS", message: "用户名已存在" } },
-      { status: 400 },
+      { status: 400 }
     )
   }
 }

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react"
 import { ChevronsUpDown } from "lucide-react"
 
+import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -12,10 +13,19 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
@@ -49,7 +59,11 @@ function RoleCombobox({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className={cn("justify-between", className)}>
+        <Button
+          variant="outline"
+          role="combobox"
+          className={cn("justify-between", className)}
+        >
           {value}
           <ChevronsUpDown className="size-4 opacity-50" />
         </Button>
@@ -81,6 +95,7 @@ function RoleCombobox({
 }
 
 export default function AdminUsersPage() {
+  const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<UserRow[]>([])
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -139,19 +154,37 @@ export default function AdminUsersPage() {
   }
 
   async function removeUser(user: UserRow) {
-    if (!window.confirm(`确认删除用户 #${user.id} (${user.username})？其订阅与会话会一并清理。`)) return
+    const ok = await confirm({
+      title: `删除用户 #${user.id} (${user.username})？`,
+      description: "其订阅与会话会一并清理，不可恢复。",
+      confirmText: "删除",
+      variant: "destructive",
+    })
+    if (!ok) return
 
-    const response = await fetch(`/api/admin/users/${user.id}`, { method: "DELETE" })
+    const response = await fetch(`/api/admin/users/${user.id}`, {
+      method: "DELETE",
+    })
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      window.alert(json?.error?.message ?? "删除失败")
+      await alert({
+        title: "删除失败",
+        description: json?.error?.message ?? "请稍后重试",
+        variant: "destructive",
+      })
       return
     }
     await load()
   }
 
   async function resetAuthToken(user: UserRow) {
-    if (!window.confirm(`重置 ${user.username} 的节点登录Key？此操作会使当前订阅链接立刻失效。`)) return
+    const ok = await confirm({
+      title: `重置 ${user.username} 的节点登录 Key？`,
+      description: "此操作会使当前订阅链接立刻失效，已连接的节点需要重新导入。",
+      confirmText: "重置",
+      variant: "destructive",
+    })
+    if (!ok) return
     await updateUser(user.id, { resetAuthToken: true })
   }
 
@@ -181,15 +214,28 @@ export default function AdminUsersPage() {
           <form className="mb-4 grid gap-3 md:grid-cols-4" onSubmit={create}>
             <div className="space-y-1">
               <Label>用户名</Label>
-              <Input value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <Input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>密码</Label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>角色</Label>
-              <RoleCombobox value={role} onChange={setRole} className="h-9 w-full" />
+              <RoleCombobox
+                value={role}
+                onChange={setRole}
+                className="h-9 w-full"
+              />
             </div>
             <div className="flex items-end">
               <Button type="submit">创建用户</Button>
@@ -216,12 +262,16 @@ export default function AdminUsersPage() {
                   <TD>
                     <RoleCombobox
                       value={row.role}
-                      onChange={(nextRole) => void updateUser(row.id, { role: nextRole })}
+                      onChange={(nextRole) =>
+                        void updateUser(row.id, { role: nextRole })
+                      }
                       className="h-8 w-[120px]"
                     />
                   </TD>
                   <TD>{row.status}</TD>
-                  <TD className="max-w-[260px] truncate font-mono text-xs">{row.auth_token}</TD>
+                  <TD className="max-w-[260px] truncate font-mono text-xs">
+                    {row.auth_token}
+                  </TD>
                   <TD>{new Date(row.created_at).toLocaleString()}</TD>
                   <TD>
                     <div className="flex flex-wrap gap-2">
@@ -229,7 +279,9 @@ export default function AdminUsersPage() {
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() => void updateUser(row.id, { status: "disabled" })}
+                          onClick={() =>
+                            void updateUser(row.id, { status: "disabled" })
+                          }
                         >
                           禁用
                         </Button>
@@ -237,18 +289,32 @@ export default function AdminUsersPage() {
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() => void updateUser(row.id, { status: "active" })}
+                          onClick={() =>
+                            void updateUser(row.id, { status: "active" })
+                          }
                         >
                           启用
                         </Button>
                       )}
-                      <Button size="xs" variant="outline" onClick={() => openPasswordDialog(row)}>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => openPasswordDialog(row)}
+                      >
                         改密
                       </Button>
-                      <Button size="xs" variant="outline" onClick={() => void resetAuthToken(row)}>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => void resetAuthToken(row)}
+                      >
                         重置Key
                       </Button>
-                      <Button size="xs" variant="destructive" onClick={() => void removeUser(row)}>
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        onClick={() => void removeUser(row)}
+                      >
                         删除
                       </Button>
                     </div>
@@ -277,11 +343,20 @@ export default function AdminUsersPage() {
           <form className="space-y-3" onSubmit={submitPasswordChange}>
             <div className="space-y-1">
               <Label>新密码（至少 6 位）</Label>
-              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+              <Input
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                required
+              />
             </div>
             <div className="flex gap-2">
               <Button type="submit">确认修改</Button>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDialogOpen(false)}
+              >
                 取消
               </Button>
             </div>

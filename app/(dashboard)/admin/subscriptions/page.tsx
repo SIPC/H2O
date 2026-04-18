@@ -3,13 +3,29 @@
 import { FormEvent, useEffect, useState } from "react"
 import { ChevronsUpDown } from "lucide-react"
 
+import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
@@ -59,7 +75,11 @@ function StatusCombobox({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className={cn("justify-between", className)}>
+        <Button
+          variant="outline"
+          role="combobox"
+          className={cn("justify-between", className)}
+        >
           {current?.label ?? value}
           <ChevronsUpDown className="size-4 opacity-50" />
         </Button>
@@ -91,6 +111,7 @@ function StatusCombobox({
 }
 
 export default function AdminSubscriptionsPage() {
+  const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<Row[]>([])
   const [userId, setUserId] = useState("")
   const [planId, setPlanId] = useState("")
@@ -172,11 +193,26 @@ export default function AdminSubscriptionsPage() {
   }
 
   async function remove(row: Row) {
-    if (!window.confirm(`确认删除订阅 #${row.id}（用户 ${row.username} / 套餐 ${row.plan_name}）？`)) return
+    const ok = await confirm({
+      title: `删除订阅 #${row.id}？`,
+      description: `用户 ${row.username} / 套餐 ${row.plan_name}；该订阅删除后节点无法再通过它认证。`,
+      confirmText: "删除",
+      variant: "destructive",
+    })
+    if (!ok) return
 
-    const response = await fetch(`/api/admin/subscriptions/${row.id}`, { method: "DELETE" })
+    const response = await fetch(`/api/admin/subscriptions/${row.id}`, {
+      method: "DELETE",
+    })
     const json = await response.json()
-    if (!response.ok || !json.ok) return
+    if (!response.ok || !json.ok) {
+      await alert({
+        title: "删除失败",
+        description: json?.error?.message ?? "请稍后重试",
+        variant: "destructive",
+      })
+      return
+    }
     await load()
   }
 
@@ -190,11 +226,19 @@ export default function AdminSubscriptionsPage() {
           <form className="mb-4 grid gap-3 md:grid-cols-3" onSubmit={create}>
             <div className="space-y-1">
               <Label>用户ID</Label>
-              <Input value={userId} onChange={(e) => setUserId(e.target.value)} required />
+              <Input
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>套餐ID</Label>
-              <Input value={planId} onChange={(e) => setPlanId(e.target.value)} required />
+              <Input
+                value={planId}
+                onChange={(e) => setPlanId(e.target.value)}
+                required
+              />
             </div>
             <div className="flex items-end">
               <Button type="submit">创建订阅</Button>
@@ -230,7 +274,9 @@ export default function AdminSubscriptionsPage() {
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() => void patchSub(row.id, { status: "active" })}
+                          onClick={() =>
+                            void patchSub(row.id, { status: "active" })
+                          }
                         >
                           解封
                         </Button>
@@ -238,15 +284,25 @@ export default function AdminSubscriptionsPage() {
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() => void patchSub(row.id, { status: "blocked" })}
+                          onClick={() =>
+                            void patchSub(row.id, { status: "blocked" })
+                          }
                         >
                           封禁
                         </Button>
                       )}
-                      <Button size="xs" variant="outline" onClick={() => openEdit(row)}>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => openEdit(row)}
+                      >
                         编辑
                       </Button>
-                      <Button size="xs" variant="destructive" onClick={() => void remove(row)}>
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        onClick={() => void remove(row)}
+                      >
                         删除
                       </Button>
                     </div>
@@ -268,13 +324,18 @@ export default function AdminSubscriptionsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              编辑订阅 {editTarget ? `#${editTarget.id} (${editTarget.username})` : ""}
+              编辑订阅{" "}
+              {editTarget ? `#${editTarget.id} (${editTarget.username})` : ""}
             </DialogTitle>
           </DialogHeader>
           <form className="grid gap-3" onSubmit={submitEdit}>
             <div className="space-y-1">
               <Label>状态</Label>
-              <StatusCombobox value={editStatus} onChange={setEditStatus} className="h-9 w-full" />
+              <StatusCombobox
+                value={editStatus}
+                onChange={setEditStatus}
+                className="h-9 w-full"
+              />
             </div>
             <div className="space-y-1">
               <Label>到期时间</Label>
@@ -287,11 +348,19 @@ export default function AdminSubscriptionsPage() {
             </div>
             <div className="space-y-1">
               <Label>已用流量(bytes)</Label>
-              <Input value={editUsed} onChange={(e) => setEditUsed(e.target.value)} required />
+              <Input
+                value={editUsed}
+                onChange={(e) => setEditUsed(e.target.value)}
+                required
+              />
             </div>
             <div className="flex gap-2">
               <Button type="submit">保存</Button>
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditOpen(false)}
+              >
                 取消
               </Button>
             </div>

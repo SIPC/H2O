@@ -1,9 +1,12 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
-import { TurnstileWidget, isTurnstileClientEnabled } from "@/components/turnstile-widget"
+import {
+  TurnstileWidget,
+  isTurnstileClientEnabled,
+} from "@/components/turnstile-widget"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,8 +19,25 @@ export default function LoginPage() {
   const [turnstileToken, setTurnstileToken] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [registrationEnabled, setRegistrationEnabled] = useState(true)
 
   const turnstileRequired = isTurnstileClientEnabled()
+
+  useEffect(() => {
+    let mounted = true
+
+    void (async () => {
+      const response = await fetch("/api/settings/public")
+      const json = await response.json()
+      if (mounted && json?.ok) {
+        setRegistrationEnabled(json.data.registration_enabled !== false)
+      }
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -64,7 +84,12 @@ export default function LoginPage() {
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
               <Label htmlFor="username">用户名</Label>
-              <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <Input
+                id="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">密码</Label>
@@ -83,12 +108,21 @@ export default function LoginPage() {
             />
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
             <div className="flex items-center gap-2">
-              <Button type="submit" disabled={loading || (turnstileRequired && !turnstileToken)}>
+              <Button
+                type="submit"
+                disabled={loading || (turnstileRequired && !turnstileToken)}
+              >
                 {loading ? "登录中..." : "登录"}
               </Button>
-              <Button type="button" variant="outline" onClick={() => router.push("/register")}>
-                去注册
-              </Button>
+              {registrationEnabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push("/register")}
+                >
+                  去注册
+                </Button>
+              ) : null}
             </div>
           </form>
         </CardContent>

@@ -2,7 +2,9 @@ import { NextResponse } from "next/server"
 
 import { createSession, setSessionCookie } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { writeEventLog } from "@/lib/logs-db"
 import { verifyPassword } from "@/lib/password"
+import { getSetting, SETTING_KEYS } from "@/lib/settings"
 import { getClientIp, verifyTurnstile } from "@/lib/turnstile"
 
 type LoginBody = {
@@ -12,19 +14,40 @@ type LoginBody = {
 }
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request)
   const body = (await request.json()) as LoginBody
+
   if (!body.username || !body.password) {
+    writeEventLog({
+      event: "LOGIN",
+      user_id: null,
+      username: body.username ?? null,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+    })
     return NextResponse.json(
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
-      { status: 400 },
+      { status: 400 }
     )
   }
 
-  const turnstile = await verifyTurnstile(body.turnstileToken, getClientIp(request))
+  const turnstile = await verifyTurnstile(body.turnstileToken, ip)
   if (!turnstile.ok) {
+    writeEventLog({
+      event: "LOGIN",
+      user_id: null,
+      username: body.username,
+      ip,
+      success: false,
+      reason: turnstile.code,
+    })
     return NextResponse.json(
-      { ok: false, error: { code: turnstile.code, message: turnstile.message } },
-      { status: 400 },
+      {
+        ok: false,
+        error: { code: turnstile.code, message: turnstile.message },
+      },
+      { status: 400 }
     )
   }
 
@@ -34,21 +57,105 @@ export async function POST(request: Request) {
       `SELECT id, username, password_hash, role, status
        FROM users
        WHERE username = ?
-       LIMIT 1`,
+       LIMIT 1`
     )
     .get(body.username) as
-    | { id: number; username: string; password_hash: string; role: "user" | "admin"; status: "active" | "disabled" }
+    | {
+        id: number
+        username: string
+        password_hash: string
+        role: "user" | "admin"
+        status: "active" | "disabled"
+      }
     | undefined
 
-  if (!user || user.status !== "active" || !verifyPassword(body.password, user.password_hash)) {
+  if (!user) {
+    writeEventLog({
+      event: "LOGIN",
+      user_id: null,
+      username: body.username,
+      ip,
+      success: false,
+      reason: "NO_USER",
+    })
     return NextResponse.json(
-      { ok: false, error: { code: "INVALID_CREDENTIALS", message: "用户名或密码错误" } },
-      { status: 401 },
+      {
+        ok: false,
+        error: { code: "INVALID_CREDENTIALS", message: "用户名或密码错误" },
+      },
+      { status: 401 }
+    )
+  }
+
+  if (user.status !== "active") {
+    writeEventLog({
+      event: "LOGIN",
+      user_id: user.id,
+      username: user.username,
+      ip,
+      success: false,
+      reason: "USER_DISABLED",
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_CREDENTIALS", message: "用户名或密码错误" },
+      },
+      { status: 401 }
+    )
+  }
+
+  if (!verifyPassword(body.password, user.password_hash)) {
+    writeEventLog({
+      event: "LOGIN",
+      user_id: user.id,
+      username: user.username,
+      ip,
+      success: false,
+      reason: "BAD_PASSWORD",
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_CREDENTIALS", message: "用户名或密码错误" },
+      },
+      { status: 401 }
+    )
+  }
+
+  // 登录总开关关闭时仅放行 admin，避免把管理员锁在外面
+  if (
+    !getSetting<boolean>(SETTING_KEYS.loginEnabled, true) &&
+    user.role !== "admin"
+  ) {
+    writeEventLog({
+      event: "LOGIN",
+      user_id: user.id,
+      username: user.username,
+      ip,
+      success: false,
+      reason: "LOGIN_DISABLED",
+    })
+    return NextResponse.json(
+      { ok: false, error: { code: "LOGIN_DISABLED", message: "登录已关闭" } },
+      { status: 403 }
     )
   }
 
   const session = createSession(user.id)
-  db.prepare(`UPDATE users SET last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(user.id)
+  db.prepare(
+    `UPDATE users SET last_login_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).run(user.id)
+
+  writeEventLog({
+    event: "LOGIN",
+    user_id: user.id,
+    username: user.username,
+    ip,
+    success: true,
+    reason: "OK",
+    detail: JSON.stringify({ role: user.role }),
+  })
 
   const response = NextResponse.json({
     ok: true,

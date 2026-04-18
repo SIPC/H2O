@@ -1,5 +1,6 @@
 // Cloudflare Turnstile 服务端校验
-const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+const SITEVERIFY_URL =
+  "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 export type TurnstileStatus = "disabled" | "enabled" | "misconfigured"
 
@@ -14,14 +15,25 @@ export function getTurnstileStatus(): TurnstileStatus {
 
 export type VerifyResult =
   | { ok: true }
-  | { ok: false; code: "TURNSTILE_MISCONFIGURED" | "TURNSTILE_MISSING" | "TURNSTILE_FAILED"; message: string }
+  | {
+      ok: false
+      code: "TURNSTILE_MISCONFIGURED" | "TURNSTILE_MISSING" | "TURNSTILE_FAILED"
+      message: string
+    }
 
 // 用前端回传的 token 调 Cloudflare 校验；未启用时直通
-export async function verifyTurnstile(token: string | undefined, remoteIp?: string | null): Promise<VerifyResult> {
+export async function verifyTurnstile(
+  token: string | undefined,
+  remoteIp?: string | null
+): Promise<VerifyResult> {
   const status = getTurnstileStatus()
   if (status === "disabled") return { ok: true }
   if (status === "misconfigured") {
-    return { ok: false, code: "TURNSTILE_MISCONFIGURED", message: "人机验证未正确配置" }
+    return {
+      ok: false,
+      code: "TURNSTILE_MISCONFIGURED",
+      message: "人机验证未正确配置",
+    }
   }
   if (!token) {
     return { ok: false, code: "TURNSTILE_MISSING", message: "请先完成人机验证" }
@@ -41,11 +53,19 @@ export async function verifyTurnstile(token: string | undefined, remoteIp?: stri
     })
     const data = (await res.json()) as { success?: boolean }
     if (!data.success) {
-      return { ok: false, code: "TURNSTILE_FAILED", message: "人机验证未通过，请重试" }
+      return {
+        ok: false,
+        code: "TURNSTILE_FAILED",
+        message: "人机验证未通过，请重试",
+      }
     }
     return { ok: true }
   } catch {
-    return { ok: false, code: "TURNSTILE_FAILED", message: "人机验证服务不可用，请重试" }
+    return {
+      ok: false,
+      code: "TURNSTILE_FAILED",
+      message: "人机验证服务不可用，请重试",
+    }
   }
 }
 

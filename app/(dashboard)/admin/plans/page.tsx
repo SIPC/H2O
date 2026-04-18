@@ -2,10 +2,16 @@
 
 import { FormEvent, useEffect, useState } from "react"
 
+import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
@@ -55,7 +61,11 @@ function NodeCheckboxGroup({
         const checked = value.includes(node.id)
         const checkboxId = `node-${node.id}`
         return (
-          <label key={node.id} htmlFor={checkboxId} className="flex cursor-pointer items-center gap-2 text-sm">
+          <label
+            key={node.id}
+            htmlFor={checkboxId}
+            className="flex cursor-pointer items-center gap-2 text-sm"
+          >
             <Checkbox
               id={checkboxId}
               checked={checked}
@@ -72,6 +82,7 @@ function NodeCheckboxGroup({
 }
 
 export default function AdminPlansPage() {
+  const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<PlanRow[]>([])
   const [nodes, setNodes] = useState<NodeRow[]>([])
 
@@ -88,7 +99,10 @@ export default function AdminPlansPage() {
   const [editNodeIds, setEditNodeIds] = useState<number[]>([])
 
   async function load() {
-    const [planRes, nodeRes] = await Promise.all([fetch("/api/admin/plans"), fetch("/api/admin/nodes")])
+    const [planRes, nodeRes] = await Promise.all([
+      fetch("/api/admin/plans"),
+      fetch("/api/admin/nodes"),
+    ])
     const planJson = await planRes.json()
     const nodeJson = await nodeRes.json()
     if (planJson?.ok) setRows(planJson.data)
@@ -99,7 +113,10 @@ export default function AdminPlansPage() {
     let mounted = true
 
     void (async () => {
-      const [planRes, nodeRes] = await Promise.all([fetch("/api/admin/plans"), fetch("/api/admin/nodes")])
+      const [planRes, nodeRes] = await Promise.all([
+        fetch("/api/admin/plans"),
+        fetch("/api/admin/nodes"),
+      ])
       const planJson = await planRes.json()
       const nodeJson = await nodeRes.json()
       if (mounted && planJson?.ok) setRows(planJson.data)
@@ -167,12 +184,24 @@ export default function AdminPlansPage() {
   }
 
   async function remove(row: PlanRow) {
-    if (!window.confirm(`确认删除套餐 #${row.id} (${row.name})？`)) return
+    const ok = await confirm({
+      title: `删除套餐 #${row.id} (${row.name})？`,
+      description: "仍有订阅关联该套餐时无法删除。",
+      confirmText: "删除",
+      variant: "destructive",
+    })
+    if (!ok) return
 
-    const response = await fetch(`/api/admin/plans/${row.id}`, { method: "DELETE" })
+    const response = await fetch(`/api/admin/plans/${row.id}`, {
+      method: "DELETE",
+    })
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      window.alert(json?.error?.message ?? "删除失败")
+      await alert({
+        title: "删除失败",
+        description: json?.error?.message ?? "请稍后重试",
+        variant: "destructive",
+      })
       return
     }
     await load()
@@ -198,19 +227,35 @@ export default function AdminPlansPage() {
           <form className="mb-4 grid gap-3 md:grid-cols-3" onSubmit={create}>
             <div className="space-y-1">
               <Label>名称</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>流量上限(bytes)</Label>
-              <Input value={trafficLimitBytes} onChange={(e) => setTrafficLimitBytes(e.target.value)} required />
+              <Input
+                value={trafficLimitBytes}
+                onChange={(e) => setTrafficLimitBytes(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>时长(天)</Label>
-              <Input value={durationDays} onChange={(e) => setDurationDays(e.target.value)} required />
+              <Input
+                value={durationDays}
+                onChange={(e) => setDurationDays(e.target.value)}
+                required
+              />
             </div>
-            <div className="md:col-span-3 space-y-1">
+            <div className="space-y-1 md:col-span-3">
               <Label>可用节点（勾选的节点可被此套餐使用）</Label>
-              <NodeCheckboxGroup nodes={nodes} value={selectedNodeIds} onChange={setSelectedNodeIds} />
+              <NodeCheckboxGroup
+                nodes={nodes}
+                value={selectedNodeIds}
+                onChange={setSelectedNodeIds}
+              />
             </div>
             <div className="md:col-span-3">
               <Button type="submit">创建套餐</Button>
@@ -237,13 +282,23 @@ export default function AdminPlansPage() {
                     <TD>{row.name}</TD>
                     <TD>{row.traffic_limit_bytes}</TD>
                     <TD>{row.duration_days}</TD>
-                    <TD className="max-w-[280px] truncate text-xs">{renderNodeNames(ids)}</TD>
+                    <TD className="max-w-[280px] truncate text-xs">
+                      {renderNodeNames(ids)}
+                    </TD>
                     <TD>
                       <div className="flex flex-wrap gap-2">
-                        <Button size="xs" variant="outline" onClick={() => openEdit(row)}>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => openEdit(row)}
+                        >
                           编辑
                         </Button>
-                        <Button size="xs" variant="destructive" onClick={() => void remove(row)}>
+                        <Button
+                          size="xs"
+                          variant="destructive"
+                          onClick={() => void remove(row)}
+                        >
                           删除
                         </Button>
                       </div>
@@ -266,29 +321,50 @@ export default function AdminPlansPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              编辑套餐 {editTarget ? `#${editTarget.id} (${editTarget.name})` : ""}
+              编辑套餐{" "}
+              {editTarget ? `#${editTarget.id} (${editTarget.name})` : ""}
             </DialogTitle>
           </DialogHeader>
           <form className="grid gap-3" onSubmit={submitEdit}>
             <div className="space-y-1">
               <Label>名称</Label>
-              <Input value={editName} onChange={(e) => setEditName(e.target.value)} required />
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>流量上限(bytes)</Label>
-              <Input value={editTraffic} onChange={(e) => setEditTraffic(e.target.value)} required />
+              <Input
+                value={editTraffic}
+                onChange={(e) => setEditTraffic(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>时长(天)</Label>
-              <Input value={editDuration} onChange={(e) => setEditDuration(e.target.value)} required />
+              <Input
+                value={editDuration}
+                onChange={(e) => setEditDuration(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>可用节点</Label>
-              <NodeCheckboxGroup nodes={nodes} value={editNodeIds} onChange={setEditNodeIds} />
+              <NodeCheckboxGroup
+                nodes={nodes}
+                value={editNodeIds}
+                onChange={setEditNodeIds}
+              />
             </div>
             <div className="flex gap-2">
               <Button type="submit">保存</Button>
-              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setEditOpen(false)}
+              >
                 取消
               </Button>
             </div>

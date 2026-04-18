@@ -1,9 +1,12 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
-import { TurnstileWidget, isTurnstileClientEnabled } from "@/components/turnstile-widget"
+import {
+  TurnstileWidget,
+  isTurnstileClientEnabled,
+} from "@/components/turnstile-widget"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -16,8 +19,28 @@ export default function RegisterPage() {
   const [turnstileToken, setTurnstileToken] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [registrationEnabled, setRegistrationEnabled] = useState<
+    boolean | null
+  >(null)
 
   const turnstileRequired = isTurnstileClientEnabled()
+
+  useEffect(() => {
+    let mounted = true
+
+    void (async () => {
+      const response = await fetch("/api/settings/public")
+      const json = await response.json()
+      if (!mounted) return
+      setRegistrationEnabled(
+        json?.ok ? json.data.registration_enabled !== false : true
+      )
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -55,36 +78,67 @@ export default function RegisterPage() {
           <CardTitle>注册</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="space-y-4" onSubmit={onSubmit}>
-            <div className="space-y-2">
-              <Label htmlFor="username">用户名</Label>
-              <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">密码（至少 6 位）</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <TurnstileWidget
-              onVerify={setTurnstileToken}
-              onExpire={() => setTurnstileToken("")}
-              onError={() => setTurnstileToken("")}
-            />
-            {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            <div className="flex items-center gap-2">
-              <Button type="submit" disabled={loading || (turnstileRequired && !turnstileToken)}>
-                {loading ? "注册中..." : "注册"}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => router.push("/login")}>
+          {registrationEnabled === null ? (
+            <p className="text-sm text-muted-foreground">加载中...</p>
+          ) : registrationEnabled === false ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                当前站点已关闭注册。
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push("/login")}
+              >
                 去登录
               </Button>
             </div>
-          </form>
+          ) : (
+            <form className="space-y-4" onSubmit={onSubmit}>
+              <div className="space-y-2">
+                <Label htmlFor="username">用户名</Label>
+                <Input
+                  id="username"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">密码（至少 6 位）</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+              </div>
+              <TurnstileWidget
+                onVerify={setTurnstileToken}
+                onExpire={() => setTurnstileToken("")}
+                onError={() => setTurnstileToken("")}
+              />
+              {error ? (
+                <p className="text-sm text-destructive">{error}</p>
+              ) : null}
+              <div className="flex items-center gap-2">
+                <Button
+                  type="submit"
+                  disabled={loading || (turnstileRequired && !turnstileToken)}
+                >
+                  {loading ? "注册中..." : "注册"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push("/login")}
+                >
+                  去登录
+                </Button>
+              </div>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>

@@ -49,7 +49,12 @@ export default function InitPage() {
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
               <Label htmlFor="username">管理员用户名</Label>
-              <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required />
+              <Input
+                id="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">管理员密码</Label>
@@ -63,13 +68,19 @@ export default function InitPage() {
             </div>
 
             {error ? <p className="text-sm text-destructive">{error}</p> : null}
-            {success ? <p className="text-sm text-green-600">{success}</p> : null}
+            {success ? (
+              <p className="text-sm text-green-600">{success}</p>
+            ) : null}
 
             <div className="flex items-center gap-2">
               <Button type="submit" disabled={loading}>
                 {loading ? "初始化中..." : "初始化管理员"}
               </Button>
-              <Button type="button" variant="outline" onClick={() => router.push("/login")}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push("/login")}
+              >
                 去登录
               </Button>
             </div>

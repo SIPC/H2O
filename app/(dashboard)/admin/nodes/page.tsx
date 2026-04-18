@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react"
 
+import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -24,6 +25,7 @@ type NodeRow = {
 }
 
 export default function AdminNodesPage() {
+  const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<NodeRow[]>([])
 
   // 创建表单
@@ -111,12 +113,24 @@ export default function AdminNodesPage() {
   }
 
   async function removeNode(row: NodeRow) {
-    if (!window.confirm(`确认删除节点 #${row.id} (${row.name})？关联套餐将自动解绑。`)) return
+    const ok = await confirm({
+      title: `删除节点 #${row.id} (${row.name})？`,
+      description: "关联套餐将自动解绑；已有订阅的历史流量不会重置。",
+      confirmText: "删除",
+      variant: "destructive",
+    })
+    if (!ok) return
 
-    const response = await fetch(`/api/admin/nodes/${row.id}`, { method: "DELETE" })
+    const response = await fetch(`/api/admin/nodes/${row.id}`, {
+      method: "DELETE",
+    })
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      window.alert(json?.error?.message ?? "删除失败")
+      await alert({
+        title: "删除失败",
+        description: json?.error?.message ?? "请稍后重试",
+        variant: "destructive",
+      })
       return
     }
     if (editingId === row.id) setEditingId(null)
@@ -163,23 +177,43 @@ export default function AdminNodesPage() {
           <form className="mb-4 grid gap-3 md:grid-cols-3" onSubmit={create}>
             <div className="space-y-1">
               <Label>名称</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} required />
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>IP / 域名</Label>
-              <Input value={ip} onChange={(e) => setIp(e.target.value)} required />
+              <Input
+                value={ip}
+                onChange={(e) => setIp(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>端口</Label>
-              <Input value={port} onChange={(e) => setPort(e.target.value)} required />
+              <Input
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+                required
+              />
             </div>
             <div className="space-y-1">
               <Label>SNI</Label>
-              <Input value={sni} onChange={(e) => setSni(e.target.value)} placeholder="可选，TLS SNI" />
+              <Input
+                value={sni}
+                onChange={(e) => setSni(e.target.value)}
+                placeholder="可选，TLS SNI"
+              />
             </div>
             <div className="space-y-1">
               <Label>Obfs 类型</Label>
-              <Input value={obfs} onChange={(e) => setObfs(e.target.value)} placeholder="可选，如 salamander" />
+              <Input
+                value={obfs}
+                onChange={(e) => setObfs(e.target.value)}
+                placeholder="可选，如 salamander"
+              />
             </div>
             <div className="space-y-1">
               <Label>Obfs 密码</Label>
@@ -235,17 +269,25 @@ export default function AdminNodesPage() {
                   <TD>{row.status === "enabled" ? "启用" : "禁用"}</TD>
                   <TD className="text-xs">{row.sni ?? "-"}</TD>
                   <TD className="text-xs">{row.obfs ?? "-"}</TD>
-                  <TD className="max-w-[200px] truncate font-mono text-xs">{row.auth_path}</TD>
+                  <TD className="max-w-[200px] truncate font-mono text-xs">
+                    {row.auth_path}
+                  </TD>
                   <TD>
                     <div className="flex flex-wrap gap-2">
-                      <Button size="xs" variant="outline" onClick={() => startEdit(row)}>
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => startEdit(row)}
+                      >
                         编辑
                       </Button>
                       {row.status === "enabled" ? (
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() => void updateNode(row.id, { status: "disabled" })}
+                          onClick={() =>
+                            void updateNode(row.id, { status: "disabled" })
+                          }
                         >
                           禁用
                         </Button>
@@ -253,12 +295,18 @@ export default function AdminNodesPage() {
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() => void updateNode(row.id, { status: "enabled" })}
+                          onClick={() =>
+                            void updateNode(row.id, { status: "enabled" })
+                          }
                         >
                           启用
                         </Button>
                       )}
-                      <Button size="xs" variant="destructive" onClick={() => void removeNode(row)}>
+                      <Button
+                        size="xs"
+                        variant="destructive"
+                        onClick={() => void removeNode(row)}
+                      >
                         删除
                       </Button>
                     </div>
@@ -279,31 +327,55 @@ export default function AdminNodesPage() {
             <form className="grid gap-3 md:grid-cols-3" onSubmit={submitEdit}>
               <div className="space-y-1">
                 <Label>名称</Label>
-                <Input value={editName} onChange={(e) => setEditName(e.target.value)} required />
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-1">
                 <Label>IP / 域名</Label>
-                <Input value={editIp} onChange={(e) => setEditIp(e.target.value)} required />
+                <Input
+                  value={editIp}
+                  onChange={(e) => setEditIp(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-1">
                 <Label>端口</Label>
-                <Input value={editPort} onChange={(e) => setEditPort(e.target.value)} required />
+                <Input
+                  value={editPort}
+                  onChange={(e) => setEditPort(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-1">
                 <Label>SNI</Label>
-                <Input value={editSni} onChange={(e) => setEditSni(e.target.value)} />
+                <Input
+                  value={editSni}
+                  onChange={(e) => setEditSni(e.target.value)}
+                />
               </div>
               <div className="space-y-1">
                 <Label>Obfs 类型</Label>
-                <Input value={editObfs} onChange={(e) => setEditObfs(e.target.value)} />
+                <Input
+                  value={editObfs}
+                  onChange={(e) => setEditObfs(e.target.value)}
+                />
               </div>
               <div className="space-y-1">
                 <Label>Obfs 密码</Label>
-                <Input value={editObfsPassword} onChange={(e) => setEditObfsPassword(e.target.value)} />
+                <Input
+                  value={editObfsPassword}
+                  onChange={(e) => setEditObfsPassword(e.target.value)}
+                />
               </div>
               <div className="space-y-1 md:col-span-2">
                 <Label>pinSHA256</Label>
-                <Input value={editPinSha256} onChange={(e) => setEditPinSha256(e.target.value)} />
+                <Input
+                  value={editPinSha256}
+                  onChange={(e) => setEditPinSha256(e.target.value)}
+                />
               </div>
               <div className="flex items-end gap-2">
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -314,9 +386,13 @@ export default function AdminNodesPage() {
                   <span>跳过证书校验 (insecure)</span>
                 </label>
               </div>
-              <div className="md:col-span-3 flex gap-2">
+              <div className="flex gap-2 md:col-span-3">
                 <Button type="submit">保存</Button>
-                <Button type="button" variant="outline" onClick={() => setEditingId(null)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setEditingId(null)}
+                >
                   取消
                 </Button>
               </div>

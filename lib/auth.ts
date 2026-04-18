@@ -47,7 +47,7 @@ export function createSession(userId: number) {
   const db = getDb()
   db.prepare(
     `INSERT INTO sessions(user_id, session_token_hash, expires_at, last_seen_at)
-     VALUES (?, ?, ?, datetime('now'))`,
+     VALUES (?, ?, ?, datetime('now'))`
   ).run(userId, tokenHash, expires.toISOString())
 
   return { token, expiresAt: expires }
@@ -69,13 +69,15 @@ export function getSessionUser(request: Request) {
        WHERE s.session_token_hash = ?
          AND s.revoked_at IS NULL
          AND s.expires_at > datetime('now')
-       LIMIT 1`,
+       LIMIT 1`
     )
     .get(tokenHash) as SessionUser | undefined
 
   if (!row || row.status !== "active") return null
 
-  db.prepare(`UPDATE sessions SET last_seen_at = datetime('now') WHERE session_token_hash = ?`).run(tokenHash)
+  db.prepare(
+    `UPDATE sessions SET last_seen_at = datetime('now') WHERE session_token_hash = ?`
+  ).run(tokenHash)
   return row
 }
 
@@ -84,7 +86,7 @@ export function requireUser(request: Request) {
   if (!user) {
     const response = NextResponse.json(
       { ok: false, error: { code: "UNAUTHORIZED", message: "请先登录" } },
-      { status: 401 },
+      { status: 401 }
     )
     clearSessionCookie(response)
     return { ok: false as const, response }
@@ -101,7 +103,7 @@ export function requireAdmin(request: Request) {
       ok: false as const,
       response: NextResponse.json(
         { ok: false, error: { code: "FORBIDDEN", message: "需要管理员权限" } },
-        { status: 403 },
+        { status: 403 }
       ),
     }
   }
@@ -110,7 +112,11 @@ export function requireAdmin(request: Request) {
 }
 
 // 在响应上设置 HttpOnly 会话 cookie
-export function setSessionCookie(response: NextResponse, token: string, expiresAt: Date) {
+export function setSessionCookie(
+  response: NextResponse,
+  token: string,
+  expiresAt: Date
+) {
   response.cookies.set({
     name: SESSION_COOKIE,
     value: token,
@@ -142,5 +148,7 @@ export function revokeSessionByRequest(request: Request) {
 
   const tokenHash = sha256(token)
   const db = getDb()
-  db.prepare(`UPDATE sessions SET revoked_at = datetime('now') WHERE session_token_hash = ?`).run(tokenHash)
+  db.prepare(
+    `UPDATE sessions SET revoked_at = datetime('now') WHERE session_token_hash = ?`
+  ).run(tokenHash)
 }

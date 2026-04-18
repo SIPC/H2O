@@ -10,7 +10,10 @@ export function middleware(request: Request) {
   const pathname = url.pathname
   const loggedIn = hasSessionCookie(request)
 
-  if (!loggedIn && (pathname.startsWith("/dashboard") || pathname.startsWith("/admin"))) {
+  if (
+    !loggedIn &&
+    (pathname.startsWith("/dashboard") || pathname.startsWith("/admin"))
+  ) {
     return NextResponse.redirect(new URL("/login", request.url))
   }
 

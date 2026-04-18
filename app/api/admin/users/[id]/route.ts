@@ -2,8 +2,10 @@ import { NextResponse } from "next/server"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { writeAdminEvent } from "@/lib/logs-db"
 import { hashPassword } from "@/lib/password"
 import { createUserAuthToken } from "@/lib/tokens"
+import { getClientIp } from "@/lib/turnstile"
 
 type UpdateUserBody = {
   status?: "active" | "disabled"
@@ -14,45 +16,62 @@ type UpdateUserBody = {
 
 export async function PATCH(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
 
+  const ip = getClientIp(request)
   const { id } = await params
   const userId = Number(id)
 
   if (!Number.isInteger(userId) || userId <= 0) {
     return NextResponse.json(
       { ok: false, error: { code: "INVALID_ID", message: "用户ID不合法" } },
-      { status: 400 },
+      { status: 400 }
     )
   }
 
   const body = (await request.json()) as UpdateUserBody
   const updates: string[] = []
   const values: Array<string | number> = []
+  // 收集本次改动的字段名，用于日志 detail
+  const changedFields: string[] = []
 
   if (body.status) {
     updates.push("status = ?")
     values.push(body.status)
+    changedFields.push("status")
   }
 
   if (body.role) {
     updates.push("role = ?")
     values.push(body.role)
+    changedFields.push("role")
   }
 
   if (body.newPassword) {
     if (body.newPassword.length < 6) {
+      writeAdminEvent({
+        event: "USER_UPDATE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "INVALID_PASSWORD",
+        detail: { targetUserId: userId },
+      })
       return NextResponse.json(
-        { ok: false, error: { code: "INVALID_PASSWORD", message: "密码至少 6 位" } },
-        { status: 400 },
+        {
+          ok: false,
+          error: { code: "INVALID_PASSWORD", message: "密码至少 6 位" },
+        },
+        { status: 400 }
       )
     }
 
     updates.push("password_hash = ?")
     values.push(hashPassword(body.newPassword))
+    changedFields.push("password")
   }
 
   if (body.resetAuthToken === true) {
@@ -62,9 +81,20 @@ export async function PATCH(
   }
 
   if (updates.length === 0) {
+    writeAdminEvent({
+      event: "USER_UPDATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { targetUserId: userId },
+    })
     return NextResponse.json(
-      { ok: false, error: { code: "INVALID_PAYLOAD", message: "没有可更新字段" } },
-      { status: 400 },
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "没有可更新字段" },
+      },
+      { status: 400 }
     )
   }
 
@@ -77,10 +107,54 @@ export async function PATCH(
     .run(...values)
 
   if (result.changes === 0) {
+    writeAdminEvent({
+      event: "USER_UPDATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "NOT_FOUND",
+      detail: { targetUserId: userId },
+    })
     return NextResponse.json(
       { ok: false, error: { code: "NOT_FOUND", message: "用户不存在" } },
-      { status: 404 },
+      { status: 404 }
     )
+  }
+
+  // 读一次目标用户名，方便两类日志都带上人类可读字段
+  const target = db
+    .prepare(`SELECT username FROM users WHERE id = ? LIMIT 1`)
+    .get(userId) as { username: string } | undefined
+
+  // admin 重置用户节点登录 Key 是高危操作，单独记一条 RESET_TOKEN_ADMIN
+  if (body.resetAuthToken === true) {
+    writeAdminEvent({
+      event: "RESET_TOKEN_ADMIN",
+      actor: auth.user,
+      ip,
+      success: true,
+      reason: "OK",
+      detail: {
+        targetUserId: userId,
+        targetUsername: target?.username ?? null,
+      },
+    })
+  }
+
+  // 其他字段改动合并记一条 USER_UPDATE（只有 resetAuthToken 时不再重复记）
+  if (changedFields.length > 0) {
+    writeAdminEvent({
+      event: "USER_UPDATE",
+      actor: auth.user,
+      ip,
+      success: true,
+      reason: "OK",
+      detail: {
+        targetUserId: userId,
+        targetUsername: target?.username ?? null,
+        fields: changedFields,
+      },
+    })
   }
 
   return NextResponse.json({ ok: true, data: { id: userId } })
@@ -88,47 +162,90 @@ export async function PATCH(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
 
+  const ip = getClientIp(request)
   const { id } = await params
   const userId = Number(id)
 
   if (!Number.isInteger(userId) || userId <= 0) {
     return NextResponse.json(
       { ok: false, error: { code: "INVALID_ID", message: "用户ID不合法" } },
-      { status: 400 },
+      { status: 400 }
     )
   }
 
   // 防止 admin 删除自己
   if (auth.user.id === userId) {
+    writeAdminEvent({
+      event: "USER_DELETE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "CANNOT_DELETE_SELF",
+      detail: { targetUserId: userId },
+    })
     return NextResponse.json(
-      { ok: false, error: { code: "CANNOT_DELETE_SELF", message: "不能删除当前登录用户" } },
-      { status: 400 },
+      {
+        ok: false,
+        error: { code: "CANNOT_DELETE_SELF", message: "不能删除当前登录用户" },
+      },
+      { status: 400 }
     )
   }
 
   const db = getDb()
+  // 先查出用户名用于日志记录，删除后就拿不到了
+  const target = db
+    .prepare(`SELECT username FROM users WHERE id = ? LIMIT 1`)
+    .get(userId) as { username: string } | undefined
 
   // sessions/subscriptions 均 ON DELETE CASCADE；auth_logs 冗余用户名，不受影响
   try {
     const result = db.prepare(`DELETE FROM users WHERE id = ?`).run(userId)
 
     if (result.changes === 0) {
+      writeAdminEvent({
+        event: "USER_DELETE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "NOT_FOUND",
+        detail: { targetUserId: userId },
+      })
       return NextResponse.json(
         { ok: false, error: { code: "NOT_FOUND", message: "用户不存在" } },
-        { status: 404 },
+        { status: 404 }
       )
     }
 
+    writeAdminEvent({
+      event: "USER_DELETE",
+      actor: auth.user,
+      ip,
+      success: true,
+      reason: "OK",
+      detail: {
+        targetUserId: userId,
+        targetUsername: target?.username ?? null,
+      },
+    })
     return NextResponse.json({ ok: true, data: { id: userId } })
   } catch {
+    writeAdminEvent({
+      event: "USER_DELETE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "DELETE_FAILED",
+      detail: { targetUserId: userId },
+    })
     return NextResponse.json(
       { ok: false, error: { code: "DELETE_FAILED", message: "用户删除失败" } },
-      { status: 400 },
+      { status: 400 }
     )
   }
 }
