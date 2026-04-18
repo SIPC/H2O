@@ -1,0 +1,81 @@
+import { randomBytes } from "node:crypto"
+
+import { NextResponse } from "next/server"
+
+import { requireAdmin } from "@/lib/auth"
+import { getDb } from "@/lib/db"
+
+type CreateNodeBody = {
+  name?: string
+  ip?: string
+  port?: number
+  sni?: string | null
+  obfs?: string | null
+  obfsPassword?: string | null
+  insecure?: boolean
+  pinSha256?: string | null
+}
+
+export async function GET(request: Request) {
+  const auth = requireAdmin(request)
+  if (!auth.ok) return auth.response
+
+  const db = getDb()
+  const rows = db
+    .prepare(
+      `SELECT id, name, ip, port, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256, created_at
+       FROM nodes
+       ORDER BY id DESC`,
+    )
+    .all()
+  return NextResponse.json({ ok: true, data: rows })
+}
+
+export async function POST(request: Request) {
+  const auth = requireAdmin(request)
+  if (!auth.ok) return auth.response
+
+  const body = (await request.json()) as CreateNodeBody
+
+  if (!body.name || !body.ip || typeof body.port !== "number") {
+    return NextResponse.json(
+      { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
+      { status: 400 },
+    )
+  }
+
+  // 创建节点时生成一次长随机认证路径，后续保持不变
+  const authPath = randomBytes(24).toString("hex")
+  const db = getDb()
+
+  const sni = body.sni?.trim() || null
+  const obfs = body.obfs?.trim() || null
+  const obfsPassword = body.obfsPassword?.trim() || null
+  const pinSha256 = body.pinSha256?.trim() || null
+  const insecure = body.insecure ? 1 : 0
+
+  try {
+    const result = db
+      .prepare(
+        `INSERT INTO nodes(name, ip, port, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256)
+         VALUES (?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?)`,
+      )
+      .run(body.name, body.ip, body.port, authPath, sni, obfs, obfsPassword, insecure, pinSha256)
+
+    return NextResponse.json({
+      ok: true,
+      data: {
+        id: Number(result.lastInsertRowid),
+        name: body.name,
+        ip: body.ip,
+        port: body.port,
+        auth_path: authPath,
+      },
+    })
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: { code: "CREATE_FAILED", message: "节点创建失败" } },
+      { status: 400 },
+    )
+  }
+}
