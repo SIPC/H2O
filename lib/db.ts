@@ -48,7 +48,9 @@ function migrate(database: DatabaseSync) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
       traffic_limit_bytes INTEGER NOT NULL,
-      duration_days INTEGER NOT NULL
+      duration_days INTEGER NOT NULL,
+      up_mbps INTEGER NOT NULL DEFAULT 0,
+      down_mbps INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS plan_nodes (
@@ -94,6 +96,19 @@ function migrate(database: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
   `)
+
+  // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）
+  // 不是多版本迁移链，仅是单次向前兼容
+  for (const alter of [
+    `ALTER TABLE plans ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE plans ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0`,
+  ]) {
+    try {
+      database.exec(alter)
+    } catch {
+      // 字段已存在
+    }
+  }
 }
 
 export function getDb() {

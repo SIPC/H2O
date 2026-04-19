@@ -102,6 +102,7 @@ export type EventName =
   | "SUBSCRIPTION_CREATE"
   | "SUBSCRIPTION_UPDATE"
   | "SUBSCRIPTION_DELETE"
+  | "SUBSCRIPTION_FETCH"
   | "SETTINGS_UPDATE"
 
 export type EventLogFields = {

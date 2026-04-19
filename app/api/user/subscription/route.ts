@@ -21,13 +21,10 @@ export async function GET(request: Request) {
   }
 
   // const origin = new URL(request.url).origin
-  const base = `https://byte.lyrify.cloud/api/sub/${row.auth_token}`
+  const url = `https://byte.lyrify.cloud/api/sub/${row.auth_token}`
 
   return NextResponse.json({
     ok: true,
-    data: {
-      url: base,
-      urlPlain: `${base}?format=plain`,
-    },
+    data: { url },
   })
 }

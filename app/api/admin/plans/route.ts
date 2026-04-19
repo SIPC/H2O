@@ -9,6 +9,8 @@ type CreatePlanBody = {
   name?: string
   trafficLimitBytes?: number
   durationDays?: number
+  upMbps?: number
+  downMbps?: number
   nodeIds?: number[]
 }
 
@@ -20,6 +22,7 @@ export async function GET(request: Request) {
   const plans = db
     .prepare(
       `SELECT p.id, p.name, p.traffic_limit_bytes, p.duration_days,
+              p.up_mbps, p.down_mbps,
               GROUP_CONCAT(pn.node_id) AS node_ids
        FROM plans p
        LEFT JOIN plan_nodes pn ON pn.plan_id = p.id
@@ -37,6 +40,18 @@ export async function POST(request: Request) {
 
   const ip = getClientIp(request)
   const body = (await request.json()) as CreatePlanBody
+
+  // 限速字段可选，缺省视为 0（不限速）
+  const upMbps =
+    typeof body.upMbps === "number" && Number.isFinite(body.upMbps) && body.upMbps >= 0
+      ? Math.floor(body.upMbps)
+      : 0
+  const downMbps =
+    typeof body.downMbps === "number" &&
+    Number.isFinite(body.downMbps) &&
+    body.downMbps >= 0
+      ? Math.floor(body.downMbps)
+      : 0
 
   if (
     !body.name ||
@@ -66,9 +81,10 @@ export async function POST(request: Request) {
 
     const planRes = db
       .prepare(
-        `INSERT INTO plans(name, traffic_limit_bytes, duration_days) VALUES (?, ?, ?)`
+        `INSERT INTO plans(name, traffic_limit_bytes, duration_days, up_mbps, down_mbps)
+         VALUES (?, ?, ?, ?, ?)`
       )
-      .run(body.name, body.trafficLimitBytes, body.durationDays)
+      .run(body.name, body.trafficLimitBytes, body.durationDays, upMbps, downMbps)
 
     const planId = Number(planRes.lastInsertRowid)
     const insertPlanNode = db.prepare(
@@ -92,6 +108,8 @@ export async function POST(request: Request) {
         name: body.name,
         trafficLimitBytes: body.trafficLimitBytes,
         durationDays: body.durationDays,
+        upMbps,
+        downMbps,
         nodeCount: body.nodeIds.length,
       },
     })

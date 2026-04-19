@@ -10,6 +10,7 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
+  CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
@@ -41,6 +42,9 @@ type Row = {
   expire_time: string
 }
 
+type UserRow = { id: number; username: string }
+type PlanRow = { id: number; name: string }
+
 const statusOptions: Array<{ label: string; value: SubscriptionStatus }> = [
   { label: "启用 (active)", value: "active" },
   { label: "过期 (expired)", value: "expired" },
@@ -51,6 +55,20 @@ const statusLabel: Record<SubscriptionStatus, string> = {
   active: "启用",
   expired: "过期",
   blocked: "封禁",
+}
+
+// 字节数按单位自适应：B/KB/MB/GB/TB/PB
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"]
+  let value = bytes
+  let idx = 0
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx += 1
+  }
+  const decimals = idx === 0 ? 0 : value >= 100 ? 1 : 2
+  return `${value.toFixed(decimals)} ${units[idx]}`
 }
 
 // 将 ISO 时间转换为 datetime-local input 需要的本地格式
@@ -110,11 +128,75 @@ function StatusCombobox({
   )
 }
 
+// 通用 ID-标签下拉选择，支持输入过滤（用户选择、套餐选择共用）
+function EntityCombobox({
+  options,
+  value,
+  onChange,
+  placeholder,
+  searchPlaceholder,
+  emptyText,
+  className,
+}: {
+  options: Array<{ value: number; label: string }>
+  value: number | null
+  onChange: (value: number) => void
+  placeholder: string
+  searchPlaceholder: string
+  emptyText: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const current = options.find((o) => o.value === value)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          className={cn("justify-between font-normal", className)}
+        >
+          <span className={current ? "" : "text-muted-foreground"}>
+            {current?.label ?? placeholder}
+          </span>
+          <ChevronsUpDown className="size-4 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[260px] p-0">
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} />
+          <CommandList>
+            <CommandEmpty>{emptyText}</CommandEmpty>
+            <CommandGroup>
+              {options.map((o) => (
+                <CommandItem
+                  key={o.value}
+                  value={o.label}
+                  data-checked={value === o.value}
+                  onSelect={() => {
+                    onChange(o.value)
+                    setOpen(false)
+                  }}
+                >
+                  {o.label}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export default function AdminSubscriptionsPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<Row[]>([])
-  const [userId, setUserId] = useState("")
-  const [planId, setPlanId] = useState("")
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [plans, setPlans] = useState<PlanRow[]>([])
+  const [userId, setUserId] = useState<number | null>(null)
+  const [planId, setPlanId] = useState<number | null>(null)
 
   const [editOpen, setEditOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Row | null>(null)
@@ -132,9 +214,18 @@ export default function AdminSubscriptionsPage() {
     let mounted = true
 
     void (async () => {
-      const response = await fetch("/api/admin/subscriptions")
-      const json = await response.json()
-      if (mounted && json?.ok) setRows(json.data)
+      const [subRes, userRes, planRes] = await Promise.all([
+        fetch("/api/admin/subscriptions"),
+        fetch("/api/admin/users"),
+        fetch("/api/admin/plans"),
+      ])
+      const subJson = await subRes.json()
+      const userJson = await userRes.json()
+      const planJson = await planRes.json()
+      if (!mounted) return
+      if (subJson?.ok) setRows(subJson.data)
+      if (userJson?.ok) setUsers(userJson.data)
+      if (planJson?.ok) setPlans(planJson.data)
     })()
 
     return () => {
@@ -144,17 +235,24 @@ export default function AdminSubscriptionsPage() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (userId === null || planId === null) {
+      await alert({
+        title: "请选择用户和套餐",
+        description: "创建订阅前必须同时选择目标用户与套餐。",
+      })
+      return
+    }
     const response = await fetch("/api/admin/subscriptions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: Number(userId), planId: Number(planId) }),
+      body: JSON.stringify({ userId, planId }),
     })
 
     const json = await response.json()
     if (!response.ok || !json.ok) return
 
-    setUserId("")
-    setPlanId("")
+    setUserId(null)
+    setPlanId(null)
     await load()
   }
 
@@ -225,19 +323,33 @@ export default function AdminSubscriptionsPage() {
         <CardContent>
           <form className="mb-4 grid gap-3 md:grid-cols-3" onSubmit={create}>
             <div className="space-y-1">
-              <Label>用户ID</Label>
-              <Input
+              <Label>用户</Label>
+              <EntityCombobox
+                options={users.map((u) => ({
+                  value: u.id,
+                  label: `#${u.id} ${u.username}`,
+                }))}
                 value={userId}
-                onChange={(e) => setUserId(e.target.value)}
-                required
+                onChange={setUserId}
+                placeholder="选择用户"
+                searchPlaceholder="搜索用户名"
+                emptyText="无匹配用户"
+                className="h-9 w-full"
               />
             </div>
             <div className="space-y-1">
-              <Label>套餐ID</Label>
-              <Input
+              <Label>套餐</Label>
+              <EntityCombobox
+                options={plans.map((p) => ({
+                  value: p.id,
+                  label: `#${p.id} ${p.name}`,
+                }))}
                 value={planId}
-                onChange={(e) => setPlanId(e.target.value)}
-                required
+                onChange={setPlanId}
+                placeholder="选择套餐"
+                searchPlaceholder="搜索套餐名"
+                emptyText="无匹配套餐"
+                className="h-9 w-full"
               />
             </div>
             <div className="flex items-end">
@@ -264,8 +376,8 @@ export default function AdminSubscriptionsPage() {
                   <TD>{row.id}</TD>
                   <TD>{row.username}</TD>
                   <TD>{row.plan_name}</TD>
-                  <TD>{row.used_traffic_bytes}</TD>
-                  <TD>{row.traffic_limit_bytes}</TD>
+                  <TD>{formatBytes(row.used_traffic_bytes)}</TD>
+                  <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
                   <TD>{statusLabel[row.status] ?? row.status}</TD>
                   <TD>{new Date(row.expire_time).toLocaleString()}</TD>
                   <TD>

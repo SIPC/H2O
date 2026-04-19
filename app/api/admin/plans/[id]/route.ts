@@ -9,6 +9,8 @@ type UpdatePlanBody = {
   name?: string
   trafficLimitBytes?: number
   durationDays?: number
+  upMbps?: number
+  downMbps?: number
   nodeIds?: number[]
 }
 
@@ -88,6 +90,36 @@ export async function PATCH(
     updates.push("duration_days = ?")
     values.push(Math.floor(body.durationDays))
     changedFields.push("duration_days")
+  }
+
+  // 限速字段：0 表示不限速；负数 / NaN 视为非法
+  for (const [key, col] of [
+    ["upMbps", "up_mbps"],
+    ["downMbps", "down_mbps"],
+  ] as const) {
+    const raw = body[key]
+    if (typeof raw === "number") {
+      if (raw < 0 || !Number.isFinite(raw)) {
+        writeAdminEvent({
+          event: "PLAN_UPDATE",
+          actor: auth.user,
+          ip,
+          success: false,
+          reason: "INVALID_SPEED",
+          detail: { planId, field: col },
+        })
+        return NextResponse.json(
+          {
+            ok: false,
+            error: { code: "INVALID_SPEED", message: "限速数值不合法" },
+          },
+          { status: 400 }
+        )
+      }
+      updates.push(`${col} = ?`)
+      values.push(Math.floor(raw))
+      changedFields.push(col)
+    }
   }
 
   const hasScalarChanges = updates.length > 0

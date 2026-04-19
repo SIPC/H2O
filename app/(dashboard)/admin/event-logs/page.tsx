@@ -1,7 +1,7 @@
 "use client"
 
 import { FormEvent, useEffect, useState } from "react"
-import { ChevronsUpDown } from "lucide-react"
+import { ChevronsUpDown, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -10,10 +10,10 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
+  CommandInput,
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Popover,
@@ -42,6 +42,7 @@ type EventName =
   | "SUBSCRIPTION_CREATE"
   | "SUBSCRIPTION_UPDATE"
   | "SUBSCRIPTION_DELETE"
+  | "SUBSCRIPTION_FETCH"
   | "SETTINGS_UPDATE"
 
 type EventRow = {
@@ -59,6 +60,8 @@ type EventRow = {
 type SuccessFilter = "all" | "1" | "0"
 
 type EventFilter = "all" | EventName
+
+type UserRow = { id: number; username: string }
 
 const eventLabel: Record<EventName, string> = {
   LOGIN: "登录",
@@ -79,6 +82,7 @@ const eventLabel: Record<EventName, string> = {
   SUBSCRIPTION_CREATE: "创建订阅",
   SUBSCRIPTION_UPDATE: "更新订阅",
   SUBSCRIPTION_DELETE: "删除订阅",
+  SUBSCRIPTION_FETCH: "拉取订阅",
   SETTINGS_UPDATE: "修改设置",
 }
 
@@ -110,6 +114,8 @@ const reasonLabel: Record<string, string> = {
   TURNSTILE_FAILED: "人机验证失败",
   TURNSTILE_MISSING: "缺少人机验证",
   TURNSTILE_MISCONFIGURED: "人机验证未配置",
+  INVALID_TOKEN: "订阅 Key 非法",
+  NO_NODES: "暂无可用节点",
 }
 
 const eventOptions: Array<{ label: string; value: EventFilter }> = [
@@ -132,6 +138,7 @@ const eventOptions: Array<{ label: string; value: EventFilter }> = [
   { label: "创建订阅", value: "SUBSCRIPTION_CREATE" },
   { label: "更新订阅", value: "SUBSCRIPTION_UPDATE" },
   { label: "删除订阅", value: "SUBSCRIPTION_DELETE" },
+  { label: "拉取订阅", value: "SUBSCRIPTION_FETCH" },
   { label: "修改设置", value: "SETTINGS_UPDATE" },
 ]
 
@@ -187,6 +194,72 @@ function EventCombobox({
   )
 }
 
+// 账号筛选下拉：value 为空字符串表示不筛选
+function UserFilterCombobox({
+  users,
+  value,
+  onChange,
+  className,
+}: {
+  users: UserRow[]
+  value: string
+  onChange: (value: string) => void
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = users.find((u) => u.username === value)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          className={cn("justify-between font-normal", className)}
+        >
+          <span className={selected ? "" : "text-muted-foreground"}>
+            {selected ? `#${selected.id} ${selected.username}` : "全部账号"}
+          </span>
+          <ChevronsUpDown className="size-4 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[260px] p-0">
+        <Command>
+          <CommandInput placeholder="搜索用户名" />
+          <CommandList>
+            <CommandEmpty>无匹配账号</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="__clear__"
+                onSelect={() => {
+                  onChange("")
+                  setOpen(false)
+                }}
+              >
+                <X className="size-4 opacity-60" />
+                全部账号
+              </CommandItem>
+              {users.map((u) => (
+                <CommandItem
+                  key={u.id}
+                  value={u.username}
+                  data-checked={value === u.username}
+                  onSelect={() => {
+                    onChange(u.username)
+                    setOpen(false)
+                  }}
+                >
+                  #{u.id} {u.username}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function formatDetail(detail: string | null): string {
   if (!detail) return "-"
   try {
@@ -207,6 +280,7 @@ export default function AdminEventLogsPage() {
   const [username, setUsername] = useState("")
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>("all")
   const [eventFilter, setEventFilter] = useState<EventFilter>("all")
+  const [users, setUsers] = useState<UserRow[]>([])
 
   async function load(
     opts: {
@@ -245,14 +319,20 @@ export default function AdminEventLogsPage() {
 
     void (async () => {
       const params = new URLSearchParams({ page: "1", pageSize: "50" })
-      const response = await fetch(`/api/admin/event-logs?${params.toString()}`)
-      const json = await response.json()
-      if (mounted && json?.ok) {
-        setRows(json.data.rows)
-        setTotal(json.data.total)
-        setPage(json.data.page)
-        setPageSize(json.data.pageSize)
+      const [logRes, userRes] = await Promise.all([
+        fetch(`/api/admin/event-logs?${params.toString()}`),
+        fetch("/api/admin/users"),
+      ])
+      const logJson = await logRes.json()
+      const userJson = await userRes.json()
+      if (!mounted) return
+      if (logJson?.ok) {
+        setRows(logJson.data.rows)
+        setTotal(logJson.data.total)
+        setPage(logJson.data.page)
+        setPageSize(logJson.data.pageSize)
       }
+      if (userJson?.ok) setUsers(userJson.data)
     })()
 
     return () => {
@@ -273,6 +353,11 @@ export default function AdminEventLogsPage() {
   async function switchEvent(next: EventFilter) {
     setEventFilter(next)
     await load({ page: 1, event: next })
+  }
+
+  async function switchUsername(next: string) {
+    setUsername(next)
+    await load({ page: 1, username: next })
   }
 
   async function changePage(next: number) {
@@ -300,10 +385,11 @@ export default function AdminEventLogsPage() {
           <form className="mb-4 grid gap-3 md:grid-cols-4" onSubmit={submit}>
             <div className="space-y-1">
               <Label>账号</Label>
-              <Input
+              <UserFilterCombobox
+                users={users}
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="用户名"
+                onChange={(v) => void switchUsername(v)}
+                className="h-9 w-full"
               />
             </div>
             <div className="space-y-1">

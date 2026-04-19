@@ -1,13 +1,27 @@
 "use client"
 
 import { FormEvent, useEffect, useState } from "react"
+import { ChevronsUpDown, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Label } from "@/components/ui/label"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
+import { cn } from "@/lib/utils"
 
 type LogRow = {
   id: number
@@ -20,6 +34,9 @@ type LogRow = {
   success: 0 | 1
   reason: string | null
 }
+
+type UserRow = { id: number; username: string }
+type NodeRow = { id: number; name: string }
 
 type SuccessFilter = "all" | "1" | "0"
 
@@ -35,6 +52,80 @@ const reasonLabel: Record<string, string> = {
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 
+// 账号 / 节点筛选下拉：value 为空字符串表示不筛选
+function NamedEntityCombobox({
+  items,
+  value,
+  onChange,
+  placeholder,
+  searchPlaceholder,
+  clearLabel,
+  emptyText,
+  className,
+}: {
+  items: Array<{ id: number; name: string }>
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  searchPlaceholder: string
+  clearLabel: string
+  emptyText: string
+  className?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const selected = items.find((i) => i.name === value)
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          role="combobox"
+          className={cn("justify-between font-normal", className)}
+        >
+          <span className={selected ? "" : "text-muted-foreground"}>
+            {selected ? `#${selected.id} ${selected.name}` : placeholder}
+          </span>
+          <ChevronsUpDown className="size-4 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[260px] p-0">
+        <Command>
+          <CommandInput placeholder={searchPlaceholder} />
+          <CommandList>
+            <CommandEmpty>{emptyText}</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value="__clear__"
+                onSelect={() => {
+                  onChange("")
+                  setOpen(false)
+                }}
+              >
+                <X className="size-4 opacity-60" />
+                {clearLabel}
+              </CommandItem>
+              {items.map((i) => (
+                <CommandItem
+                  key={i.id}
+                  value={i.name}
+                  data-checked={value === i.name}
+                  onSelect={() => {
+                    onChange(i.name)
+                    setOpen(false)
+                  }}
+                >
+                  #{i.id} {i.name}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export default function AdminLogsPage() {
   const [rows, setRows] = useState<LogRow[]>([])
   const [total, setTotal] = useState(0)
@@ -43,6 +134,8 @@ export default function AdminLogsPage() {
   const [username, setUsername] = useState("")
   const [nodeName, setNodeName] = useState("")
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>("all")
+  const [users, setUsers] = useState<UserRow[]>([])
+  const [nodes, setNodes] = useState<NodeRow[]>([])
 
   // 统一的加载函数：筛选 + 分页都走这个入口
   async function load(
@@ -82,14 +175,23 @@ export default function AdminLogsPage() {
 
     void (async () => {
       const params = new URLSearchParams({ page: "1", pageSize: "50" })
-      const response = await fetch(`/api/admin/auth-logs?${params.toString()}`)
-      const json = await response.json()
-      if (mounted && json?.ok) {
-        setRows(json.data.rows)
-        setTotal(json.data.total)
-        setPage(json.data.page)
-        setPageSize(json.data.pageSize)
+      const [logRes, userRes, nodeRes] = await Promise.all([
+        fetch(`/api/admin/auth-logs?${params.toString()}`),
+        fetch("/api/admin/users"),
+        fetch("/api/admin/nodes"),
+      ])
+      const logJson = await logRes.json()
+      const userJson = await userRes.json()
+      const nodeJson = await nodeRes.json()
+      if (!mounted) return
+      if (logJson?.ok) {
+        setRows(logJson.data.rows)
+        setTotal(logJson.data.total)
+        setPage(logJson.data.page)
+        setPageSize(logJson.data.pageSize)
       }
+      if (userJson?.ok) setUsers(userJson.data)
+      if (nodeJson?.ok) setNodes(nodeJson.data)
     })()
 
     return () => {
@@ -106,6 +208,16 @@ export default function AdminLogsPage() {
   async function switchFilter(next: SuccessFilter) {
     setSuccessFilter(next)
     await load({ page: 1, filter: next })
+  }
+
+  async function switchUsername(next: string) {
+    setUsername(next)
+    await load({ page: 1, username: next })
+  }
+
+  async function switchNode(next: string) {
+    setNodeName(next)
+    await load({ page: 1, nodeName: next })
   }
 
   async function changePage(next: number) {
@@ -133,18 +245,28 @@ export default function AdminLogsPage() {
           <form className="mb-4 grid gap-3 md:grid-cols-4" onSubmit={submit}>
             <div className="space-y-1">
               <Label>账号</Label>
-              <Input
+              <NamedEntityCombobox
+                items={users.map((u) => ({ id: u.id, name: u.username }))}
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="用户名"
+                onChange={(v) => void switchUsername(v)}
+                placeholder="全部账号"
+                searchPlaceholder="搜索用户名"
+                clearLabel="全部账号"
+                emptyText="无匹配账号"
+                className="h-9 w-full"
               />
             </div>
             <div className="space-y-1">
               <Label>节点</Label>
-              <Input
+              <NamedEntityCombobox
+                items={nodes}
                 value={nodeName}
-                onChange={(e) => setNodeName(e.target.value)}
-                placeholder="节点名"
+                onChange={(v) => void switchNode(v)}
+                placeholder="全部节点"
+                searchPlaceholder="搜索节点名"
+                clearLabel="全部节点"
+                emptyText="无匹配节点"
+                className="h-9 w-full"
               />
             </div>
             <div className="space-y-1">

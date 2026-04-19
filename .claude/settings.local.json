@@ -7,7 +7,9 @@
       "Bash(node -e \"import { DatabaseSync } from 'node:sqlite'; const db=new DatabaseSync\\(':memory:'\\); db.exec\\('create table t\\(id integer primary key autoincrement, n text\\);'\\); const r=db.prepare\\('insert into t\\(n\\) values\\(?\\)'\\).run\\('a'\\); console.log\\(r\\); console.log\\(db.prepare\\('select * from t'\\).all\\(\\)\\);\")",
       "Bash(pnpm typecheck *)",
       "Bash(pnpm lint *)",
-      "Bash(pnpm dlx *)"
+      "Bash(pnpm dlx *)",
+      "WebFetch(domain:v2.hysteria.network)",
+      "WebSearch"
     ]
   }
 }

@@ -21,10 +21,40 @@ type PlanRow = {
   name: string
   traffic_limit_bytes: number
   duration_days: number
+  up_mbps: number
+  down_mbps: number
   node_ids: string | null
 }
 
 type NodeRow = { id: number; name: string }
+
+// 前端统一用 GB 展示，提交 / 存库仍走 bytes
+const BYTES_PER_GB = 1024 ** 3
+
+function bytesToGbString(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0"
+  // 去掉无意义的末尾 0，整数 GB 直接显示整数
+  return String(Number((bytes / BYTES_PER_GB).toFixed(4)))
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"]
+  let value = bytes
+  let idx = 0
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx += 1
+  }
+  const decimals = idx === 0 ? 0 : value >= 100 ? 1 : 2
+  return `${value.toFixed(decimals)} ${units[idx]}`
+}
+
+// 限速展示：0 视为不限速
+function formatSpeed(mbps: number): string {
+  if (!Number.isFinite(mbps) || mbps <= 0) return "不限"
+  return `${mbps} Mbps`
+}
 
 function parseNodeIds(value: string | null): number[] {
   if (!value) return []
@@ -87,8 +117,10 @@ export default function AdminPlansPage() {
   const [nodes, setNodes] = useState<NodeRow[]>([])
 
   const [name, setName] = useState("")
-  const [trafficLimitBytes, setTrafficLimitBytes] = useState("1073741824")
+  const [trafficLimitGb, setTrafficLimitGb] = useState("1")
   const [durationDays, setDurationDays] = useState("30")
+  const [upMbps, setUpMbps] = useState("0")
+  const [downMbps, setDownMbps] = useState("0")
   const [selectedNodeIds, setSelectedNodeIds] = useState<number[]>([])
 
   const [editOpen, setEditOpen] = useState(false)
@@ -96,6 +128,8 @@ export default function AdminPlansPage() {
   const [editName, setEditName] = useState("")
   const [editTraffic, setEditTraffic] = useState("")
   const [editDuration, setEditDuration] = useState("")
+  const [editUpMbps, setEditUpMbps] = useState("0")
+  const [editDownMbps, setEditDownMbps] = useState("0")
   const [editNodeIds, setEditNodeIds] = useState<number[]>([])
 
   async function load() {
@@ -135,8 +169,10 @@ export default function AdminPlansPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name,
-        trafficLimitBytes: Number(trafficLimitBytes),
+        trafficLimitBytes: Math.round(Number(trafficLimitGb) * BYTES_PER_GB),
         durationDays: Number(durationDays),
+        upMbps: Math.max(0, Math.floor(Number(upMbps))),
+        downMbps: Math.max(0, Math.floor(Number(downMbps))),
         nodeIds: selectedNodeIds,
       }),
     })
@@ -145,8 +181,10 @@ export default function AdminPlansPage() {
     if (!response.ok || !json.ok) return
 
     setName("")
-    setTrafficLimitBytes("1073741824")
+    setTrafficLimitGb("1")
     setDurationDays("30")
+    setUpMbps("0")
+    setDownMbps("0")
     setSelectedNodeIds([])
     await load()
   }
@@ -154,8 +192,10 @@ export default function AdminPlansPage() {
   function openEdit(row: PlanRow) {
     setEditTarget(row)
     setEditName(row.name)
-    setEditTraffic(String(row.traffic_limit_bytes))
+    setEditTraffic(bytesToGbString(row.traffic_limit_bytes))
     setEditDuration(String(row.duration_days))
+    setEditUpMbps(String(row.up_mbps ?? 0))
+    setEditDownMbps(String(row.down_mbps ?? 0))
     setEditNodeIds(parseNodeIds(row.node_ids))
     setEditOpen(true)
   }
@@ -169,8 +209,10 @@ export default function AdminPlansPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name: editName,
-        trafficLimitBytes: Number(editTraffic),
+        trafficLimitBytes: Math.round(Number(editTraffic) * BYTES_PER_GB),
         durationDays: Number(editDuration),
+        upMbps: Math.max(0, Math.floor(Number(editUpMbps))),
+        downMbps: Math.max(0, Math.floor(Number(editDownMbps))),
         nodeIds: editNodeIds,
       }),
     })
@@ -234,10 +276,13 @@ export default function AdminPlansPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label>流量上限(bytes)</Label>
+              <Label>流量上限(GB)</Label>
               <Input
-                value={trafficLimitBytes}
-                onChange={(e) => setTrafficLimitBytes(e.target.value)}
+                type="number"
+                min="0"
+                step="0.01"
+                value={trafficLimitGb}
+                onChange={(e) => setTrafficLimitGb(e.target.value)}
                 required
               />
             </div>
@@ -247,6 +292,26 @@ export default function AdminPlansPage() {
                 value={durationDays}
                 onChange={(e) => setDurationDays(e.target.value)}
                 required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>上行限速(Mbps，0 不限)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={upMbps}
+                onChange={(e) => setUpMbps(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>下行限速(Mbps，0 不限)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={downMbps}
+                onChange={(e) => setDownMbps(e.target.value)}
               />
             </div>
             <div className="space-y-1 md:col-span-3">
@@ -269,6 +334,7 @@ export default function AdminPlansPage() {
                 <TH>名称</TH>
                 <TH>流量上限</TH>
                 <TH>时长(天)</TH>
+                <TH>上/下行限速</TH>
                 <TH>可用节点</TH>
                 <TH>操作</TH>
               </TR>
@@ -280,8 +346,12 @@ export default function AdminPlansPage() {
                   <TR key={row.id}>
                     <TD>{row.id}</TD>
                     <TD>{row.name}</TD>
-                    <TD>{row.traffic_limit_bytes}</TD>
+                    <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
                     <TD>{row.duration_days}</TD>
+                    <TD className="text-xs">
+                      {formatSpeed(row.up_mbps ?? 0)} /{" "}
+                      {formatSpeed(row.down_mbps ?? 0)}
+                    </TD>
                     <TD className="max-w-[280px] truncate text-xs">
                       {renderNodeNames(ids)}
                     </TD>
@@ -335,8 +405,11 @@ export default function AdminPlansPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label>流量上限(bytes)</Label>
+              <Label>流量上限(GB)</Label>
               <Input
+                type="number"
+                min="0"
+                step="0.01"
                 value={editTraffic}
                 onChange={(e) => setEditTraffic(e.target.value)}
                 required
@@ -349,6 +422,28 @@ export default function AdminPlansPage() {
                 onChange={(e) => setEditDuration(e.target.value)}
                 required
               />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>上行限速(Mbps，0 不限)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={editUpMbps}
+                  onChange={(e) => setEditUpMbps(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>下行限速(Mbps，0 不限)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={editDownMbps}
+                  onChange={(e) => setEditDownMbps(e.target.value)}
+                />
+              </div>
             </div>
             <div className="space-y-1">
               <Label>可用节点</Label>

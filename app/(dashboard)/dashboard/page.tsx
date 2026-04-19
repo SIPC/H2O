@@ -22,7 +22,6 @@ type SubscriptionRow = {
 
 type SubUrls = {
   url: string
-  urlPlain: string
 }
 
 // 把字节数格式化为自适应单位
@@ -43,7 +42,7 @@ export default function DashboardPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<SubscriptionRow[]>([])
   const [sub, setSub] = useState<SubUrls | null>(null)
-  const [copiedKey, setCopiedKey] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   // 数据到达时一起记录"参考当前时间"，避免在 render 里调 Date.now（React 19 purity 规则）
   const [referenceNow, setReferenceNow] = useState<number | null>(null)
 
@@ -97,14 +96,11 @@ export default function DashboardPage() {
     }
   }, [])
 
-  async function copy(value: string, key: string) {
+  async function copy(value: string) {
     try {
       await navigator.clipboard.writeText(value)
-      setCopiedKey(key)
-      window.setTimeout(
-        () => setCopiedKey((current) => (current === key ? null : current)),
-        1500
-      )
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
     } catch {
       // 浏览器拒绝剪贴板访问时引导用户手动复制 readOnly 输入框里的内容
       await alert({
@@ -188,8 +184,7 @@ export default function DashboardPage() {
           <CardHeader>
             <CardTitle>订阅链接</CardTitle>
             <p className="text-xs text-muted-foreground">
-              将下方订阅链接导入 Hysteria2 客户端（NekoBox、v2rayN
-              等），即可自动拉取节点。
+              Clash Verge / Mihomo / sing-box / Nekobox 等主流客户端均可直接导入，已按客户端自动下发对应配置。
             </p>
           </CardHeader>
           <CardContent className="relative">
@@ -202,7 +197,7 @@ export default function DashboardPage() {
               }
             >
               <div className="space-y-1">
-                <Label>订阅链接（base64，推荐）</Label>
+                <Label>通用订阅链接</Label>
                 <div className="flex gap-2">
                   <Input
                     readOnly
@@ -213,27 +208,9 @@ export default function DashboardPage() {
                     type="button"
                     variant="outline"
                     disabled={!sub}
-                    onClick={() => sub && void copy(sub.url, "base64")}
+                    onClick={() => sub && void copy(sub.url)}
                   >
-                    {copiedKey === "base64" ? "已复制" : "复制"}
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-1">
-                <Label>订阅链接（明文）</Label>
-                <div className="flex gap-2">
-                  <Input
-                    readOnly
-                    value={sub?.urlPlain ?? ""}
-                    className="min-w-0 flex-1 font-mono text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={!sub}
-                    onClick={() => sub && void copy(sub.urlPlain, "plain")}
-                  >
-                    {copiedKey === "plain" ? "已复制" : "复制"}
+                    {copied ? "已复制" : "复制"}
                   </Button>
                 </div>
               </div>
