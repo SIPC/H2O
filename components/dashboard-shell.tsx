@@ -54,13 +54,22 @@ type SessionUser = {
   role: "user" | "admin"
 }
 
-const adminSubMenus = [
+type AdminSubMenu =
+  | { title: string; href: string }
+  | { title: string; items: { title: string; href: string }[] }
+
+const adminSubMenus: AdminSubMenu[] = [
   { title: "用户管理", href: "/admin/users" },
   { title: "节点管理", href: "/admin/nodes" },
   { title: "套餐管理", href: "/admin/plans" },
   { title: "订阅管理", href: "/admin/subscriptions" },
-  { title: "节点认证日志", href: "/admin/logs" },
-  { title: "事件日志", href: "/admin/event-logs" },
+  {
+    title: "日志",
+    items: [
+      { title: "事件日志", href: "/admin/event-logs" },
+      { title: "认证日志", href: "/admin/auth-logs" },
+    ],
+  },
   { title: "站点设置", href: "/admin/settings" },
 ]
 
@@ -71,15 +80,23 @@ function isRouteActive(pathname: string, href: string) {
 
 type Crumb = { title: string; href?: string }
 
-// 根据当前路径生成面包屑：admin 二级页先挂"管理概览"再挂子页标题
+// 根据当前路径生成面包屑：admin 二级页先挂"管理概览"再挂子页标题；有分组的日志再补一层
 function getBreadcrumbs(pathname: string): Crumb[] {
   if (pathname.startsWith("/admin")) {
     const crumbs: Crumb[] = [{ title: "管理概览", href: "/admin" }]
     if (pathname !== "/admin") {
-      const sub = adminSubMenus.find(
-        (m) => pathname === m.href || pathname.startsWith(`${m.href}/`)
-      )
-      if (sub) crumbs.push({ title: sub.title })
+      for (const item of adminSubMenus) {
+        if ("items" in item) {
+          const child = item.items.find((c) => isRouteActive(pathname, c.href))
+          if (child) {
+            crumbs.push({ title: item.title }, { title: child.title })
+            break
+          }
+        } else if (isRouteActive(pathname, item.href)) {
+          crumbs.push({ title: item.title })
+          break
+        }
+      }
     }
     return crumbs
   }
@@ -96,6 +113,13 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
   const [adminMenuOpen, setAdminMenuOpen] = useState(
     pathname.startsWith("/admin")
+  )
+  const [logsMenuOpen, setLogsMenuOpen] = useState(() =>
+    adminSubMenus.some(
+      (item) =>
+        "items" in item &&
+        item.items.some((child) => isRouteActive(pathname, child.href))
+    )
   )
 
   useEffect(() => {
@@ -235,21 +259,77 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                           </CollapsibleTrigger>
                           <CollapsibleContent>
                             <SidebarMenuSub>
-                              {adminSubMenus.map((item) => (
-                                <SidebarMenuSubItem key={item.href}>
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    isActive={isRouteActive(
-                                      pathname,
-                                      item.href
-                                    )}
-                                  >
-                                    <Link href={item.href}>
-                                      <span>{item.title}</span>
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              ))}
+                              {adminSubMenus.map((item) => {
+                                if ("items" in item) {
+                                  const isGroupActive = item.items.some(
+                                    (child) => isRouteActive(pathname, child.href)
+                                  )
+                                  return (
+                                    <Collapsible
+                                      key={item.title}
+                                      asChild
+                                      open={logsMenuOpen}
+                                      onOpenChange={setLogsMenuOpen}
+                                      className="group/logs-collapsible"
+                                    >
+                                      <SidebarMenuSubItem>
+                                        <CollapsibleTrigger asChild>
+                                          <SidebarMenuSubButton
+                                            asChild
+                                            isActive={isGroupActive}
+                                          >
+                                            <button
+                                              type="button"
+                                              className="w-full"
+                                            >
+                                              <span className="flex-1 text-left">
+                                                {item.title}
+                                              </span>
+                                              <ChevronRight className="ml-auto size-3.5 transition-transform duration-200 group-data-[state=open]/logs-collapsible:rotate-90" />
+                                            </button>
+                                          </SidebarMenuSubButton>
+                                        </CollapsibleTrigger>
+                                        <CollapsibleContent>
+                                          <SidebarMenuSub>
+                                            {item.items.map((child) => (
+                                              <SidebarMenuSubItem
+                                                key={child.href}
+                                              >
+                                                <SidebarMenuSubButton
+                                                  asChild
+                                                  isActive={isRouteActive(
+                                                    pathname,
+                                                    child.href
+                                                  )}
+                                                >
+                                                  <Link href={child.href}>
+                                                    <span>{child.title}</span>
+                                                  </Link>
+                                                </SidebarMenuSubButton>
+                                              </SidebarMenuSubItem>
+                                            ))}
+                                          </SidebarMenuSub>
+                                        </CollapsibleContent>
+                                      </SidebarMenuSubItem>
+                                    </Collapsible>
+                                  )
+                                }
+                                return (
+                                  <SidebarMenuSubItem key={item.href}>
+                                    <SidebarMenuSubButton
+                                      asChild
+                                      isActive={isRouteActive(
+                                        pathname,
+                                        item.href
+                                      )}
+                                    >
+                                      <Link href={item.href}>
+                                        <span>{item.title}</span>
+                                      </Link>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                )
+                              })}
                             </SidebarMenuSub>
                           </CollapsibleContent>
                         </SidebarMenuItem>
