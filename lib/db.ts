@@ -90,11 +90,35 @@ function migrate(database: DatabaseSync) {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    -- 节点心跳与在线/流量快照，由 h2o-agent 定时上报
+    CREATE TABLE IF NOT EXISTS node_stats (
+      node_id INTEGER PRIMARY KEY,
+      last_report_at TEXT NOT NULL DEFAULT (datetime('now')),
+      online_count INTEGER NOT NULL DEFAULT 0,
+      online_snapshot TEXT,
+      traffic_snapshot TEXT,
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    );
+
+    -- 每 (节点, 用户) 维度记录上次上报的累计 tx/rx，用于差值法计算增量
+    CREATE TABLE IF NOT EXISTS node_user_traffic (
+      node_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      last_tx_bytes INTEGER NOT NULL DEFAULT 0,
+      last_rx_bytes INTEGER NOT NULL DEFAULT 0,
+      last_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (node_id, user_id),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sub_user_status_expire
       ON subscriptions(user_id, status, expire_time);
 
     CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+
+    CREATE INDEX IF NOT EXISTS idx_node_stats_last_report ON node_stats(last_report_at);
   `)
 
   // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）

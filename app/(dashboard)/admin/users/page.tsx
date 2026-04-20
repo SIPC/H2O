@@ -205,7 +205,7 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-7xl flex-col gap-4 p-6">
+    <div className="mx-auto flex min-h-svh w-full max-w-[1600px] flex-col gap-4 p-6">
       <Card>
         <CardHeader>
           <CardTitle>用户管理</CardTitle>

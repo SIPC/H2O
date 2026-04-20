@@ -22,6 +22,20 @@ type NodeRow = {
   obfs_password: string | null
   insecure: 0 | 1
   pin_sha256: string | null
+  last_report_at: string | null
+  online_count: number | null
+}
+
+// 节点心跳判定：最近 3 分钟内上报视为"在线"
+const FRESH_THRESHOLD_MS = 3 * 60 * 1000
+
+function parseSqliteUtc(value: string): Date {
+  return new Date(value.endsWith("Z") ? value : `${value}Z`)
+}
+
+function isFresh(lastReportAt: string | null): boolean {
+  if (!lastReportAt) return false
+  return Date.now() - parseSqliteUtc(lastReportAt).getTime() < FRESH_THRESHOLD_MS
 }
 
 export default function AdminNodesPage() {
@@ -167,8 +181,42 @@ export default function AdminNodesPage() {
     setEditingId(null)
   }
 
+  // 弹出 agent 部署配置片段，并尝试复制到剪贴板
+  async function showAgentConfig(row: NodeRow) {
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "https://h2o.example.com"
+    const config = JSON.stringify(
+      {
+        h2o_url: origin,
+        auth_path: row.auth_path,
+        hysteria_stats_url: "http://127.0.0.1:25300",
+        hysteria_stats_secret: "<填入 Hy2 config 的 trafficStats.secret>",
+        interval_seconds: 120,
+      },
+      null,
+      2
+    )
+
+    let copied = false
+    try {
+      await navigator.clipboard.writeText(config)
+      copied = true
+    } catch {
+      copied = false
+    }
+
+    await alert({
+      title: `${row.name} \u7684 agent \u914d\u7f6e${copied ? "\uff08\u5df2\u590d\u5236\uff09" : ""}`,
+      description: (
+        <pre className="bg-muted max-h-[400px] overflow-auto rounded p-3 font-mono text-xs whitespace-pre-wrap">
+          {config}
+        </pre>
+      ),
+    })
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-6">
       <Card>
         <CardHeader>
           <CardTitle>节点管理</CardTitle>
@@ -253,6 +301,8 @@ export default function AdminNodesPage() {
                 <TH>IP</TH>
                 <TH>端口</TH>
                 <TH>状态</TH>
+                <TH>最后心跳</TH>
+                <TH>在线</TH>
                 <TH>SNI</TH>
                 <TH>Obfs</TH>
                 <TH>Auth Path</TH>
@@ -260,59 +310,91 @@ export default function AdminNodesPage() {
               </TR>
             </THead>
             <TBody>
-              {rows.map((row) => (
-                <TR key={row.id}>
-                  <TD>{row.id}</TD>
-                  <TD>{row.name}</TD>
-                  <TD>{row.ip}</TD>
-                  <TD>{row.port}</TD>
-                  <TD>{row.status === "enabled" ? "启用" : "禁用"}</TD>
-                  <TD className="text-xs">{row.sni ?? "-"}</TD>
-                  <TD className="text-xs">{row.obfs ?? "-"}</TD>
-                  <TD className="max-w-[200px] truncate font-mono text-xs">
-                    {row.auth_path}
-                  </TD>
-                  <TD>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => startEdit(row)}
-                      >
-                        编辑
-                      </Button>
-                      {row.status === "enabled" ? (
+              {rows.map((row) => {
+                const fresh = isFresh(row.last_report_at)
+                return (
+                  <TR key={row.id}>
+                    <TD>{row.id}</TD>
+                    <TD>{row.name}</TD>
+                    <TD>{row.ip}</TD>
+                    <TD>{row.port}</TD>
+                    <TD>{row.status === "enabled" ? "启用" : "禁用"}</TD>
+                    <TD
+                      className={
+                        row.last_report_at
+                          ? fresh
+                            ? "text-xs text-emerald-600 dark:text-emerald-400"
+                            : "text-muted-foreground text-xs"
+                          : "text-muted-foreground text-xs"
+                      }
+                    >
+                      {row.last_report_at
+                        ? parseSqliteUtc(row.last_report_at).toLocaleString()
+                        : "-"}
+                    </TD>
+                    <TD
+                      className={
+                        fresh
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-muted-foreground"
+                      }
+                    >
+                      {row.online_count ?? 0}
+                    </TD>
+                    <TD className="text-xs">{row.sni ?? "-"}</TD>
+                    <TD className="text-xs">{row.obfs ?? "-"}</TD>
+                    <TD className="max-w-[200px] truncate font-mono text-xs">
+                      {row.auth_path}
+                    </TD>
+                    <TD>
+                      <div className="flex flex-wrap gap-2">
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() =>
-                            void updateNode(row.id, { status: "disabled" })
-                          }
+                          onClick={() => startEdit(row)}
                         >
-                          禁用
+                          编辑
                         </Button>
-                      ) : (
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() =>
-                            void updateNode(row.id, { status: "enabled" })
-                          }
+                          onClick={() => void showAgentConfig(row)}
                         >
-                          启用
+                          Agent 配置
                         </Button>
-                      )}
-                      <Button
-                        size="xs"
-                        variant="destructive"
-                        onClick={() => void removeNode(row)}
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  </TD>
-                </TR>
-              ))}
+                        {row.status === "enabled" ? (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() =>
+                              void updateNode(row.id, { status: "disabled" })
+                            }
+                          >
+                            禁用
+                          </Button>
+                        ) : (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() =>
+                              void updateNode(row.id, { status: "enabled" })
+                            }
+                          >
+                            启用
+                          </Button>
+                        )}
+                        <Button
+                          size="xs"
+                          variant="destructive"
+                          onClick={() => void removeNode(row)}
+                        >
+                          删除
+                        </Button>
+                      </div>
+                    </TD>
+                  </TR>
+                )
+              })}
             </TBody>
           </Table>
         </CardContent>

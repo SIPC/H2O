@@ -315,7 +315,7 @@ export default function AdminSubscriptionsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-6">
       <Card>
         <CardHeader>
           <CardTitle>订阅管理</CardTitle>

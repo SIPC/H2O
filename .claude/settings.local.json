@@ -9,7 +9,10 @@
       "Bash(pnpm lint *)",
       "Bash(pnpm dlx *)",
       "WebFetch(domain:v2.hysteria.network)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(go version *)",
+      "Bash(bash build.sh)"
     ]
-  }
+  },
+  "skipWebFetchPreflight": true
 }

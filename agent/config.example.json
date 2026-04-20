@@ -1,0 +1,7 @@
+{
+  "h2o_url": "https://panel.example.com",
+  "auth_path": "请填入该节点的 auth_path（在 h2o 后台节点页复制）",
+  "hysteria_stats_url": "http://127.0.0.1:25300",
+  "hysteria_stats_secret": "请填入 Hy2 config 里 trafficStats.secret 的值",
+  "interval_seconds": 120
+}

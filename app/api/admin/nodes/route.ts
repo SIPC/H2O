@@ -25,9 +25,12 @@ export async function GET(request: Request) {
   const db = getDb()
   const rows = db
     .prepare(
-      `SELECT id, name, ip, port, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256, created_at
-       FROM nodes
-       ORDER BY id DESC`
+      `SELECT n.id, n.name, n.ip, n.port, n.auth_path, n.status, n.sni, n.obfs,
+              n.obfs_password, n.insecure, n.pin_sha256, n.created_at,
+              ns.last_report_at, ns.online_count
+       FROM nodes n
+       LEFT JOIN node_stats ns ON ns.node_id = n.id
+       ORDER BY n.id DESC`
     )
     .all()
   return NextResponse.json({ ok: true, data: rows })
