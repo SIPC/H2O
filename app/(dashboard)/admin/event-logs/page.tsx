@@ -14,6 +14,12 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import {
   Popover,
@@ -260,15 +266,31 @@ function UserFilterCombobox({
   )
 }
 
-function formatDetail(detail: string | null): string {
-  if (!detail) return "-"
+// detail 里常见字段的中文标签，未命中的直接用原 key
+const detailLabel: Record<string, string> = {
+  method: "请求方法",
+  url: "请求 URL",
+  format: "返回格式",
+  ua: "User-Agent",
+  accept: "Accept",
+  accept_encoding: "Accept-Encoding",
+  referer: "Referer",
+  nodes: "节点数",
+}
+
+function renderDetailValue(value: unknown): string {
+  if (value === null || value === undefined) return "-"
+  if (typeof value === "object") return JSON.stringify(value, null, 2)
+  return String(value)
+}
+
+function parseDetail(detail: string | null): Array<[string, unknown]> | null {
+  if (!detail) return null
   try {
     const obj = JSON.parse(detail) as Record<string, unknown>
     return Object.entries(obj)
-      .map(([k, v]) => `${k}: ${String(v)}`)
-      .join("；")
   } catch {
-    return detail
+    return [["raw", detail]]
   }
 }
 
@@ -281,6 +303,8 @@ export default function AdminEventLogsPage() {
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>("all")
   const [eventFilter, setEventFilter] = useState<EventFilter>("all")
   const [users, setUsers] = useState<UserRow[]>([])
+  // 当前在弹窗里查看的行；null 表示未打开
+  const [activeRow, setActiveRow] = useState<EventRow | null>(null)
 
   async function load(
     opts: {
@@ -460,7 +484,7 @@ export default function AdminEventLogsPage() {
                 <TH>IP</TH>
                 <TH>结果</TH>
                 <TH>原因</TH>
-                <TH>数据</TH>
+                <TH className="w-[80px]">操作</TH>
               </TR>
             </THead>
             <TBody>
@@ -492,8 +516,15 @@ export default function AdminEventLogsPage() {
                       ? (reasonLabel[row.reason] ?? row.reason)
                       : "-"}
                   </TD>
-                  <TD className="max-w-[260px] truncate text-xs text-muted-foreground">
-                    {formatDetail(row.detail)}
+                  <TD>
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      onClick={() => setActiveRow(row)}
+                    >
+                      详情
+                    </Button>
                   </TD>
                 </TR>
               ))}
@@ -564,6 +595,109 @@ export default function AdminEventLogsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <EventLogDetailDialog
+        row={activeRow}
+        onClose={() => setActiveRow(null)}
+      />
+    </div>
+  )
+}
+
+function EventLogDetailDialog({
+  row,
+  onClose,
+}: {
+  row: EventRow | null
+  onClose: () => void
+}) {
+  const entries = parseDetail(row?.detail ?? null)
+  const createdAt = row
+    ? new Date(
+        row.created_at.endsWith("Z") ? row.created_at : `${row.created_at}Z`
+      ).toLocaleString()
+    : ""
+
+  return (
+    <Dialog
+      open={row !== null}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>日志详情</DialogTitle>
+        </DialogHeader>
+        {row ? (
+          <div className="grid gap-3 text-sm">
+            <DetailField label="时间" value={createdAt} />
+            <DetailField
+              label="事件"
+              value={eventLabel[row.event] ?? row.event}
+            />
+            <DetailField label="账号" value={row.username ?? "-"} />
+            <DetailField
+              label="IP"
+              value={row.ip ?? "-"}
+              mono
+            />
+            <DetailField
+              label="结果"
+              value={row.success === 1 ? "成功" : "失败"}
+            />
+            <DetailField
+              label="原因"
+              value={
+                row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"
+              }
+            />
+            {entries && entries.length > 0 ? (
+              <div className="mt-2 rounded-md border">
+                <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                  数据
+                </div>
+                <div className="divide-y">
+                  {entries.map(([key, value]) => (
+                    <div
+                      key={key}
+                      className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2 text-xs"
+                    >
+                      <div className="text-muted-foreground">
+                        {detailLabel[key] ?? key}
+                      </div>
+                      <div className="font-mono break-all whitespace-pre-wrap">
+                        {renderDetailValue(value)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DetailField({
+  label,
+  value,
+  mono,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+}) {
+  return (
+    <div className="grid grid-cols-[80px_1fr] gap-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div
+        className={cn("text-sm break-all", mono && "font-mono text-xs")}
+      >
+        {value}
+      </div>
     </div>
   )
 }

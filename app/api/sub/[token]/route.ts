@@ -33,19 +33,45 @@ function buildUserInfoHeader(agg: SubscriptionAggregate) {
   return `upload=0; download=${agg.used}; total=${agg.total}; expire=${expireTs}`
 }
 
-// 订阅拉取日志统一入口：记录格式、UA、节点数，方便在事件日志里回溯
+// 订阅 token 脱敏：保留前 4 + … + 后 4，避免完整 token 落进日志里
+function maskToken(raw: string): string {
+  if (!raw) return ""
+  if (raw.length <= 8) return "…"
+  return `${raw.slice(0, 4)}…${raw.slice(-4)}`
+}
+
+// 把 URL 里路径中的 token 段替换为脱敏形式，query 保留
+function maskUrl(rawUrl: string, token: string): string {
+  if (!token) return rawUrl
+  return rawUrl.replace(token, maskToken(token))
+}
+
+// 订阅拉取日志统一入口：记录 URL、请求头、格式、节点数，方便在事件日志里回溯
 function logFetch(params: {
   user: { id: number; username: string } | null
   ip: string | null
   success: boolean
   reason: string
   format: SubFormat | null
-  userAgent: string | null
+  request: Request
+  token: string
   nodeCount: number | null
 }) {
-  const detail: Record<string, unknown> = {}
+  const headers = params.request.headers
+  const userAgent = headers.get("user-agent")
+
+  const detail: Record<string, unknown> = {
+    method: params.request.method,
+    url: maskUrl(params.request.url, params.token),
+  }
   if (params.format) detail.format = params.format
-  if (params.userAgent) detail.ua = params.userAgent
+  if (userAgent) detail.ua = userAgent
+  const accept = headers.get("accept")
+  if (accept) detail.accept = accept
+  const acceptEncoding = headers.get("accept-encoding")
+  if (acceptEncoding) detail.accept_encoding = acceptEncoding
+  const referer = headers.get("referer")
+  if (referer) detail.referer = referer
   if (params.nodeCount !== null) detail.nodes = params.nodeCount
 
   writeEventLog({
@@ -55,7 +81,7 @@ function logFetch(params: {
     ip: params.ip,
     success: params.success,
     reason: params.reason,
-    detail: Object.keys(detail).length > 0 ? JSON.stringify(detail) : null,
+    detail: JSON.stringify(detail),
   })
 }
 
@@ -74,7 +100,8 @@ export async function GET(
       success: false,
       reason: "INVALID_TOKEN",
       format: null,
-      userAgent,
+      request,
+      token,
       nodeCount: null,
     })
     return new Response("Not Found", { status: 404 })
@@ -95,7 +122,8 @@ export async function GET(
       success: false,
       reason: "NO_USER",
       format: null,
-      userAgent,
+      request,
+      token,
       nodeCount: null,
     })
     return new Response("Not Found", { status: 404 })
@@ -108,7 +136,8 @@ export async function GET(
       success: false,
       reason: "USER_DISABLED",
       format: null,
-      userAgent,
+      request,
+      token,
       nodeCount: null,
     })
     return new Response("Not Found", { status: 404 })
@@ -172,7 +201,8 @@ export async function GET(
       success: false,
       reason: "NO_NODES",
       format,
-      userAgent,
+      request,
+      token,
       nodeCount: 0,
     })
     return new Response("暂无可用节点", { status: 404 })
@@ -185,7 +215,8 @@ export async function GET(
       success: true,
       reason: "OK",
       format,
-      userAgent,
+      request,
+      token,
       nodeCount: nodes.length,
     })
     return new Response(buildClashConfig(token, nodes), {
@@ -201,7 +232,8 @@ export async function GET(
       success: true,
       reason: "OK",
       format,
-      userAgent,
+      request,
+      token,
       nodeCount: nodes.length,
     })
     return new Response(buildSingboxConfig(token, nodes), {
@@ -224,7 +256,8 @@ export async function GET(
     success: true,
     reason: "OK",
     format,
-    userAgent,
+    request,
+    token,
     nodeCount: nodes.length,
   })
 
