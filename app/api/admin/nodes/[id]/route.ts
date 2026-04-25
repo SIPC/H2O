@@ -3,12 +3,13 @@ import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
+import { parseUnifiedPortInput } from "@/lib/port-hopping"
 import { getClientIp } from "@/lib/turnstile"
 
 type UpdateNodeBody = {
   name?: string
   ip?: string
-  port?: number
+  port?: string | number
   status?: "enabled" | "disabled"
   sni?: string | null
   obfs?: string | null
@@ -52,10 +53,36 @@ export async function PATCH(
     changedFields.push("ip")
   }
 
-  if (typeof body.port === "number") {
+  if (body.port !== undefined && body.port !== null) {
+    const resolvedPortInput = parseUnifiedPortInput(String(body.port))
+    if (!resolvedPortInput.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PORT",
+        detail: { nodeId, port: body.port ?? null },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_PORT",
+            message: resolvedPortInput.error,
+          },
+        },
+        { status: 400 }
+      )
+    }
+
     updates.push("port = ?")
-    values.push(body.port)
+    values.push(resolvedPortInput.port)
     changedFields.push("port")
+
+    updates.push("port_hopping = ?")
+    values.push(resolvedPortInput.portHopping)
+    changedFields.push("port_hopping")
   }
 
   if (body.status) {

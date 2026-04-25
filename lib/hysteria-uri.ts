@@ -7,6 +7,7 @@ export type NodeForUri = {
   name: string
   ip: string
   port: number
+  port_hopping?: string | null
   sni?: string | null
   obfs?: string | null
   obfs_password?: string | null
@@ -20,7 +21,11 @@ export type NodeForUri = {
 export function buildHysteriaUri(token: string, node: NodeForUri): string {
   const auth = encodeURIComponent(token)
   const host = node.ip
-  const base = `hysteria2://${auth}@${host}:${node.port}/`
+  const portHopping = node.port_hopping?.trim()
+  const address = portHopping
+    ? `${host}:${portHopping}`
+    : `${host}:${node.port}`
+  const base = `hysteria2://${auth}@${address}/`
 
   const params = new URLSearchParams()
   if (node.sni) params.set("sni", node.sni)

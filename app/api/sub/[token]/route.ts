@@ -3,10 +3,7 @@ import { buildHysteriaUri, type NodeForUri } from "@/lib/hysteria-uri"
 import { writeEventLog } from "@/lib/logs-db"
 import { buildClashConfig } from "@/lib/subscription/build-clash"
 import { buildSingboxConfig } from "@/lib/subscription/build-singbox"
-import {
-  detectFormat,
-  type SubFormat,
-} from "@/lib/subscription/client-type"
+import { detectFormat, type SubFormat } from "@/lib/subscription/client-type"
 import { getClientIp } from "@/lib/turnstile"
 
 type UserRow = {
@@ -147,7 +144,7 @@ export async function GET(
   // 同一节点可能被多个套餐覆盖，限速取"最宽松"：任一套餐 0（不限速）→ 最终 0；否则取 MAX
   const nodes = db
     .prepare(
-      `SELECT n.id, n.name, n.ip, n.port, n.status, n.sni, n.obfs, n.obfs_password, n.insecure, n.pin_sha256,
+      `SELECT n.id, n.name, n.ip, n.port, n.port_hopping, n.status, n.sni, n.obfs, n.obfs_password, n.insecure, n.pin_sha256,
               CASE WHEN MIN(p.up_mbps) = 0 THEN 0 ELSE MAX(p.up_mbps) END AS up_mbps,
               CASE WHEN MIN(p.down_mbps) = 0 THEN 0 ELSE MAX(p.down_mbps) END AS down_mbps
        FROM subscriptions s

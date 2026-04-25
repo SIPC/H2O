@@ -5,12 +5,13 @@ import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
+import { parseUnifiedPortInput } from "@/lib/port-hopping"
 import { getClientIp } from "@/lib/turnstile"
 
 type CreateNodeBody = {
   name?: string
   ip?: string
-  port?: number
+  port?: string | number
   sni?: string | null
   obfs?: string | null
   obfsPassword?: string | null
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
   const db = getDb()
   const rows = db
     .prepare(
-      `SELECT n.id, n.name, n.ip, n.port, n.auth_path, n.status, n.sni, n.obfs,
+      `SELECT n.id, n.name, n.ip, n.port, n.port_hopping, n.auth_path, n.status, n.sni, n.obfs,
               n.obfs_password, n.insecure, n.pin_sha256, n.created_at,
               ns.last_report_at, ns.online_count
        FROM nodes n
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
   const ip = getClientIp(request)
   const body = (await request.json()) as CreateNodeBody
 
-  if (!body.name || !body.ip || typeof body.port !== "number") {
+  if (!body.name || !body.ip || body.port === undefined || body.port === null) {
     writeAdminEvent({
       event: "NODE_CREATE",
       actor: auth.user,
@@ -68,16 +69,42 @@ export async function POST(request: Request) {
   const pinSha256 = body.pinSha256?.trim() || null
   const insecure = body.insecure ? 1 : 0
 
+  const resolvedPortInput = parseUnifiedPortInput(String(body.port))
+  if (!resolvedPortInput.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PORT",
+      detail: { name: body.name ?? null, port: body.port ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PORT",
+          message: resolvedPortInput.error,
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  const resolvedPort = resolvedPortInput.port
+  const resolvedPortHopping = resolvedPortInput.portHopping
+
   try {
     const result = db
       .prepare(
-        `INSERT INTO nodes(name, ip, port, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256)
-         VALUES (?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?)`
+        `INSERT INTO nodes(name, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256)
+         VALUES (?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
         body.ip,
-        body.port,
+        resolvedPort,
+        resolvedPortHopping,
         authPath,
         sni,
         obfs,
@@ -96,7 +123,7 @@ export async function POST(request: Request) {
       detail: {
         nodeId: newNodeId,
         name: body.name,
-        host: `${body.ip}:${body.port}`,
+        host: `${body.ip}:${resolvedPortHopping ?? resolvedPort}`,
       },
     })
 
@@ -106,7 +133,8 @@ export async function POST(request: Request) {
         id: newNodeId,
         name: body.name,
         ip: body.ip,
-        port: body.port,
+        port: resolvedPort,
+        port_hopping: resolvedPortHopping,
         auth_path: authPath,
       },
     })

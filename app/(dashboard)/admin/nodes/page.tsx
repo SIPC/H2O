@@ -15,6 +15,7 @@ type NodeRow = {
   name: string
   ip: string
   port: number
+  port_hopping: string | null
   auth_path: string
   status: "enabled" | "disabled"
   sni: string | null
@@ -47,7 +48,7 @@ export default function AdminNodesPage() {
   // 创建表单
   const [name, setName] = useState("")
   const [ip, setIp] = useState("")
-  const [port, setPort] = useState("443")
+  const [portInput, setPortInput] = useState("")
   const [sni, setSni] = useState("")
   const [obfs, setObfs] = useState("")
   const [obfsPassword, setObfsPassword] = useState("")
@@ -58,7 +59,7 @@ export default function AdminNodesPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editName, setEditName] = useState("")
   const [editIp, setEditIp] = useState("")
-  const [editPort, setEditPort] = useState("443")
+  const [editPortInput, setEditPortInput] = useState("")
   const [editSni, setEditSni] = useState("")
   const [editObfs, setEditObfs] = useState("")
   const [editObfsPassword, setEditObfsPassword] = useState("")
@@ -93,7 +94,7 @@ export default function AdminNodesPage() {
       body: JSON.stringify({
         name,
         ip,
-        port: Number(port),
+        port: portInput,
         sni: sni || null,
         obfs: obfs || null,
         obfsPassword: obfsPassword || null,
@@ -107,7 +108,7 @@ export default function AdminNodesPage() {
 
     setName("")
     setIp("")
-    setPort("443")
+    setPortInput("443")
     setSni("")
     setObfs("")
     setObfsPassword("")
@@ -157,7 +158,7 @@ export default function AdminNodesPage() {
     setEditingId(row.id)
     setEditName(row.name)
     setEditIp(row.ip)
-    setEditPort(String(row.port))
+    setEditPortInput(row.port_hopping ?? String(row.port))
     setEditSni(row.sni ?? "")
     setEditObfs(row.obfs ?? "")
     setEditObfsPassword(row.obfs_password ?? "")
@@ -172,7 +173,7 @@ export default function AdminNodesPage() {
     await updateNode(editingId, {
       name: editName,
       ip: editIp,
-      port: Number(editPort),
+      port: editPortInput,
       sni: editSni,
       obfs: editObfs,
       obfsPassword: editObfsPassword,
@@ -244,10 +245,11 @@ export default function AdminNodesPage() {
               />
             </div>
             <div className="space-y-1">
-              <Label>端口</Label>
+              <Label>端口（支持端口跳跃）</Label>
               <Input
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
+                value={portInput}
+                onChange={(e) => setPortInput(e.target.value)}
+                placeholder="如 443 或 1145,1155,1157 或 1145-1155"
                 required
               />
             </div>
@@ -321,7 +323,7 @@ export default function AdminNodesPage() {
                     <TD>{row.id}</TD>
                     <TD>{row.name}</TD>
                     <TD>{row.ip}</TD>
-                    <TD>{row.port}</TD>
+                    <TD className="text-xs">{row.port_hopping ?? row.port}</TD>
                     <TD>{row.status === "enabled" ? "启用" : "禁用"}</TD>
                     <TD
                       className={
@@ -428,10 +430,11 @@ export default function AdminNodesPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label>端口</Label>
+                <Label>端口（支持端口跳跃）</Label>
                 <Input
-                  value={editPort}
-                  onChange={(e) => setEditPort(e.target.value)}
+                  value={editPortInput}
+                  onChange={(e) => setEditPortInput(e.target.value)}
+                  placeholder="如 443 或 1145,1155,1157 或 1145-1155"
                   required
                 />
               </div>

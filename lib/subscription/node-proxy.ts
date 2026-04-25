@@ -5,12 +5,14 @@
 // 以保证能连上；需要更严格的校验请继续用 hysteria 原生 URI 订阅。
 
 import type { NodeForUri } from "@/lib/hysteria-uri"
+import { toClashPorts, toSingboxServerPorts } from "@/lib/port-hopping"
 
 export type ClashHysteria2Proxy = {
   name: string
   type: "hysteria2"
   server: string
   port: number
+  ports?: string
   password: string
   udp?: boolean
   up?: string
@@ -27,6 +29,7 @@ export type SingboxHysteria2Outbound = {
   tag: string
   server: string
   server_port: number
+  server_ports?: string[]
   password: string
   up_mbps?: number
   down_mbps?: number
@@ -57,6 +60,8 @@ export function nodeToClashProxy(
     udp: true,
     alpn: ["h3"],
   }
+  const clashPorts = toClashPorts(node.port_hopping)
+  if (clashPorts) proxy.ports = clashPorts
   if (node.sni) proxy.sni = node.sni
   if (shouldSkipCertVerify(node)) proxy["skip-cert-verify"] = true
   // mihomo 只认 salamander 这一种 obfs；必须同时有密码才启用
@@ -88,6 +93,10 @@ export function nodeToSingboxOutbound(
       enabled: true,
       alpn: ["h3"],
     },
+  }
+  const serverPorts = toSingboxServerPorts(node.port_hopping)
+  if (serverPorts && serverPorts.length > 0) {
+    outbound.server_ports = serverPorts
   }
   if (node.sni) outbound.tls.server_name = node.sni
   if (shouldSkipCertVerify(node)) outbound.tls.insecure = true
