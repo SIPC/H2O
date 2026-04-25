@@ -39,7 +39,7 @@ export default function Page() {
       <div className="flex max-w-2xl min-w-0 flex-col gap-4 text-sm leading-loose">
         <div>
           <h1 className="font-medium">H2O</h1>
-          <p>企业内网使用</p>
+          <p>仅限企业内网使用，禁止部署外网</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
