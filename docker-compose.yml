@@ -1,0 +1,9 @@
+services:
+  h2o:
+    container_name: h2o
+    image: sipcink/h2o:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

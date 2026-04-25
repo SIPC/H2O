@@ -5,21 +5,28 @@ export const SETTING_KEYS = {
   registrationEnabled: "registration_enabled",
   loginEnabled: "login_enabled",
   newUserDefaultActive: "new_user_default_active",
+  turnstileSiteKey: "turnstile_site_key",
+  turnstileSecretKey: "turnstile_secret_key",
 } as const
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS]
 
 // 默认值，未写入 DB 时使用；同时也是白名单（只允许这些 key 被读写）
+// 校验请求体时按每个 key 的默认值类型（boolean / string）决定允许的类型
 export const SETTING_DEFAULTS: Record<SettingKey, unknown> = {
   [SETTING_KEYS.registrationEnabled]: true,
   [SETTING_KEYS.loginEnabled]: true,
   [SETTING_KEYS.newUserDefaultActive]: true,
+  [SETTING_KEYS.turnstileSiteKey]: "",
+  [SETTING_KEYS.turnstileSecretKey]: "",
 }
 
 // 暴露给未登录前端的 key（用于首页/登录/注册页隐藏入口，不泄露内部策略）
+// site key 天生会出现在浏览器里，可以公开；secret key 绝不能放入
 export const PUBLIC_SETTING_KEYS: SettingKey[] = [
   SETTING_KEYS.registrationEnabled,
   SETTING_KEYS.loginEnabled,
+  SETTING_KEYS.turnstileSiteKey,
 ]
 
 function parseValue<T>(raw: string, fallback: T): T {

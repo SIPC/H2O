@@ -5,6 +5,8 @@ import { useTheme } from "next-themes"
 import { useEffect, useRef, useSyncExternalStore } from "react"
 
 type Props = {
+  // null/undefined/"" 表示未配置或仍在加载，widget 不渲染
+  siteKey: string | null | undefined
   onVerify: (token: string) => void
   onExpire?: () => void
   onError?: () => void
@@ -20,14 +22,15 @@ function useMounted() {
   )
 }
 
-// Turnstile 组件封装：未配置 site key 时直接返回 null，组件在 onVerify 传回 token 后由父组件带去服务端
+// Turnstile 组件封装：site key 由调用方通过 /api/settings/public 拿到后传入，
+// 未配置时直接返回 null；onVerify 传回 token 后由父组件带去服务端
 export function TurnstileWidget({
+  siteKey,
   onVerify,
   onExpire,
   onError,
   className,
 }: Props) {
-  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
   const { resolvedTheme } = useTheme()
   const mounted = useMounted()
   const onVerifyRef = useRef(onVerify)
@@ -57,8 +60,4 @@ export function TurnstileWidget({
       />
     </div>
   )
-}
-
-export function isTurnstileClientEnabled() {
-  return Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
 }

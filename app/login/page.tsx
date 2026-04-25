@@ -3,10 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 
-import {
-  TurnstileWidget,
-  isTurnstileClientEnabled,
-} from "@/components/turnstile-widget"
+import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -20,8 +17,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
+  // site key 从 /api/settings/public 读，空串表示未配置
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState("")
 
-  const turnstileRequired = isTurnstileClientEnabled()
+  const turnstileRequired = Boolean(turnstileSiteKey)
 
   useEffect(() => {
     let mounted = true
@@ -31,6 +30,9 @@ export default function LoginPage() {
       const json = await response.json()
       if (mounted && json?.ok) {
         setRegistrationEnabled(json.data.registration_enabled !== false)
+        if (typeof json.data.turnstile_site_key === "string") {
+          setTurnstileSiteKey(json.data.turnstile_site_key)
+        }
       }
     })()
 
@@ -102,6 +104,7 @@ export default function LoginPage() {
               />
             </div>
             <TurnstileWidget
+              siteKey={turnstileSiteKey}
               onVerify={setTurnstileToken}
               onExpire={() => setTurnstileToken("")}
               onError={() => setTurnstileToken("")}

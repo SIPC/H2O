@@ -1,13 +1,23 @@
+import { getSetting, SETTING_KEYS } from "@/lib/settings"
+
 // Cloudflare Turnstile 服务端校验
 const SITEVERIFY_URL =
   "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 
 export type TurnstileStatus = "disabled" | "enabled" | "misconfigured"
 
+// 站点 key / 密钥都存在 settings 表里，由管理员在后台配置
+function getKeys() {
+  const site = getSetting<string>(SETTING_KEYS.turnstileSiteKey, "").trim()
+  const secret = getSetting<string>(SETTING_KEYS.turnstileSecretKey, "").trim()
+  return { site, secret }
+}
+
 // 判断当前 Turnstile 启用状态：两个 key 都缺失视为未启用，单独配置视为错误
 export function getTurnstileStatus(): TurnstileStatus {
-  const hasSite = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY)
-  const hasSecret = Boolean(process.env.TURNSTILE_SECRET_KEY)
+  const { site, secret } = getKeys()
+  const hasSite = Boolean(site)
+  const hasSecret = Boolean(secret)
   if (!hasSite && !hasSecret) return "disabled"
   if (hasSite && hasSecret) return "enabled"
   return "misconfigured"
@@ -26,6 +36,7 @@ export async function verifyTurnstile(
   token: string | undefined,
   remoteIp?: string | null
 ): Promise<VerifyResult> {
+  const { secret } = getKeys()
   const status = getTurnstileStatus()
   if (status === "disabled") return { ok: true }
   if (status === "misconfigured") {
@@ -40,7 +51,7 @@ export async function verifyTurnstile(
   }
 
   const form = new URLSearchParams()
-  form.set("secret", process.env.TURNSTILE_SECRET_KEY as string)
+  form.set("secret", secret)
   form.set("response", token)
   if (remoteIp) form.set("remoteip", remoteIp)
 

@@ -33,6 +33,51 @@ export async function PATCH(
   }
 
   const body = (await request.json()) as UpdateUserBody
+
+  // 自我保护：不允许 admin 把自己降级为 user 或禁用自己，避免把系统最后一个 admin 锁出去
+  if (auth.user.id === userId) {
+    if (body.role && body.role !== "admin") {
+      writeAdminEvent({
+        event: "USER_UPDATE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "SELF_DEMOTE_FORBIDDEN",
+        detail: { targetUserId: userId },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "SELF_DEMOTE_FORBIDDEN",
+            message: "不能把当前登录的管理员降级",
+          },
+        },
+        { status: 400 }
+      )
+    }
+    if (body.status === "disabled") {
+      writeAdminEvent({
+        event: "USER_UPDATE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "SELF_DISABLE_FORBIDDEN",
+        detail: { targetUserId: userId },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "SELF_DISABLE_FORBIDDEN",
+            message: "不能禁用当前登录的管理员",
+          },
+        },
+        { status: 400 }
+      )
+    }
+  }
+
   const updates: string[] = []
   const values: Array<string | number> = []
   // 收集本次改动的字段名，用于日志 detail
@@ -125,6 +170,17 @@ export async function PATCH(
   const target = db
     .prepare(`SELECT username FROM users WHERE id = ? LIMIT 1`)
     .get(userId) as { username: string } | undefined
+
+  // 密码或角色变动后，撤销该用户所有未失效的 session：
+  // 防止已偷走 cookie 的攻击者在密码重置 / 降级后继续持有会话
+  const shouldRevokeSessions =
+    Boolean(body.newPassword) || Boolean(body.role)
+  if (shouldRevokeSessions) {
+    db.prepare(
+      `UPDATE sessions SET revoked_at = datetime('now')
+       WHERE user_id = ? AND revoked_at IS NULL`
+    ).run(userId)
+  }
 
   // admin 重置用户节点登录 Key 是高危操作，单独记一条 RESET_TOKEN_ADMIN
   if (body.resetAuthToken === true) {

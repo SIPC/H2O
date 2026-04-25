@@ -6,9 +6,25 @@ import {
   getAllSettings,
   setSetting,
   SETTING_DEFAULTS,
+  SETTING_KEYS,
   type SettingKey,
 } from "@/lib/settings"
 import { getClientIp } from "@/lib/turnstile"
+
+// 审计日志里不应出现的敏感 key：只记录是否改动，不记录明文
+const SENSITIVE_KEYS = new Set<SettingKey>([SETTING_KEYS.turnstileSecretKey])
+
+function maskChanges(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(body)) {
+    if (SENSITIVE_KEYS.has(key as SettingKey)) {
+      out[key] = typeof value === "string" && value.length > 0 ? "[SET]" : "[CLEARED]"
+    } else {
+      out[key] = value
+    }
+  }
+  return out
+}
 
 export async function GET(request: Request) {
   const auth = requireAdmin(request)
@@ -40,7 +56,7 @@ export async function PATCH(request: Request) {
     )
   }
 
-  // 仅接受白名单 key；每项当前都是布尔类型，校验类型再写入
+  // 仅接受白名单 key；按每项默认值类型（boolean 或 string）校验请求值
   for (const key of Object.keys(body)) {
     if (!(key in SETTING_DEFAULTS)) {
       writeAdminEvent({
@@ -59,7 +75,8 @@ export async function PATCH(request: Request) {
         { status: 400 }
       )
     }
-    if (typeof body[key] !== "boolean") {
+    const expected = typeof SETTING_DEFAULTS[key as SettingKey]
+    if (typeof body[key] !== expected) {
       writeAdminEvent({
         event: "SETTINGS_UPDATE",
         actor: auth.user,
@@ -71,7 +88,10 @@ export async function PATCH(request: Request) {
       return NextResponse.json(
         {
           ok: false,
-          error: { code: "INVALID_PAYLOAD", message: `${key} 必须是布尔值` },
+          error: {
+            code: "INVALID_PAYLOAD",
+            message: `${key} 必须是 ${expected} 类型`,
+          },
         },
         { status: 400 }
       )
@@ -79,7 +99,9 @@ export async function PATCH(request: Request) {
   }
 
   for (const [key, value] of Object.entries(body)) {
-    setSetting(key as SettingKey, value)
+    // 字符串值写入前 trim，避免前后空格导致 Turnstile 校验失败
+    const normalized = typeof value === "string" ? value.trim() : value
+    setSetting(key as SettingKey, normalized)
   }
 
   writeAdminEvent({
@@ -88,8 +110,8 @@ export async function PATCH(request: Request) {
     ip,
     success: true,
     reason: "OK",
-    // 记录改了哪些 key 及其新值，便于审计
-    detail: { changes: body },
+    // 记录改了哪些 key；敏感 key 只记 [SET]/[CLEARED]，不落明文
+    detail: { changes: maskChanges(body) },
   })
 
   return NextResponse.json({ ok: true, data: getAllSettings() })

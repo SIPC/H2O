@@ -72,7 +72,10 @@ export default function DashboardPage() {
   async function loadSub() {
     const response = await fetch("/api/user/subscription")
     const json = await response.json()
-    if (json?.ok) setSub(json.data)
+    // 后端只返回相对 path（部署域名不固定），在客户端用当前 origin 拼出完整 URL
+    if (json?.ok && typeof json.data?.path === "string") {
+      setSub({ url: `${window.location.origin}${json.data.path}` })
+    }
   }
 
   useEffect(() => {
@@ -87,7 +90,9 @@ export default function DashboardPage() {
       const subJson = await subRes.json()
       if (!mounted) return
       if (subsJson?.ok) setRows(subsJson.data)
-      if (subJson?.ok) setSub(subJson.data)
+      if (subJson?.ok && typeof subJson.data?.path === "string") {
+        setSub({ url: `${window.location.origin}${subJson.data.path}` })
+      }
       setReferenceNow(Date.now())
     })()
 

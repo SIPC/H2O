@@ -35,7 +35,9 @@ function parseSqliteUtc(value: string): Date {
 
 function isFresh(lastReportAt: string | null): boolean {
   if (!lastReportAt) return false
-  return Date.now() - parseSqliteUtc(lastReportAt).getTime() < FRESH_THRESHOLD_MS
+  return (
+    Date.now() - parseSqliteUtc(lastReportAt).getTime() < FRESH_THRESHOLD_MS
+  )
 }
 
 export default function AdminNodesPage() {
@@ -184,7 +186,9 @@ export default function AdminNodesPage() {
   // 弹出 agent 部署配置片段，并尝试复制到剪贴板
   async function showAgentConfig(row: NodeRow) {
     const origin =
-      typeof window !== "undefined" ? window.location.origin : "https://h2o.example.com"
+      typeof window !== "undefined"
+        ? window.location.origin
+        : "https://h2o.example.com"
     const config = JSON.stringify(
       {
         h2o_url: origin,
@@ -208,7 +212,7 @@ export default function AdminNodesPage() {
     await alert({
       title: `${row.name} \u7684 agent \u914d\u7f6e${copied ? "\uff08\u5df2\u590d\u5236\uff09" : ""}`,
       description: (
-        <pre className="bg-muted max-h-[400px] overflow-auto rounded p-3 font-mono text-xs whitespace-pre-wrap">
+        <pre className="max-h-[400px] min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
           {config}
         </pre>
       ),
@@ -324,8 +328,8 @@ export default function AdminNodesPage() {
                         row.last_report_at
                           ? fresh
                             ? "text-xs text-emerald-600 dark:text-emerald-400"
-                            : "text-muted-foreground text-xs"
-                          : "text-muted-foreground text-xs"
+                            : "text-xs text-muted-foreground"
+                          : "text-xs text-muted-foreground"
                       }
                     >
                       {row.last_report_at

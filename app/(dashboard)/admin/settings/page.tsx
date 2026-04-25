@@ -5,18 +5,32 @@ import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 
 type Settings = {
   registration_enabled: boolean
   login_enabled: boolean
   new_user_default_active: boolean
+  turnstile_site_key: string
+  turnstile_secret_key: string
 }
 
 const DEFAULTS: Settings = {
   registration_enabled: true,
   login_enabled: true,
   new_user_default_active: true,
+  turnstile_site_key: "",
+  turnstile_secret_key: "",
+}
+
+// 根据两 key 填写情况推断 Turnstile 当前状态，与后端 getTurnstileStatus 一致
+function turnstileStatus(site: string, secret: string) {
+  const s = site.trim()
+  const k = secret.trim()
+  if (!s && !k) return { label: "未启用", tone: "muted" as const }
+  if (s && k) return { label: "已启用", tone: "ok" as const }
+  return { label: "配置错误：仅填了一个 key，登录/注册会被拒绝", tone: "err" as const }
 }
 
 // 单个开关行，复用 Checkbox + Label
@@ -67,7 +81,9 @@ export default function AdminSettingsPage() {
     return (
       draft.registration_enabled !== saved.registration_enabled ||
       draft.login_enabled !== saved.login_enabled ||
-      draft.new_user_default_active !== saved.new_user_default_active
+      draft.new_user_default_active !== saved.new_user_default_active ||
+      draft.turnstile_site_key !== saved.turnstile_site_key ||
+      draft.turnstile_secret_key !== saved.turnstile_secret_key
     )
   }, [draft, saved])
 
@@ -161,6 +177,67 @@ export default function AdminSettingsPage() {
                   }))
                 }
               />
+
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-sm font-medium">
+                      Cloudflare Turnstile 人机验证
+                    </Label>
+                    {(() => {
+                      const s = turnstileStatus(
+                        draft.turnstile_site_key,
+                        draft.turnstile_secret_key
+                      )
+                      const cls =
+                        s.tone === "ok"
+                          ? "text-xs text-green-600"
+                          : s.tone === "err"
+                            ? "text-xs text-destructive"
+                            : "text-xs text-muted-foreground"
+                      return <span className={cls}>{s.label}</span>
+                    })()}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    两者都填=启用；都留空=关闭；只填其中一个视为配置错误，登录/注册将被拒绝。保存后立即生效，刷新登录/注册页可见。
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="turnstile_site_key" className="text-xs">
+                    Site Key
+                  </Label>
+                  <Input
+                    id="turnstile_site_key"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={draft.turnstile_site_key}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        turnstile_site_key: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="turnstile_secret_key" className="text-xs">
+                    Secret Key
+                  </Label>
+                  <Input
+                    id="turnstile_secret_key"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    value={draft.turnstile_secret_key}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        turnstile_secret_key: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              </div>
 
               <div className="flex items-center gap-2 pt-2">
                 <Button onClick={save} disabled={!dirty || saving}>

@@ -3,11 +3,11 @@ import { NextResponse } from "next/server"
 import { requireUser } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 
-// 返回当前登录用户的订阅 URL（不暴露 token 本身）
+// 返回当前登录用户的订阅路径（不含 host），由前端拼 origin 组装完整 URL
+// 不在后端拼 host 是因为内网部署域名多变，在服务端写死域名会导致部署换域名后订阅链接失效
 export async function GET(request: Request) {
   const auth = requireUser(request)
   if (!auth.ok) return auth.response
-
   const db = getDb()
   const row = db
     .prepare(`SELECT auth_token FROM users WHERE id = ? LIMIT 1`)
@@ -20,11 +20,8 @@ export async function GET(request: Request) {
     )
   }
 
-  // const origin = new URL(request.url).origin
-  const url = `https://byte.lyrify.cloud/api/sub/${row.auth_token}`
-
   return NextResponse.json({
     ok: true,
-    data: { url },
+    data: { path: `/api/sub/${row.auth_token}` },
   })
 }

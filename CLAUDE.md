@@ -34,8 +34,8 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 使用 Node.js 内建 `node:sqlite` 的 `DatabaseSync`，**没有** `better-sqlite3`/`sqlite3` 依赖。需要 Node 版本支持 `node:sqlite`（Node 22+ 实验性 / Node 23+ 稳定）。
 
-- `lib/db.ts` → 业务库 `data/h2o.sqlite`（可用 `H2O_DB_PATH` 覆盖）：`users`, `nodes`, `plans`, `plan_nodes`, `subscriptions`, `sessions`
-- `lib/logs-db.ts` → 日志库 `data/h2o-logs.sqlite`（可用 `H2O_LOGS_DB_PATH` 覆盖）：只有 `auth_logs`
+- `lib/db.ts` → 业务库 `data/h2o.sqlite`（可用 `H2O_DB_PATH` 覆盖）：`users`, `nodes`, `plans`, `plan_nodes`, `subscriptions`, `sessions`, `settings`, `node_stats`, `node_user_traffic`
+- `lib/logs-db.ts` → 日志库 `data/h2o-logs.sqlite`（可用 `H2O_LOGS_DB_PATH` 覆盖）：`auth_logs`（节点认证日志）、`event_logs`（业务事件日志）
 
 两库分离的设计目的是让日志可单独归档/清理，不影响业务库。两者都采用单例 + 懒加载，首次取用时 `migrate()` 建表并打开 `PRAGMA foreign_keys = ON`。`migrate()` 只维护当前 schema，**不做旧版本迁移兼容**。
 
@@ -70,9 +70,12 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 - 路径参数 `token` 即用户的 `auth_token`
 - 聚合用户所有 active 订阅对应的启用节点（去重），每个节点走 `lib/hysteria-uri.ts::buildHysteriaUri` 生成 `hysteria2://` URI
-- 默认返回 base64 编码，`?format=plain` 返回明文
+- 根据 User-Agent **自动检测**输出格式（`lib/subscription/client-type.ts::detectFormat`）：
+  - Clash 客户端 → YAML 配置（`lib/subscription/build-clash.ts`）
+  - sing-box 客户端 → JSON 配置（`lib/subscription/build-singbox.ts`）
+  - 其他 → 默认 base64 编码 URI 列表，`?format=plain` 返回明文
 - 响应头带 `Subscription-Userinfo: upload=0; download=<used>; total=<total>; expire=<ts>` 与 `Profile-Update-Interval: 24`，兼容订阅客户端
-- ⚠️ `app/api/user/subscription/route.ts` 里的订阅 URL 目前**硬编码** `https://byte.lyrify.cloud/api/sub/...`，如果部署到其他域名要改这里（而不是用 `request.url` 的 origin）
+- `app/api/user/subscription/route.ts` 只返回订阅路径（`/api/sub/<token>`），不含 host，由前端拼接完整 URL
 
 ### API 返回体约定
 
@@ -82,12 +85,14 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 - `app/(dashboard)/` — 路由组，`layout.tsx` 套 `DashboardShell`（客户端组件，挂载时调 `/api/auth/session` 做二次权限校验并重定向）
   - `dashboard/` — 普通用户自助
-  - `admin/` — 管理员区（users/nodes/plans/subscriptions/logs），`DashboardShell` 会过滤非 admin
+  - `admin/` — 管理员区（users/nodes/plans/subscriptions/auth-logs/event-logs/settings），`DashboardShell` 会过滤非 admin
 - `app/api/auth/*` — 登录/注册/登出/session 查询/bootstrap-admin
-- `app/api/admin/*` — 所有走 `requireAdmin`
-- `app/api/user/*` — 走 `requireUser`
-- `app/api/node/auth/[authPath]` — Hysteria2 节点回调，**不用**会话校验
+- `app/api/admin/*` — 所有走 `requireAdmin`，包括 `users`、`nodes`、`plans`、`subscriptions`、`auth-logs`、`event-logs`、`settings`
+- `app/api/user/*` — 走 `requireUser`（self/reset-token/subscription/subscriptions）
+- `app/api/node/auth/[authPath]` — Hysteria2 单用户认证回调，**不用**会话校验
+- `app/api/node/auth/[authPath]/traffic` — Agent 批量流量上报（差值法计算增量、在线快照、超额自动 block），**不用**会话校验
 - `app/api/sub/[token]` — 订阅分发，用 `auth_token` 匹配，**不用**会话校验
+- `app/api/settings/public` — 公开只读设置（登录/注册开关、Turnstile site key），**不用**会话校验
 
 ### 组件与样式
 

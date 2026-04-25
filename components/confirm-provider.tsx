@@ -95,7 +95,9 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             <DialogTitle>{opts?.title ?? ""}</DialogTitle>
             {opts?.description ? (
               <DialogDescription asChild>
-                <div>{opts.description}</div>
+                <div className="min-w-0 overflow-hidden">
+                  {opts.description}
+                </div>
               </DialogDescription>
             ) : null}
           </DialogHeader>
