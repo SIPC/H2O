@@ -31,18 +31,8 @@ export async function POST(
     return NextResponse.json({ ok: false, id: "" }, { status: 400 })
   }
 
-  if (typeof body.tx !== "number" || body.tx < 0 || !Number.isFinite(body.tx)) {
-    writeAuthLog({
-      node_id: null,
-      node_name: authPath,
-      user_id: null,
-      username: null,
-      ip,
-      success: false,
-      reason: "BAD_PAYLOAD",
-    })
-    return NextResponse.json({ ok: false, id: "" }, { status: 400 })
-  }
+  // tx 是 Hy2 传来的下行速率（字节/秒），仅握手时触发一次，不用于计费
+  // 流量统计由 agent 通过 Traffic Stats API 完成
 
   const db = getDb()
 
@@ -101,10 +91,10 @@ export async function POST(
     return NextResponse.json({ ok: false, id: "" })
   }
 
-  // 3) 校验订阅状态、到期时间和节点权限
+  // 3) 校验订阅状态、到期时间和节点权限（仅认证，不计费）
   const activeSub = db
     .prepare(
-      `SELECT s.id, s.used_traffic_bytes, p.traffic_limit_bytes
+      `SELECT s.id
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
        JOIN plan_nodes pn ON pn.plan_id = p.id
@@ -115,9 +105,7 @@ export async function POST(
        ORDER BY s.expire_time DESC
        LIMIT 1`
     )
-    .get(user.id, node.id) as
-    | { id: number; used_traffic_bytes: number; traffic_limit_bytes: number }
-    | undefined
+    .get(user.id, node.id) as { id: number } | undefined
 
   if (!activeSub) {
     writeAuthLog({
@@ -131,29 +119,6 @@ export async function POST(
     })
     return NextResponse.json({ ok: false, id: "" })
   }
-
-  // 4) 按上报 tx 累加流量
-  const nextUsage = activeSub.used_traffic_bytes + Math.floor(body.tx)
-
-  if (nextUsage > activeSub.traffic_limit_bytes) {
-    db.prepare(`UPDATE subscriptions SET status = 'blocked' WHERE id = ?`).run(
-      activeSub.id
-    )
-    writeAuthLog({
-      node_id: node.id,
-      node_name: node.name,
-      user_id: user.id,
-      username: user.username,
-      ip,
-      success: false,
-      reason: "TRAFFIC_EXCEEDED",
-    })
-    return NextResponse.json({ ok: false, id: "" })
-  }
-
-  db.prepare(
-    `UPDATE subscriptions SET used_traffic_bytes = ? WHERE id = ?`
-  ).run(nextUsage, activeSub.id)
 
   writeAuthLog({
     node_id: node.id,

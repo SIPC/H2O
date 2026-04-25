@@ -91,7 +91,10 @@ export async function POST(
       reason: "BAD_PAYLOAD",
     })
     return NextResponse.json(
-      { ok: false, error: { code: "BAD_PAYLOAD", message: "上报字段类型不合法" } },
+      {
+        ok: false,
+        error: { code: "BAD_PAYLOAD", message: "上报字段类型不合法" },
+      },
       { status: 400 }
     )
   }
@@ -198,7 +201,11 @@ export async function POST(
       }
 
       const activeSub = selectSub.get(user.id, node.id) as
-        | { id: number; used_traffic_bytes: number; traffic_limit_bytes: number }
+        | {
+            id: number
+            used_traffic_bytes: number
+            traffic_limit_bytes: number
+          }
         | undefined
 
       if (!activeSub) {
@@ -224,8 +231,8 @@ export async function POST(
       const lastTotal = (last?.last_tx_bytes ?? 0) + (last?.last_rx_bytes ?? 0)
       const nowTotal = stat.tx + stat.rx
 
-      // Hy2 重启会导致 /traffic 计数归零，此时视作本轮 delta 为 0
-      const delta = nowTotal < lastTotal ? 0 : nowTotal - lastTotal
+      // Hy2 重启会导致 /traffic 计数归零，此时 nowTotal 是重启后的累计值，应作为本轮增量
+      const delta = nowTotal < lastTotal ? nowTotal : nowTotal - lastTotal
       const nextUsage = activeSub.used_traffic_bytes + delta
 
       if (nextUsage > activeSub.traffic_limit_bytes) {
