@@ -1,11 +1,18 @@
 "use client"
 
 import { FormEvent, useEffect, useState } from "react"
+import { Line, LineChart, XAxis } from "recharts"
 
 import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
@@ -27,6 +34,26 @@ type NodeRow = {
   online_count: number | null
 }
 
+type HourPoint = {
+  hour: number
+  label: string
+  txBytes: number
+  rxBytes: number
+  totalBytes: number
+}
+
+const HISTORY_CHUNK_SIZE = 200
+
+const NODE_SPARK_CONFIG = {
+  totalBytes: {
+    label: "总用量",
+    theme: {
+      light: "#ffffff",
+      dark: "#ffffff",
+    },
+  },
+} satisfies ChartConfig
+
 // 节点心跳判定：最近 3 分钟内上报视为"在线"
 const FRESH_THRESHOLD_MS = 3 * 60 * 1000
 
@@ -41,9 +68,123 @@ function isFresh(lastReportAt: string | null): boolean {
   )
 }
 
+function clampHour(hour: number): number {
+  if (!Number.isFinite(hour)) return 0
+  return Math.min(23, Math.max(0, Math.floor(hour)))
+}
+
+// 字节数按单位自适应：B/KB/MB/GB/TB/PB
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"]
+  let value = bytes
+  let idx = 0
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024
+    idx += 1
+  }
+  const decimals = idx === 0 ? 0 : value >= 100 ? 1 : 2
+  return `${value.toFixed(decimals)} ${units[idx]}`
+}
+
+function buildEmptyHourly(): HourPoint[] {
+  return Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: String(hour).padStart(2, "0"),
+    txBytes: 0,
+    rxBytes: 0,
+    totalBytes: 0,
+  }))
+}
+
+function normalizeHourly(input: unknown): HourPoint[] {
+  const base = buildEmptyHourly()
+  if (!Array.isArray(input)) return base
+
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue
+    const row = item as Partial<HourPoint>
+    if (typeof row.hour !== "number" || !Number.isFinite(row.hour)) continue
+
+    const hour = clampHour(row.hour)
+    const tx =
+      typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
+        ? Math.max(0, Math.floor(row.txBytes))
+        : 0
+    const rx =
+      typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
+        ? Math.max(0, Math.floor(row.rxBytes))
+        : 0
+
+    base[hour] = {
+      hour,
+      label: String(hour).padStart(2, "0"),
+      txBytes: tx,
+      rxBytes: rx,
+      totalBytes: tx + rx,
+    }
+  }
+
+  return base
+}
+
+// 只显示今天已经发生过的小时，保证最右点是当前小时
+function buildElapsedHourly(data: HourPoint[], currentLocalHour: number) {
+  const hour = clampHour(currentLocalHour)
+  const elapsed = data.slice(0, hour + 1)
+  return elapsed.length > 0 ? elapsed : data.slice(0, 1)
+}
+
+function NodeUsageSpark({
+  hourly,
+  currentLocalHour,
+}: {
+  hourly: HourPoint[]
+  currentLocalHour: number
+}) {
+  const data = buildElapsedHourly(hourly, currentLocalHour)
+
+  return (
+    <ChartContainer
+      config={NODE_SPARK_CONFIG}
+      className="aspect-auto h-7 w-[160px]"
+    >
+      <LineChart
+        accessibilityLayer
+        data={data}
+        margin={{ top: 1, right: 0, left: 0, bottom: 0 }}
+      >
+        <XAxis dataKey="label" hide />
+        <ChartTooltip
+          cursor={false}
+          content={
+            <ChartTooltipContent
+              hideLabel
+              hideIndicator
+              formatter={(value) => formatBytes(Number(value))}
+            />
+          }
+        />
+        <Line
+          type="monotone"
+          dataKey="totalBytes"
+          stroke="var(--color-totalBytes)"
+          strokeWidth={1.6}
+          dot={false}
+          activeDot={{ r: 2 }}
+        />
+      </LineChart>
+    </ChartContainer>
+  )
+}
+
 export default function AdminNodesPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<NodeRow[]>([])
+  const [historyByNode, setHistoryByNode] = useState<
+    Record<number, HourPoint[]>
+  >({})
+  const [historyCurrentLocalHour, setHistoryCurrentLocalHour] = useState(0)
 
   // 创建表单
   const [name, setName] = useState("")
@@ -66,10 +207,78 @@ export default function AdminNodesPage() {
   const [editInsecure, setEditInsecure] = useState(false)
   const [editPinSha256, setEditPinSha256] = useState("")
 
+  async function loadHistory(
+    nodeIds: number[],
+    isMounted: () => boolean = () => true
+  ) {
+    const ids = Array.from(
+      new Set(nodeIds.filter((id) => Number.isInteger(id) && id > 0))
+    )
+
+    if (ids.length === 0) {
+      if (!isMounted()) return
+      setHistoryByNode({})
+      setHistoryCurrentLocalHour(0)
+      return
+    }
+
+    const nextHistory: Record<number, HourPoint[]> = {}
+    let nextCurrentHour = 0
+
+    for (let i = 0; i < ids.length; i += HISTORY_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + HISTORY_CHUNK_SIZE)
+      const params = new URLSearchParams()
+      params.set("ids", chunk.join(","))
+
+      const response = await fetch(
+        `/api/admin/nodes/history?${params.toString()}`
+      )
+      const json = await response.json()
+      if (!json?.ok) continue
+
+      if (typeof json.data?.currentLocalHour === "number") {
+        nextCurrentHour = clampHour(json.data.currentLocalHour)
+      }
+
+      if (!Array.isArray(json.data?.items)) continue
+      for (const rawItem of json.data.items as Array<{
+        nodeId?: unknown
+        hourly?: unknown
+      }>) {
+        if (
+          typeof rawItem.nodeId !== "number" ||
+          !Number.isFinite(rawItem.nodeId)
+        )
+          continue
+        nextHistory[Math.floor(rawItem.nodeId)] = normalizeHourly(
+          rawItem.hourly
+        )
+      }
+    }
+
+    for (const id of ids) {
+      if (!nextHistory[id]) nextHistory[id] = buildEmptyHourly()
+    }
+
+    if (!isMounted()) return
+    setHistoryByNode(nextHistory)
+    setHistoryCurrentLocalHour(nextCurrentHour)
+  }
+
   async function load() {
     const response = await fetch("/api/admin/nodes")
     const json = await response.json()
-    if (json?.ok) setRows(json.data)
+
+    if (!json?.ok || !Array.isArray(json.data)) {
+      setRows([])
+      setHistoryByNode({})
+      setHistoryCurrentLocalHour(0)
+      return
+    }
+
+    const nextRows = json.data as NodeRow[]
+    setRows(nextRows)
+    await loadHistory(nextRows.map((row) => row.id))
   }
 
   useEffect(() => {
@@ -78,7 +287,16 @@ export default function AdminNodesPage() {
     void (async () => {
       const response = await fetch("/api/admin/nodes")
       const json = await response.json()
-      if (mounted && json?.ok) setRows(json.data)
+      if (!mounted) return
+
+      const nextRows =
+        json?.ok && Array.isArray(json.data) ? (json.data as NodeRow[]) : []
+
+      setRows(nextRows)
+      await loadHistory(
+        nextRows.map((row) => row.id),
+        () => mounted
+      )
     })()
 
     return () => {
@@ -190,6 +408,7 @@ export default function AdminNodesPage() {
       typeof window !== "undefined"
         ? window.location.origin
         : "https://h2o.example.com"
+
     const config = JSON.stringify(
       {
         h2o_url: origin,
@@ -211,7 +430,7 @@ export default function AdminNodesPage() {
     }
 
     await alert({
-      title: `${row.name} \u7684 agent \u914d\u7f6e${copied ? "\uff08\u5df2\u590d\u5236\uff09" : ""}`,
+      title: `${row.name} 的 agent 配置${copied ? "（已复制）" : ""}`,
       description: (
         <pre className="max-h-[400px] min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
           {config}
@@ -283,7 +502,7 @@ export default function AdminNodesPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
       <Card>
         <CardHeader>
           <CardTitle>节点管理</CardTitle>
@@ -371,6 +590,7 @@ export default function AdminNodesPage() {
                 <TH>状态</TH>
                 <TH>最后心跳</TH>
                 <TH>在线</TH>
+                <TH>总用量历史</TH>
                 <TH>SNI</TH>
                 <TH>Obfs</TH>
                 <TH>Auth Path</TH>
@@ -380,6 +600,8 @@ export default function AdminNodesPage() {
             <TBody>
               {rows.map((row) => {
                 const fresh = isFresh(row.last_report_at)
+                const hourly = historyByNode[row.id] ?? buildEmptyHourly()
+
                 return (
                   <TR key={row.id}>
                     <TD>{row.id}</TD>
@@ -408,6 +630,12 @@ export default function AdminNodesPage() {
                       }
                     >
                       {row.online_count ?? 0}
+                    </TD>
+                    <TD className="min-w-[170px] py-1">
+                      <NodeUsageSpark
+                        hourly={hourly}
+                        currentLocalHour={historyCurrentLocalHour}
+                      />
                     </TD>
                     <TD className="text-xs">{row.sni ?? "-"}</TD>
                     <TD className="text-xs">{row.obfs ?? "-"}</TD>

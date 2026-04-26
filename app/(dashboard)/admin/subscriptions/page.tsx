@@ -286,11 +286,11 @@ function SubscriptionHistorySpark({
   const config = dataKey === "txBytes" ? TX_SPARK_CONFIG : RX_SPARK_CONFIG
 
   return (
-    <ChartContainer config={config} className="aspect-auto h-8 w-[160px]">
+    <ChartContainer config={config} className="aspect-auto h-7 w-[160px]">
       <LineChart
         accessibilityLayer
         data={data}
-        margin={{ top: 2, right: 0, left: 0, bottom: 0 }}
+        margin={{ top: 1, right: 0, left: 0, bottom: 0 }}
       >
         <XAxis dataKey="label" hide />
         <ChartTooltip

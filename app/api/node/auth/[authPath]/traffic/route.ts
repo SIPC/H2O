@@ -182,6 +182,21 @@ export async function POST(
          rx_bytes = rx_bytes + excluded.rx_bytes,
          updated_at = datetime('now')`
     )
+    const upsertNodeHourly = db.prepare(
+      `INSERT INTO node_hourly_traffic(node_id, bucket_date, bucket_hour, tx_bytes, rx_bytes, updated_at)
+       VALUES (
+         ?,
+         date('now', 'localtime'),
+         CAST(strftime('%H', 'now', 'localtime') AS INTEGER),
+         ?,
+         ?,
+         datetime('now')
+       )
+       ON CONFLICT(node_id, bucket_date, bucket_hour) DO UPDATE SET
+         tx_bytes = tx_bytes + excluded.tx_bytes,
+         rx_bytes = rx_bytes + excluded.rx_bytes,
+         updated_at = datetime('now')`
+    )
     const upsertSubscriptionHourly = db.prepare(
       `INSERT INTO subscription_hourly_traffic(subscription_id, bucket_date, bucket_hour, tx_bytes, rx_bytes, updated_at)
        VALUES (
@@ -298,9 +313,10 @@ export async function POST(
       upsertLast.run(node.id, user.id, stat.tx, stat.rx)
     }
 
-    // 汇总到“今日小时桶”全局流量统计
+    // 汇总到“今日小时桶”全局 + 节点维度流量统计
     if (hourlyTxDelta > 0 || hourlyRxDelta > 0) {
       upsertHourlyStats.run(hourlyTxDelta, hourlyRxDelta)
+      upsertNodeHourly.run(node.id, hourlyTxDelta, hourlyRxDelta)
     }
 
     // 节点心跳与在线/流量快照
