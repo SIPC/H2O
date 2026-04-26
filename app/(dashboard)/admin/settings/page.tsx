@@ -15,6 +15,7 @@ type Settings = {
   turnstile_site_key: string
   turnstile_secret_key: string
   agent_bundle_url: string
+  stats_retention_days: number
 }
 
 const DEFAULTS: Settings = {
@@ -24,6 +25,7 @@ const DEFAULTS: Settings = {
   turnstile_site_key: "",
   turnstile_secret_key: "",
   agent_bundle_url: "",
+  stats_retention_days: 30,
 }
 
 // 根据两 key 填写情况推断 Turnstile 当前状态，与后端 getTurnstileStatus 一致
@@ -89,7 +91,8 @@ export default function AdminSettingsPage() {
       draft.new_user_default_active !== saved.new_user_default_active ||
       draft.turnstile_site_key !== saved.turnstile_site_key ||
       draft.turnstile_secret_key !== saved.turnstile_secret_key ||
-      draft.agent_bundle_url !== saved.agent_bundle_url
+      draft.agent_bundle_url !== saved.agent_bundle_url ||
+      draft.stats_retention_days !== saved.stats_retention_days
     )
   }, [draft, saved])
 
@@ -270,6 +273,39 @@ export default function AdminSettingsPage() {
                       ...prev,
                       agent_bundle_url: e.target.value,
                     }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="stats_retention_days"
+                    className="text-sm font-medium"
+                  >
+                    统计保留天数
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    超过该天数的面板小时统计会自动清理（全局/节点/订阅趋势）。建议
+                    30~90 天。
+                  </p>
+                </div>
+                <Input
+                  id="stats_retention_days"
+                  type="number"
+                  min={1}
+                  max={365}
+                  step={1}
+                  value={draft.stats_retention_days}
+                  onChange={(e) =>
+                    setDraft((prev) => {
+                      const next = Number(e.target.value)
+                      if (!Number.isInteger(next)) return prev
+                      return {
+                        ...prev,
+                        stats_retention_days: Math.min(365, Math.max(1, next)),
+                      }
+                    })
                   }
                 />
               </div>

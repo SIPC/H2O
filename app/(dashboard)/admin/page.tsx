@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { Line, LineChart, XAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +29,7 @@ type AdminOverview = {
 type TrafficHour = {
   hour: number
   label: string
+  bucketDate: string
   txBytes: number
   rxBytes: number
 }
@@ -79,18 +80,33 @@ function getLocalDateString(): string {
   return `${year}-${month}-${day}`
 }
 
+function getPreviousDateString(dateString: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return dateString
+
+  const d = new Date(`${dateString}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return dateString
+
+  d.setDate(d.getDate() - 1)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
 function buildEmptyHourly(): TrafficHour[] {
   return Array.from({ length: 24 }, (_, hour) => ({
     hour,
     label: String(hour).padStart(2, "0"),
+    bucketDate: "",
     txBytes: 0,
     rxBytes: 0,
   }))
 }
 
 function normalizeHourly(input: unknown): TrafficHour[] {
-  const base = buildEmptyHourly()
-  if (!Array.isArray(input)) return base
+  if (!Array.isArray(input)) return buildEmptyHourly()
+
+  const out: TrafficHour[] = []
 
   for (const item of input) {
     if (!item || typeof item !== "object") continue
@@ -99,9 +115,16 @@ function normalizeHourly(input: unknown): TrafficHour[] {
     if (typeof row.hour !== "number" || !Number.isFinite(row.hour)) continue
     const hour = clampHour(row.hour)
 
-    base[hour] = {
+    out.push({
       hour,
-      label: String(hour).padStart(2, "0"),
+      label:
+        typeof row.label === "string" && row.label.trim()
+          ? row.label
+          : String(hour).padStart(2, "0"),
+      bucketDate:
+        typeof row.bucketDate === "string" && row.bucketDate.trim()
+          ? row.bucketDate
+          : "",
       txBytes:
         typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
           ? Math.max(0, Math.floor(row.txBytes))
@@ -110,17 +133,10 @@ function normalizeHourly(input: unknown): TrafficHour[] {
         typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
           ? Math.max(0, Math.floor(row.rxBytes))
           : 0,
-    }
+    })
   }
 
-  return base
-}
-
-// 只展示“今天已经发生过的小时”，保证最右点就是当前小时
-function buildElapsedHourly(data: TrafficHour[], currentLocalHour: number) {
-  const hour = clampHour(currentLocalHour)
-  const elapsed = data.slice(0, hour + 1)
-  return elapsed.length > 0 ? elapsed : data.slice(0, 1)
+  return out.length > 0 ? out : buildEmptyHourly()
 }
 
 // 趋势：最近 1 小时 vs 前 1 小时，样本不足或基线为 0 则不显示百分比
@@ -221,6 +237,11 @@ function TrafficSparkCard({
                 <ChartTooltipContent
                   indicator="dot"
                   labelFormatter={(value, payload) => {
+                    const pointDate =
+                      typeof payload?.[0]?.payload?.bucketDate === "string" &&
+                      payload[0].payload.bucketDate.trim()
+                        ? payload[0].payload.bucketDate
+                        : date
                     const fallbackLabel = payload?.[0]?.payload?.label
                     const fallbackHour = payload?.[0]?.payload?.hour
                     const hourLabel =
@@ -233,7 +254,13 @@ function TrafficSparkCard({
                               Number.isFinite(fallbackHour)
                             ? String(fallbackHour).padStart(2, "0")
                             : "00"
-                    return `${date} ${hourLabel.padStart(2, "0")}:00`
+
+                    const normalizedHour = hourLabel.padStart(2, "0")
+                    if (normalizedHour === "00") {
+                      return `${getPreviousDateString(pointDate)} 24:00`
+                    }
+
+                    return `${pointDate} ${normalizedHour}:00`
                   }}
                   formatter={(value) => formatBytes(Number(value))}
                 />
@@ -330,11 +357,6 @@ export default function AdminPage() {
     }
   }, [])
 
-  const elapsedHourly = useMemo(
-    () => buildElapsedHourly(traffic.hourly, traffic.currentLocalHour),
-    [traffic.hourly, traffic.currentLocalHour]
-  )
-
   const tooltipDate = traffic.date || getLocalDateString()
 
   return (
@@ -388,7 +410,7 @@ export default function AdminPage() {
         <TrafficSparkCard
           title="今日总出"
           totalBytes={traffic.todayTxBytes}
-          data={elapsedHourly}
+          data={traffic.hourly}
           dataKey="txBytes"
           config={TX_CHART_CONFIG}
           date={tooltipDate}
@@ -396,7 +418,7 @@ export default function AdminPage() {
         <TrafficSparkCard
           title="今日总入"
           totalBytes={traffic.todayRxBytes}
-          data={elapsedHourly}
+          data={traffic.hourly}
           dataKey="rxBytes"
           config={RX_CHART_CONFIG}
           date={tooltipDate}

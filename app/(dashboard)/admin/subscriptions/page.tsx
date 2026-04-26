@@ -155,12 +155,6 @@ function normalizeHourly(input: unknown): HourPoint[] {
   return base
 }
 
-function buildElapsedHourly(data: HourPoint[], currentLocalHour: number) {
-  const hour = clampHour(currentLocalHour)
-  const elapsed = data.slice(0, hour + 1)
-  return elapsed.length > 0 ? elapsed : data.slice(0, 1)
-}
-
 function StatusCombobox({
   value,
   onChange,
@@ -275,14 +269,12 @@ function EntityCombobox({
 
 function SubscriptionHistorySpark({
   hourly,
-  currentLocalHour,
   dataKey,
 }: {
   hourly: HourPoint[]
-  currentLocalHour: number
   dataKey: "txBytes" | "rxBytes"
 }) {
-  const data = buildElapsedHourly(hourly, currentLocalHour)
+  const data = hourly
   const config = dataKey === "txBytes" ? TX_SPARK_CONFIG : RX_SPARK_CONFIG
 
   return (
@@ -328,7 +320,6 @@ export default function AdminSubscriptionsPage() {
   const [historyBySub, setHistoryBySub] = useState<Record<number, HourPoint[]>>(
     {}
   )
-  const [historyCurrentLocalHour, setHistoryCurrentLocalHour] = useState(0)
 
   const [editOpen, setEditOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Row | null>(null)
@@ -347,12 +338,10 @@ export default function AdminSubscriptionsPage() {
     if (ids.length === 0) {
       if (!isMounted()) return
       setHistoryBySub({})
-      setHistoryCurrentLocalHour(0)
       return
     }
 
     const nextHistory: Record<number, HourPoint[]> = {}
-    let nextCurrentHour = 0
 
     for (let i = 0; i < ids.length; i += HISTORY_CHUNK_SIZE) {
       const chunk = ids.slice(i, i + HISTORY_CHUNK_SIZE)
@@ -365,10 +354,6 @@ export default function AdminSubscriptionsPage() {
       const json = await response.json()
 
       if (!json?.ok) continue
-
-      if (typeof json.data?.currentLocalHour === "number") {
-        nextCurrentHour = clampHour(json.data.currentLocalHour)
-      }
 
       if (!Array.isArray(json.data?.items)) continue
       for (const rawItem of json.data.items as Array<{
@@ -393,7 +378,6 @@ export default function AdminSubscriptionsPage() {
 
     if (!isMounted()) return
     setHistoryBySub(nextHistory)
-    setHistoryCurrentLocalHour(nextCurrentHour)
   }
 
   async function load() {
@@ -403,7 +387,6 @@ export default function AdminSubscriptionsPage() {
     if (!json?.ok || !Array.isArray(json.data)) {
       setRows([])
       setHistoryBySub({})
-      setHistoryCurrentLocalHour(0)
       return
     }
 
@@ -600,14 +583,12 @@ export default function AdminSubscriptionsPage() {
                     <TD className="min-w-[170px] py-1">
                       <SubscriptionHistorySpark
                         hourly={hourly}
-                        currentLocalHour={historyCurrentLocalHour}
                         dataKey="txBytes"
                       />
                     </TD>
                     <TD className="min-w-[170px] py-1">
                       <SubscriptionHistorySpark
                         hourly={hourly}
-                        currentLocalHour={historyCurrentLocalHour}
                         dataKey="rxBytes"
                       />
                     </TD>

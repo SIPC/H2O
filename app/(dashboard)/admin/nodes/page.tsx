@@ -129,20 +129,9 @@ function normalizeHourly(input: unknown): HourPoint[] {
 }
 
 // 只显示今天已经发生过的小时，保证最右点是当前小时
-function buildElapsedHourly(data: HourPoint[], currentLocalHour: number) {
-  const hour = clampHour(currentLocalHour)
-  const elapsed = data.slice(0, hour + 1)
-  return elapsed.length > 0 ? elapsed : data.slice(0, 1)
-}
 
-function NodeUsageSpark({
-  hourly,
-  currentLocalHour,
-}: {
-  hourly: HourPoint[]
-  currentLocalHour: number
-}) {
-  const data = buildElapsedHourly(hourly, currentLocalHour)
+function NodeUsageSpark({ hourly }: { hourly: HourPoint[] }) {
+  const data = hourly
 
   return (
     <ChartContainer
@@ -184,7 +173,6 @@ export default function AdminNodesPage() {
   const [historyByNode, setHistoryByNode] = useState<
     Record<number, HourPoint[]>
   >({})
-  const [historyCurrentLocalHour, setHistoryCurrentLocalHour] = useState(0)
 
   // 创建表单
   const [name, setName] = useState("")
@@ -218,12 +206,10 @@ export default function AdminNodesPage() {
     if (ids.length === 0) {
       if (!isMounted()) return
       setHistoryByNode({})
-      setHistoryCurrentLocalHour(0)
       return
     }
 
     const nextHistory: Record<number, HourPoint[]> = {}
-    let nextCurrentHour = 0
 
     for (let i = 0; i < ids.length; i += HISTORY_CHUNK_SIZE) {
       const chunk = ids.slice(i, i + HISTORY_CHUNK_SIZE)
@@ -235,10 +221,6 @@ export default function AdminNodesPage() {
       )
       const json = await response.json()
       if (!json?.ok) continue
-
-      if (typeof json.data?.currentLocalHour === "number") {
-        nextCurrentHour = clampHour(json.data.currentLocalHour)
-      }
 
       if (!Array.isArray(json.data?.items)) continue
       for (const rawItem of json.data.items as Array<{
@@ -262,7 +244,6 @@ export default function AdminNodesPage() {
 
     if (!isMounted()) return
     setHistoryByNode(nextHistory)
-    setHistoryCurrentLocalHour(nextCurrentHour)
   }
 
   async function load() {
@@ -272,7 +253,6 @@ export default function AdminNodesPage() {
     if (!json?.ok || !Array.isArray(json.data)) {
       setRows([])
       setHistoryByNode({})
-      setHistoryCurrentLocalHour(0)
       return
     }
 
@@ -632,10 +612,7 @@ export default function AdminNodesPage() {
                       {row.online_count ?? 0}
                     </TD>
                     <TD className="min-w-[170px] py-1">
-                      <NodeUsageSpark
-                        hourly={hourly}
-                        currentLocalHour={historyCurrentLocalHour}
-                      />
+                      <NodeUsageSpark hourly={hourly} />
                     </TD>
                     <TD className="text-xs">{row.sni ?? "-"}</TD>
                     <TD className="text-xs">{row.obfs ?? "-"}</TD>

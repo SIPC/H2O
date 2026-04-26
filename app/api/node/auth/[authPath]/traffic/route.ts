@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
 import { writeAuthLog } from "@/lib/logs-db"
+import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
 // agent 每次上报的 payload 结构
 type TrafficPayload = {
@@ -100,6 +101,18 @@ export async function POST(
   }
 
   const db = getDb()
+
+  // 统计历史保留天数（1~365），用于自动清理小时趋势表
+  const rawRetentionDays = getSetting<number>(
+    SETTING_KEYS.statsRetentionDays,
+    30
+  )
+  const retentionDays =
+    Number.isInteger(rawRetentionDays) &&
+    rawRetentionDays >= 1 &&
+    rawRetentionDays <= 365
+      ? rawRetentionDays
+      : 30
 
   // 只要 authPath 匹配某个启用节点就视为合法 agent（复用 Hy2 回调的信任模型）
   const node = db
@@ -211,6 +224,20 @@ export async function POST(
          tx_bytes = tx_bytes + excluded.tx_bytes,
          rx_bytes = rx_bytes + excluded.rx_bytes,
          updated_at = datetime('now')`
+    )
+
+    const retentionModifier = `-${retentionDays} day`
+    const cleanupTrafficHourly = db.prepare(
+      `DELETE FROM traffic_hourly_stats
+       WHERE bucket_date < date('now', 'localtime', ?)`
+    )
+    const cleanupNodeHourly = db.prepare(
+      `DELETE FROM node_hourly_traffic
+       WHERE bucket_date < date('now', 'localtime', ?)`
+    )
+    const cleanupSubscriptionHourly = db.prepare(
+      `DELETE FROM subscription_hourly_traffic
+       WHERE bucket_date < date('now', 'localtime', ?)`
     )
 
     for (const [username, stat] of traffic) {
@@ -339,6 +366,11 @@ export async function POST(
       JSON.stringify(onlineObj),
       JSON.stringify(trafficObj)
     )
+
+    // 清理超出保留期的小时趋势统计
+    cleanupTrafficHourly.run(retentionModifier)
+    cleanupNodeHourly.run(retentionModifier)
+    cleanupSubscriptionHourly.run(retentionModifier)
 
     db.exec("COMMIT")
   } catch {

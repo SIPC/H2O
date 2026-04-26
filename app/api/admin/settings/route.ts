@@ -17,6 +17,9 @@ const SENSITIVE_KEYS = new Set<SettingKey>([
   SETTING_KEYS.agentBundleUrl,
 ])
 
+const STATS_RETENTION_DAYS_MIN = 1
+const STATS_RETENTION_DAYS_MAX = 365
+
 function maskChanges(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(body)) {
@@ -99,6 +102,35 @@ export async function PATCH(request: Request) {
         },
         { status: 400 }
       )
+    }
+
+    if (key === SETTING_KEYS.statsRetentionDays) {
+      const value = body[key]
+      if (
+        typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value < STATS_RETENTION_DAYS_MIN ||
+        value > STATS_RETENTION_DAYS_MAX
+      ) {
+        writeAdminEvent({
+          event: "SETTINGS_UPDATE",
+          actor: auth.user,
+          ip,
+          success: false,
+          reason: "INVALID_PAYLOAD",
+          detail: { key, value },
+        })
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_PAYLOAD",
+              message: `${key} 必须是 ${STATS_RETENTION_DAYS_MIN}~${STATS_RETENTION_DAYS_MAX} 的整数`,
+            },
+          },
+          { status: 400 }
+        )
+      }
     }
   }
 

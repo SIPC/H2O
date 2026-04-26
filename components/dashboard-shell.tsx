@@ -21,7 +21,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
+import { toast } from "sonner"
+
 import { Button } from "@/components/ui/button"
+import { Toaster } from "@/components/ui/sonner"
 import {
   Collapsible,
   CollapsibleContent,
@@ -52,6 +55,15 @@ type SessionUser = {
   id: number
   username: string
   role: "user" | "admin"
+}
+
+type VersionCheckData = {
+  currentVersion: string
+  latestVersion: string | null
+  hasUpdate: boolean
+  releaseUrl: string
+  checkFailed: boolean
+  checkedAt: string
 }
 
 type AdminSubMenu =
@@ -151,6 +163,38 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     }
   }, [pathname, router])
 
+  useEffect(() => {
+    if (user?.role !== "admin") return
+
+    let mounted = true
+
+    void (async () => {
+      const response = await fetch("/api/admin/version-check")
+      const json = await response.json()
+
+      if (!mounted) return
+      if (!response.ok || !json?.ok) return
+
+      const data = json.data as VersionCheckData
+      if (!data.hasUpdate) return
+
+      toast.info(`发现新版本：v${data.latestVersion}`, {
+        description: `建议尽快更新以获取最新功能与修复。`,
+        action: {
+          label: "前往更新",
+          onClick: () => {
+            window.open(data.releaseUrl, "_blank", "noopener,noreferrer")
+          },
+        },
+        duration: 12000,
+      })
+    })()
+
+    return () => {
+      mounted = false
+    }
+  }, [user?.role])
+
   async function logout(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     await fetch("/api/auth/logout", { method: "POST" })
@@ -168,6 +212,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   return (
     <TooltipProvider>
       <ConfirmProvider>
+        <Toaster position="bottom-right" />
         <SidebarProvider>
           <Sidebar collapsible="icon">
             <SidebarHeader className="p-2 pb-1">
@@ -262,7 +307,8 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                               {adminSubMenus.map((item) => {
                                 if ("items" in item) {
                                   const isGroupActive = item.items.some(
-                                    (child) => isRouteActive(pathname, child.href)
+                                    (child) =>
+                                      isRouteActive(pathname, child.href)
                                   )
                                   return (
                                     <Collapsible
@@ -394,6 +440,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                 </BreadcrumbList>
               </Breadcrumb>
             </header>
+
             <main className="flex-1">{children}</main>
           </SidebarInset>
         </SidebarProvider>
