@@ -6,6 +6,12 @@ on:
       - master
     paths:
       - package.json
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "手动补发版本（可选，默认读取 package.json）"
+        required: false
+        type: string
 
 jobs:
   build-and-publish:
@@ -29,7 +35,21 @@ jobs:
         id: version
         shell: bash
         run: |
-          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          INPUT_VERSION="${{ github.event.inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            CURRENT_VERSION="$INPUT_VERSION"
+          else
+            CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=v$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "手动触发补发，发布版本：$CURRENT_VERSION"
+            exit 0
+          fi
+
           BEFORE_SHA="${{ github.event.before }}"
           PREV_VERSION=""
 
