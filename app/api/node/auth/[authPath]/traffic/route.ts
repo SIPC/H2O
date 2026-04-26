@@ -182,6 +182,21 @@ export async function POST(
          rx_bytes = rx_bytes + excluded.rx_bytes,
          updated_at = datetime('now')`
     )
+    const upsertSubscriptionHourly = db.prepare(
+      `INSERT INTO subscription_hourly_traffic(subscription_id, bucket_date, bucket_hour, tx_bytes, rx_bytes, updated_at)
+       VALUES (
+         ?,
+         date('now', 'localtime'),
+         CAST(strftime('%H', 'now', 'localtime') AS INTEGER),
+         ?,
+         ?,
+         datetime('now')
+       )
+       ON CONFLICT(subscription_id, bucket_date, bucket_hour) DO UPDATE SET
+         tx_bytes = tx_bytes + excluded.tx_bytes,
+         rx_bytes = rx_bytes + excluded.rx_bytes,
+         updated_at = datetime('now')`
+    )
 
     for (const [username, stat] of traffic) {
       const user = selectUser.get(username) as
@@ -258,6 +273,7 @@ export async function POST(
         if (delta > 0) {
           hourlyTxDelta += deltaTx
           hourlyRxDelta += deltaRx
+          upsertSubscriptionHourly.run(activeSub.id, deltaTx, deltaRx)
         }
         blocked++
         writeAuthLog({
@@ -273,6 +289,7 @@ export async function POST(
         updateSubUsage.run(nextUsage, activeSub.id)
         hourlyTxDelta += deltaTx
         hourlyRxDelta += deltaRx
+        upsertSubscriptionHourly.run(activeSub.id, deltaTx, deltaRx)
         processed++
       } else {
         processed++

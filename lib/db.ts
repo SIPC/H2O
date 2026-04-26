@@ -123,6 +123,21 @@ function migrate(database: DatabaseSync) {
       PRIMARY KEY (bucket_date, bucket_hour)
     );
 
+    -- 订阅维度小时流量统计：用于单订阅消耗历史趋势
+    CREATE TABLE IF NOT EXISTS subscription_hourly_traffic (
+      subscription_id INTEGER NOT NULL,
+      bucket_date TEXT NOT NULL,
+      bucket_hour INTEGER NOT NULL CHECK(bucket_hour BETWEEN 0 AND 23),
+      tx_bytes INTEGER NOT NULL DEFAULT 0,
+      rx_bytes INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (subscription_id, bucket_date, bucket_hour),
+      FOREIGN KEY(subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_subscription_hourly_traffic_bucket
+      ON subscription_hourly_traffic(bucket_date, bucket_hour);
+
     CREATE INDEX IF NOT EXISTS idx_sub_user_status_expire
       ON subscriptions(user_id, status, expire_time);
 

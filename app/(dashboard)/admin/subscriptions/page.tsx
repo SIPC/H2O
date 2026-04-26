@@ -2,10 +2,17 @@
 
 import { FormEvent, useEffect, useState } from "react"
 import { ChevronsUpDown } from "lucide-react"
+import { Line, LineChart, XAxis } from "recharts"
 
 import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import {
   Command,
   CommandEmpty,
@@ -45,6 +52,13 @@ type Row = {
 type UserRow = { id: number; username: string }
 type PlanRow = { id: number; name: string }
 
+type HourPoint = {
+  hour: number
+  label: string
+  txBytes: number
+  rxBytes: number
+}
+
 const statusOptions: Array<{ label: string; value: SubscriptionStatus }> = [
   { label: "启用 (active)", value: "active" },
   { label: "过期 (expired)", value: "expired" },
@@ -56,6 +70,28 @@ const statusLabel: Record<SubscriptionStatus, string> = {
   expired: "过期",
   blocked: "封禁",
 }
+
+const HISTORY_CHUNK_SIZE = 200
+
+const TX_SPARK_CONFIG = {
+  txBytes: {
+    label: "总出",
+    theme: {
+      light: "#ffffff",
+      dark: "#ffffff",
+    },
+  },
+} satisfies ChartConfig
+
+const RX_SPARK_CONFIG = {
+  rxBytes: {
+    label: "总入",
+    theme: {
+      light: "#ffffff",
+      dark: "#ffffff",
+    },
+  },
+} satisfies ChartConfig
 
 // 字节数按单位自适应：B/KB/MB/GB/TB/PB
 function formatBytes(bytes: number): string {
@@ -76,6 +112,53 @@ function toDatetimeLocal(iso: string) {
   const d = new Date(iso)
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function clampHour(hour: number): number {
+  if (!Number.isFinite(hour)) return 0
+  return Math.min(23, Math.max(0, Math.floor(hour)))
+}
+
+function buildEmptyHourly(): HourPoint[] {
+  return Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: String(hour).padStart(2, "0"),
+    txBytes: 0,
+    rxBytes: 0,
+  }))
+}
+
+function normalizeHourly(input: unknown): HourPoint[] {
+  const base = buildEmptyHourly()
+  if (!Array.isArray(input)) return base
+
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue
+    const row = item as Partial<HourPoint>
+    if (typeof row.hour !== "number" || !Number.isFinite(row.hour)) continue
+
+    const hour = clampHour(row.hour)
+    base[hour] = {
+      hour,
+      label: String(hour).padStart(2, "0"),
+      txBytes:
+        typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
+          ? Math.max(0, Math.floor(row.txBytes))
+          : 0,
+      rxBytes:
+        typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
+          ? Math.max(0, Math.floor(row.rxBytes))
+          : 0,
+    }
+  }
+
+  return base
+}
+
+function buildElapsedHourly(data: HourPoint[], currentLocalHour: number) {
+  const hour = clampHour(currentLocalHour)
+  const elapsed = data.slice(0, hour + 1)
+  return elapsed.length > 0 ? elapsed : data.slice(0, 1)
 }
 
 function StatusCombobox({
@@ -190,6 +273,50 @@ function EntityCombobox({
   )
 }
 
+function SubscriptionHistorySpark({
+  hourly,
+  currentLocalHour,
+  dataKey,
+}: {
+  hourly: HourPoint[]
+  currentLocalHour: number
+  dataKey: "txBytes" | "rxBytes"
+}) {
+  const data = buildElapsedHourly(hourly, currentLocalHour)
+  const config = dataKey === "txBytes" ? TX_SPARK_CONFIG : RX_SPARK_CONFIG
+
+  return (
+    <ChartContainer config={config} className="aspect-auto h-8 w-[160px]">
+      <LineChart
+        accessibilityLayer
+        data={data}
+        margin={{ top: 2, right: 0, left: 0, bottom: 0 }}
+      >
+        <XAxis dataKey="label" hide />
+        <ChartTooltip
+          cursor={false}
+          content={
+            <ChartTooltipContent
+              indicator="dot"
+              hideLabel
+              hideIndicator
+              formatter={(value) => formatBytes(Number(value))}
+            />
+          }
+        />
+        <Line
+          type="monotone"
+          dataKey={dataKey}
+          stroke={`var(--color-${dataKey})`}
+          strokeWidth={1.6}
+          dot={false}
+          activeDot={{ r: 2 }}
+        />
+      </LineChart>
+    </ChartContainer>
+  )
+}
+
 export default function AdminSubscriptionsPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<Row[]>([])
@@ -198,16 +325,91 @@ export default function AdminSubscriptionsPage() {
   const [userId, setUserId] = useState<number | null>(null)
   const [planId, setPlanId] = useState<number | null>(null)
 
+  const [historyBySub, setHistoryBySub] = useState<Record<number, HourPoint[]>>(
+    {}
+  )
+  const [historyCurrentLocalHour, setHistoryCurrentLocalHour] = useState(0)
+
   const [editOpen, setEditOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<Row | null>(null)
   const [editStatus, setEditStatus] = useState<SubscriptionStatus>("active")
   const [editExpire, setEditExpire] = useState("")
   const [editUsed, setEditUsed] = useState("0")
 
+  async function loadHistory(
+    subscriptionIds: number[],
+    isMounted: () => boolean = () => true
+  ) {
+    const ids = Array.from(
+      new Set(subscriptionIds.filter((id) => Number.isInteger(id) && id > 0))
+    )
+
+    if (ids.length === 0) {
+      if (!isMounted()) return
+      setHistoryBySub({})
+      setHistoryCurrentLocalHour(0)
+      return
+    }
+
+    const nextHistory: Record<number, HourPoint[]> = {}
+    let nextCurrentHour = 0
+
+    for (let i = 0; i < ids.length; i += HISTORY_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + HISTORY_CHUNK_SIZE)
+      const params = new URLSearchParams()
+      params.set("ids", chunk.join(","))
+
+      const response = await fetch(
+        `/api/admin/subscriptions/history?${params.toString()}`
+      )
+      const json = await response.json()
+
+      if (!json?.ok) continue
+
+      if (typeof json.data?.currentLocalHour === "number") {
+        nextCurrentHour = clampHour(json.data.currentLocalHour)
+      }
+
+      if (!Array.isArray(json.data?.items)) continue
+      for (const rawItem of json.data.items as Array<{
+        subscriptionId?: unknown
+        hourly?: unknown
+      }>) {
+        if (
+          typeof rawItem.subscriptionId !== "number" ||
+          !Number.isFinite(rawItem.subscriptionId)
+        ) {
+          continue
+        }
+        nextHistory[Math.floor(rawItem.subscriptionId)] = normalizeHourly(
+          rawItem.hourly
+        )
+      }
+    }
+
+    for (const id of ids) {
+      if (!nextHistory[id]) nextHistory[id] = buildEmptyHourly()
+    }
+
+    if (!isMounted()) return
+    setHistoryBySub(nextHistory)
+    setHistoryCurrentLocalHour(nextCurrentHour)
+  }
+
   async function load() {
     const response = await fetch("/api/admin/subscriptions")
     const json = await response.json()
-    if (json?.ok) setRows(json.data)
+
+    if (!json?.ok || !Array.isArray(json.data)) {
+      setRows([])
+      setHistoryBySub({})
+      setHistoryCurrentLocalHour(0)
+      return
+    }
+
+    const nextRows = json.data as Row[]
+    setRows(nextRows)
+    await loadHistory(nextRows.map((row) => row.id))
   }
 
   useEffect(() => {
@@ -222,10 +424,22 @@ export default function AdminSubscriptionsPage() {
       const subJson = await subRes.json()
       const userJson = await userRes.json()
       const planJson = await planRes.json()
+
       if (!mounted) return
-      if (subJson?.ok) setRows(subJson.data)
+
+      const nextRows =
+        subJson?.ok && Array.isArray(subJson.data)
+          ? (subJson.data as Row[])
+          : []
+
+      setRows(nextRows)
       if (userJson?.ok) setUsers(userJson.data)
       if (planJson?.ok) setPlans(planJson.data)
+
+      await loadHistory(
+        nextRows.map((row) => row.id),
+        () => mounted
+      )
     })()
 
     return () => {
@@ -315,7 +529,7 @@ export default function AdminSubscriptionsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
       <Card>
         <CardHeader>
           <CardTitle>订阅管理</CardTitle>
@@ -365,62 +579,82 @@ export default function AdminSubscriptionsPage() {
                 <TH>套餐</TH>
                 <TH>已用流量</TH>
                 <TH>流量上限</TH>
+                <TH>总出历史</TH>
+                <TH>总入历史</TH>
                 <TH>状态</TH>
                 <TH>到期时间</TH>
                 <TH>操作</TH>
               </TR>
             </THead>
             <TBody>
-              {rows.map((row) => (
-                <TR key={row.id}>
-                  <TD>{row.id}</TD>
-                  <TD>{row.username}</TD>
-                  <TD>{row.plan_name}</TD>
-                  <TD>{formatBytes(row.used_traffic_bytes)}</TD>
-                  <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
-                  <TD>{statusLabel[row.status] ?? row.status}</TD>
-                  <TD>{new Date(row.expire_time).toLocaleString()}</TD>
-                  <TD>
-                    <div className="flex flex-wrap gap-2">
-                      {row.status === "blocked" ? (
+              {rows.map((row) => {
+                const hourly = historyBySub[row.id] ?? buildEmptyHourly()
+
+                return (
+                  <TR key={row.id}>
+                    <TD>{row.id}</TD>
+                    <TD>{row.username}</TD>
+                    <TD>{row.plan_name}</TD>
+                    <TD>{formatBytes(row.used_traffic_bytes)}</TD>
+                    <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
+                    <TD className="min-w-[170px] py-1">
+                      <SubscriptionHistorySpark
+                        hourly={hourly}
+                        currentLocalHour={historyCurrentLocalHour}
+                        dataKey="txBytes"
+                      />
+                    </TD>
+                    <TD className="min-w-[170px] py-1">
+                      <SubscriptionHistorySpark
+                        hourly={hourly}
+                        currentLocalHour={historyCurrentLocalHour}
+                        dataKey="rxBytes"
+                      />
+                    </TD>
+                    <TD>{statusLabel[row.status] ?? row.status}</TD>
+                    <TD>{new Date(row.expire_time).toLocaleString()}</TD>
+                    <TD>
+                      <div className="flex flex-wrap gap-2">
+                        {row.status === "blocked" ? (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() =>
+                              void patchSub(row.id, { status: "active" })
+                            }
+                          >
+                            解封
+                          </Button>
+                        ) : (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            onClick={() =>
+                              void patchSub(row.id, { status: "blocked" })
+                            }
+                          >
+                            封禁
+                          </Button>
+                        )}
                         <Button
                           size="xs"
                           variant="outline"
-                          onClick={() =>
-                            void patchSub(row.id, { status: "active" })
-                          }
+                          onClick={() => openEdit(row)}
                         >
-                          解封
+                          编辑
                         </Button>
-                      ) : (
                         <Button
                           size="xs"
-                          variant="outline"
-                          onClick={() =>
-                            void patchSub(row.id, { status: "blocked" })
-                          }
+                          variant="destructive"
+                          onClick={() => void remove(row)}
                         >
-                          封禁
+                          删除
                         </Button>
-                      )}
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => openEdit(row)}
-                      >
-                        编辑
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="destructive"
-                        onClick={() => void remove(row)}
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  </TD>
-                </TR>
-              ))}
+                      </div>
+                    </TD>
+                  </TR>
+                )
+              })}
             </TBody>
           </Table>
         </CardContent>
