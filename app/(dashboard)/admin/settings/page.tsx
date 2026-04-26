@@ -302,6 +302,22 @@ export default function AdminSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>问题反馈</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            使用中遇到问题或有功能建议，欢迎加入交流群反馈。
+          </p>
+          <Button asChild variant="outline">
+            <a href="https://t.me/h2o_msg" target="_blank" rel="noreferrer">
+              前往反馈群
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   )
 }
