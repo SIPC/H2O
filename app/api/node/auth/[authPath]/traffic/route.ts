@@ -127,6 +127,8 @@ export async function POST(
   let processed = 0
   let skipped = 0
   let blocked = 0
+  let hourlyTxDelta = 0
+  let hourlyRxDelta = 0
 
   try {
     db.exec("BEGIN")
@@ -165,6 +167,20 @@ export async function POST(
     )
     const blockSub = db.prepare(
       `UPDATE subscriptions SET used_traffic_bytes = ?, status = 'blocked' WHERE id = ?`
+    )
+    const upsertHourlyStats = db.prepare(
+      `INSERT INTO traffic_hourly_stats(bucket_date, bucket_hour, tx_bytes, rx_bytes, updated_at)
+       VALUES (
+         date('now', 'localtime'),
+         CAST(strftime('%H', 'now', 'localtime') AS INTEGER),
+         ?,
+         ?,
+         datetime('now')
+       )
+       ON CONFLICT(bucket_date, bucket_hour) DO UPDATE SET
+         tx_bytes = tx_bytes + excluded.tx_bytes,
+         rx_bytes = rx_bytes + excluded.rx_bytes,
+         updated_at = datetime('now')`
     )
 
     for (const [username, stat] of traffic) {
@@ -228,15 +244,21 @@ export async function POST(
         | { last_tx_bytes: number; last_rx_bytes: number }
         | undefined
 
-      const lastTotal = (last?.last_tx_bytes ?? 0) + (last?.last_rx_bytes ?? 0)
-      const nowTotal = stat.tx + stat.rx
+      const lastTx = last?.last_tx_bytes ?? 0
+      const lastRx = last?.last_rx_bytes ?? 0
 
-      // Hy2 重启会导致 /traffic 计数归零，此时 nowTotal 是重启后的累计值，应作为本轮增量
-      const delta = nowTotal < lastTotal ? nowTotal : nowTotal - lastTotal
+      // Hy2 重启会导致 /traffic 计数归零：分别对 tx/rx 做差值，若回退则按当前累计值记增量
+      const deltaTx = stat.tx < lastTx ? stat.tx : stat.tx - lastTx
+      const deltaRx = stat.rx < lastRx ? stat.rx : stat.rx - lastRx
+      const delta = deltaTx + deltaRx
       const nextUsage = activeSub.used_traffic_bytes + delta
 
       if (nextUsage > activeSub.traffic_limit_bytes) {
         blockSub.run(nextUsage, activeSub.id)
+        if (delta > 0) {
+          hourlyTxDelta += deltaTx
+          hourlyRxDelta += deltaRx
+        }
         blocked++
         writeAuthLog({
           node_id: node.id,
@@ -249,12 +271,19 @@ export async function POST(
         })
       } else if (delta > 0) {
         updateSubUsage.run(nextUsage, activeSub.id)
+        hourlyTxDelta += deltaTx
+        hourlyRxDelta += deltaRx
         processed++
       } else {
         processed++
       }
 
       upsertLast.run(node.id, user.id, stat.tx, stat.rx)
+    }
+
+    // 汇总到“今日小时桶”全局流量统计
+    if (hourlyTxDelta > 0 || hourlyRxDelta > 0) {
+      upsertHourlyStats.run(hourlyTxDelta, hourlyRxDelta)
     }
 
     // 节点心跳与在线/流量快照

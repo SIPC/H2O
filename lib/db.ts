@@ -113,6 +113,16 @@ function migrate(database: DatabaseSync) {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    -- 全局小时流量统计：按天+小时聚合总出/总入流量
+    CREATE TABLE IF NOT EXISTS traffic_hourly_stats (
+      bucket_date TEXT NOT NULL,
+      bucket_hour INTEGER NOT NULL CHECK(bucket_hour BETWEEN 0 AND 23),
+      tx_bytes INTEGER NOT NULL DEFAULT 0,
+      rx_bytes INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (bucket_date, bucket_hour)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sub_user_status_expire
       ON subscriptions(user_id, status, expire_time);
 

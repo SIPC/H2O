@@ -1,9 +1,17 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
+import { Line, LineChart, XAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
+import { cn, formatBytes } from "@/lib/utils"
 
 type SessionUser = {
   id: number
@@ -18,6 +26,234 @@ type AdminOverview = {
   subscriptions: number
 }
 
+type TrafficHour = {
+  hour: number
+  label: string
+  txBytes: number
+  rxBytes: number
+}
+
+type TrafficOverview = {
+  date: string
+  currentLocalHour: number
+  todayTxBytes: number
+  todayRxBytes: number
+  hourly: TrafficHour[]
+}
+
+type TrendResult = {
+  percent: number | null
+  direction: "up" | "down" | "flat"
+}
+
+const TX_CHART_CONFIG = {
+  txBytes: {
+    label: "今日总出",
+    theme: {
+      light: "#ffffff",
+      dark: "#ffffff",
+    },
+  },
+} satisfies ChartConfig
+
+const RX_CHART_CONFIG = {
+  rxBytes: {
+    label: "今日总入",
+    theme: {
+      light: "#ffffff",
+      dark: "#ffffff",
+    },
+  },
+} satisfies ChartConfig
+
+function clampHour(hour: number): number {
+  if (!Number.isFinite(hour)) return 0
+  return Math.min(23, Math.max(0, Math.floor(hour)))
+}
+
+function getLocalDateString(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function buildEmptyHourly(): TrafficHour[] {
+  return Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: String(hour).padStart(2, "0"),
+    txBytes: 0,
+    rxBytes: 0,
+  }))
+}
+
+function normalizeHourly(input: unknown): TrafficHour[] {
+  const base = buildEmptyHourly()
+  if (!Array.isArray(input)) return base
+
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue
+    const row = item as Partial<TrafficHour>
+
+    if (typeof row.hour !== "number" || !Number.isFinite(row.hour)) continue
+    const hour = clampHour(row.hour)
+
+    base[hour] = {
+      hour,
+      label: String(hour).padStart(2, "0"),
+      txBytes:
+        typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
+          ? Math.max(0, Math.floor(row.txBytes))
+          : 0,
+      rxBytes:
+        typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
+          ? Math.max(0, Math.floor(row.rxBytes))
+          : 0,
+    }
+  }
+
+  return base
+}
+
+// 只展示“今天已经发生过的小时”，保证最右点就是当前小时
+function buildElapsedHourly(data: TrafficHour[], currentLocalHour: number) {
+  const hour = clampHour(currentLocalHour)
+  const elapsed = data.slice(0, hour + 1)
+  return elapsed.length > 0 ? elapsed : data.slice(0, 1)
+}
+
+// 趋势：最近 1 小时 vs 前 1 小时，样本不足或基线为 0 则不显示百分比
+function calculateTrend(
+  data: TrafficHour[],
+  key: "txBytes" | "rxBytes"
+): TrendResult {
+  const WINDOW = 1
+  if (data.length < WINDOW * 2) return { percent: null, direction: "flat" }
+
+  const recent = data
+    .slice(-WINDOW)
+    .reduce(
+      (sum, item) => sum + (key === "txBytes" ? item.txBytes : item.rxBytes),
+      0
+    )
+  const previous = data
+    .slice(-WINDOW * 2, -WINDOW)
+    .reduce(
+      (sum, item) => sum + (key === "txBytes" ? item.txBytes : item.rxBytes),
+      0
+    )
+
+  if (previous <= 0) return { percent: null, direction: "flat" }
+
+  const diff = ((recent - previous) / previous) * 100
+  if (Math.abs(diff) < 0.1) return { percent: 0, direction: "flat" }
+
+  return {
+    percent: Math.abs(diff),
+    direction: diff > 0 ? "up" : "down",
+  }
+}
+
+function TrafficSparkCard({
+  title,
+  totalBytes,
+  data,
+  dataKey,
+  config,
+  date,
+}: {
+  title: string
+  totalBytes: number
+  data: TrafficHour[]
+  dataKey: "txBytes" | "rxBytes"
+  config: ChartConfig
+  date: string
+}) {
+  const trend = calculateTrend(data, dataKey)
+
+  const trendClass =
+    trend.direction === "down"
+      ? "text-red-500"
+      : trend.direction === "up"
+        ? "text-emerald-500"
+        : "text-muted-foreground"
+
+  const trendText =
+    trend.percent === null
+      ? "—"
+      : trend.direction === "flat"
+        ? "→ 0.0%"
+        : `${trend.direction === "up" ? "↑" : "↓"} ${trend.percent.toFixed(1)}%`
+
+  return (
+    <Card className="overflow-hidden border-border/70">
+      <CardContent className="p-4">
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm text-muted-foreground">{title}</p>
+            <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
+              {formatBytes(totalBytes)}
+            </p>
+          </div>
+          <p
+            className={cn(
+              "mt-1 text-sm font-semibold tabular-nums",
+              trendClass
+            )}
+          >
+            {trendText}
+          </p>
+        </div>
+
+        <p className="mb-2 text-xs text-muted-foreground">较前 1 小时</p>
+
+        <ChartContainer config={config} className="aspect-auto h-14 w-full">
+          <LineChart
+            accessibilityLayer
+            data={data}
+            margin={{ top: 6, right: 0, left: 0, bottom: 0 }}
+          >
+            <XAxis dataKey="label" hide />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  indicator="dot"
+                  labelFormatter={(value, payload) => {
+                    const fallbackLabel = payload?.[0]?.payload?.label
+                    const fallbackHour = payload?.[0]?.payload?.hour
+                    const hourLabel =
+                      typeof value === "string" && value.trim()
+                        ? value
+                        : typeof fallbackLabel === "string" &&
+                            fallbackLabel.trim()
+                          ? fallbackLabel
+                          : typeof fallbackHour === "number" &&
+                              Number.isFinite(fallbackHour)
+                            ? String(fallbackHour).padStart(2, "0")
+                            : "00"
+                    return `${date} ${hourLabel.padStart(2, "0")}:00`
+                  }}
+                  formatter={(value) => formatBytes(Number(value))}
+                />
+              }
+            />
+            <Line
+              type="monotone"
+              dataKey={dataKey}
+              stroke={`var(--color-${dataKey})`}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 3 }}
+            />
+          </LineChart>
+        </ChartContainer>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function AdminPage() {
   const [user, setUser] = useState<SessionUser | null>(null)
   const [overview, setOverview] = useState<AdminOverview>({
@@ -26,18 +262,26 @@ export default function AdminPage() {
     plans: 0,
     subscriptions: 0,
   })
+  const [traffic, setTraffic] = useState<TrafficOverview>({
+    date: "",
+    currentLocalHour: 0,
+    todayTxBytes: 0,
+    todayRxBytes: 0,
+    hourly: buildEmptyHourly(),
+  })
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const [sessionRes, usersRes, nodesRes, plansRes, subsRes] =
+      const [sessionRes, usersRes, nodesRes, plansRes, subsRes, trafficRes] =
         await Promise.all([
           fetch("/api/auth/session"),
           fetch("/api/admin/users"),
           fetch("/api/admin/nodes"),
           fetch("/api/admin/plans"),
           fetch("/api/admin/subscriptions"),
+          fetch("/api/admin/traffic/overview"),
         ])
 
       const sessionJson = await sessionRes.json()
@@ -45,22 +289,53 @@ export default function AdminPage() {
       const nodesJson = await nodesRes.json()
       const plansJson = await plansRes.json()
       const subsJson = await subsRes.json()
+      const trafficJson = await trafficRes.json()
 
       if (!mounted) return
 
       if (sessionJson?.ok) setUser(sessionJson.data.user)
+
       setOverview({
         users: usersJson?.ok ? usersJson.data.length : 0,
         nodes: nodesJson?.ok ? nodesJson.data.length : 0,
         plans: plansJson?.ok ? plansJson.data.length : 0,
         subscriptions: subsJson?.ok ? subsJson.data.length : 0,
       })
+
+      if (trafficJson?.ok) {
+        setTraffic({
+          date:
+            typeof trafficJson.data.date === "string"
+              ? trafficJson.data.date
+              : "",
+          currentLocalHour:
+            typeof trafficJson.data.currentLocalHour === "number"
+              ? clampHour(trafficJson.data.currentLocalHour)
+              : 0,
+          todayTxBytes:
+            typeof trafficJson.data.todayTxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.todayTxBytes))
+              : 0,
+          todayRxBytes:
+            typeof trafficJson.data.todayRxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.todayRxBytes))
+              : 0,
+          hourly: normalizeHourly(trafficJson.data.hourly),
+        })
+      }
     })()
 
     return () => {
       mounted = false
     }
   }, [])
+
+  const elapsedHourly = useMemo(
+    () => buildElapsedHourly(traffic.hourly, traffic.currentLocalHour),
+    [traffic.hourly, traffic.currentLocalHour]
+  )
+
+  const tooltipDate = traffic.date || getLocalDateString()
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
@@ -107,6 +382,25 @@ export default function AdminPage() {
             {overview.subscriptions}
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <TrafficSparkCard
+          title="今日总出"
+          totalBytes={traffic.todayTxBytes}
+          data={elapsedHourly}
+          dataKey="txBytes"
+          config={TX_CHART_CONFIG}
+          date={tooltipDate}
+        />
+        <TrafficSparkCard
+          title="今日总入"
+          totalBytes={traffic.todayRxBytes}
+          data={elapsedHourly}
+          dataKey="rxBytes"
+          config={RX_CHART_CONFIG}
+          date={tooltipDate}
+        />
       </div>
     </div>
   )

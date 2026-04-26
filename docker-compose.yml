@@ -2,6 +2,8 @@ services:
   h2o:
     container_name: h2o
     image: sipcink/h2o:latest
+    environment:
+      TZ: Asia/Shanghai
     ports:
       - "3000:3000"
     volumes:

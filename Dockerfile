@@ -37,9 +37,12 @@ ENV H2O_DB_PATH=/app/data/h2o.sqlite
 ENV H2O_LOGS_DB_PATH=/app/data/h2o-logs.sqlite
 
 # tini 负责正确转发信号和回收僵尸进程
-RUN apk add --no-cache tini \
+RUN apk add --no-cache tini tzdata \
+ && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
+ && echo "Asia/Shanghai" > /etc/timezone \
  && addgroup -S -g 1001 nodejs \
  && adduser -S -u 1001 -G nodejs nextjs
+
 
 # standalone 输出已经自带最小化的 node_modules 与 server.js
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
