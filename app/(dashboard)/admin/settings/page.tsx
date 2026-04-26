@@ -14,6 +14,7 @@ type Settings = {
   new_user_default_active: boolean
   turnstile_site_key: string
   turnstile_secret_key: string
+  agent_bundle_url: string
 }
 
 const DEFAULTS: Settings = {
@@ -22,6 +23,7 @@ const DEFAULTS: Settings = {
   new_user_default_active: true,
   turnstile_site_key: "",
   turnstile_secret_key: "",
+  agent_bundle_url: "",
 }
 
 // 根据两 key 填写情况推断 Turnstile 当前状态，与后端 getTurnstileStatus 一致
@@ -30,7 +32,10 @@ function turnstileStatus(site: string, secret: string) {
   const k = secret.trim()
   if (!s && !k) return { label: "未启用", tone: "muted" as const }
   if (s && k) return { label: "已启用", tone: "ok" as const }
-  return { label: "配置错误：仅填了一个 key，登录/注册会被拒绝", tone: "err" as const }
+  return {
+    label: "配置错误：仅填了一个 key，登录/注册会被拒绝",
+    tone: "err" as const,
+  }
 }
 
 // 单个开关行，复用 Checkbox + Label
@@ -83,7 +88,8 @@ export default function AdminSettingsPage() {
       draft.login_enabled !== saved.login_enabled ||
       draft.new_user_default_active !== saved.new_user_default_active ||
       draft.turnstile_site_key !== saved.turnstile_site_key ||
-      draft.turnstile_secret_key !== saved.turnstile_secret_key
+      draft.turnstile_secret_key !== saved.turnstile_secret_key ||
+      draft.agent_bundle_url !== saved.agent_bundle_url
     )
   }, [draft, saved])
 
@@ -237,6 +243,35 @@ export default function AdminSettingsPage() {
                     }
                   />
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label
+                    htmlFor="agent_bundle_url"
+                    className="text-sm font-medium"
+                  >
+                    Agent 安装包地址
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    用于节点「一键部署」下载 h2o-agent
+                    安装包（h2o-agent-bundle.tar.gz）。 留空时默认使用 GitHub
+                    Releases 最新地址。
+                  </p>
+                </div>
+                <Input
+                  id="agent_bundle_url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="https://github.com/SIPC/H2O/releases/latest/download/h2o-agent-bundle.tar.gz"
+                  value={draft.agent_bundle_url}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      agent_bundle_url: e.target.value,
+                    }))
+                  }
+                />
               </div>
 
               <div className="flex items-center gap-2 pt-2">

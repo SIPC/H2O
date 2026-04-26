@@ -1,0 +1,89 @@
+name: Manual Agent Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release 标签（例如 v1.0.0）"
+        required: true
+        type: string
+      release_name:
+        description: "Release 标题（可选，默认同 tag）"
+        required: false
+        type: string
+      notes:
+        description: "Release 说明（可选）"
+        required: false
+        type: string
+      draft:
+        description: "是否为草稿"
+        required: true
+        default: false
+        type: boolean
+      prerelease:
+        description: "是否为预发布"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  build-and-publish:
+    name: Build agent and publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: 构建 agent 打包产物
+        working-directory: agent
+        shell: bash
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: 生成 SHA256 校验文件
+        working-directory: agent/dist
+        shell: bash
+        run: |
+          sha256sum h2o-agent-linux-amd64 > h2o-agent-linux-amd64.sha256
+          sha256sum h2o-agent-linux-arm64 > h2o-agent-linux-arm64.sha256
+          sha256sum h2o-agent-bundle.tar.gz > h2o-agent-bundle.tar.gz.sha256
+
+      - name: 计算 Release 标题
+        id: meta
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.release_name }}" ]; then
+            echo "name=${{ github.event.inputs.release_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 发布到 GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          body: ${{ github.event.inputs.notes }}
+          draft: ${{ github.event.inputs.draft }}
+          prerelease: ${{ github.event.inputs.prerelease }}
+          generate_release_notes: true
+          overwrite_files: true
+          files: |
+            agent/dist/h2o-agent-linux-amd64
+            agent/dist/h2o-agent-linux-arm64
+            agent/dist/h2o-agent-bundle.tar.gz
+            agent/dist/h2o-agent-linux-amd64.sha256
+            agent/dist/h2o-agent-linux-arm64.sha256
+            agent/dist/h2o-agent-bundle.tar.gz.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

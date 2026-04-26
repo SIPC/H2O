@@ -12,13 +12,17 @@ import {
 import { getClientIp } from "@/lib/turnstile"
 
 // 审计日志里不应出现的敏感 key：只记录是否改动，不记录明文
-const SENSITIVE_KEYS = new Set<SettingKey>([SETTING_KEYS.turnstileSecretKey])
+const SENSITIVE_KEYS = new Set<SettingKey>([
+  SETTING_KEYS.turnstileSecretKey,
+  SETTING_KEYS.agentBundleUrl,
+])
 
 function maskChanges(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(body)) {
     if (SENSITIVE_KEYS.has(key as SettingKey)) {
-      out[key] = typeof value === "string" && value.length > 0 ? "[SET]" : "[CLEARED]"
+      out[key] =
+        typeof value === "string" && value.length > 0 ? "[SET]" : "[CLEARED]"
     } else {
       out[key] = value
     }

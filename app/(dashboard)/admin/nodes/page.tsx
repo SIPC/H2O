@@ -194,7 +194,7 @@ export default function AdminNodesPage() {
       {
         h2o_url: origin,
         auth_path: row.auth_path,
-        hysteria_stats_url: "http://127.0.0.1:25300",
+        hysteria_stats_url: "http://127.0.0.1:9999",
         hysteria_stats_secret: "<填入 Hy2 config 的 trafficStats.secret>",
         interval_seconds: 120,
       },
@@ -216,6 +216,68 @@ export default function AdminNodesPage() {
         <pre className="max-h-[400px] min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
           {config}
         </pre>
+      ),
+    })
+  }
+
+  // 获取一键部署命令并弹窗展示（会尝试自动复制）
+  async function showDeployCommand(row: NodeRow) {
+    const response = await fetch(`/api/admin/nodes/${row.id}/deploy-command`)
+    const json = await response.json()
+
+    if (!response.ok || !json?.ok) {
+      await alert({
+        title: "获取一键部署命令失败",
+        description: json?.error?.message ?? "请稍后重试",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const command =
+      typeof json.data?.command === "string" ? json.data.command : ""
+    if (!command) {
+      await alert({
+        title: "获取一键部署命令失败",
+        description: "接口返回异常，请检查后端日志",
+        variant: "destructive",
+      })
+      return
+    }
+
+    let copied = false
+    try {
+      await navigator.clipboard.writeText(command)
+      copied = true
+    } catch {
+      copied = false
+    }
+
+    const meta = json.data?.meta as
+      | {
+          cert_path?: string
+          key_path?: string
+          interval_seconds?: number
+        }
+      | undefined
+
+    await alert({
+      title: `${row.name} 的一键部署命令${copied ? "（已复制）" : ""}`,
+      description: (
+        <div className="space-y-3">
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <p>在节点服务器以 root 执行（将自动安装/配置 hy2 与 agent）。</p>
+            <p>若证书或私钥文件不存在，部署脚本会自动生成自签证书。</p>
+          </div>
+          <pre className="max-h-[260px] min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
+            {command}
+          </pre>
+          <div className="space-y-1 text-xs text-muted-foreground">
+            <p>证书路径：{meta?.cert_path ?? "/etc/hysteria/server.crt"}</p>
+            <p>私钥路径：{meta?.key_path ?? "/etc/hysteria/server.key"}</p>
+            <p>上报间隔：{meta?.interval_seconds ?? 120} 秒</p>
+          </div>
+        </div>
       ),
     })
   }
@@ -367,6 +429,13 @@ export default function AdminNodesPage() {
                           onClick={() => void showAgentConfig(row)}
                         >
                           Agent 配置
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => void showDeployCommand(row)}
+                        >
+                          一键部署
                         </Button>
                         {row.status === "enabled" ? (
                           <Button

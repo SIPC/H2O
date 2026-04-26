@@ -21,7 +21,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 ## 首次启动流程
 
-1. 配置 `.env.local`（可选 Turnstile 人机验证）：
+1. Turnstile 人机验证通过后台「站点设置」配置（可选）：
    - 两个 key 都缺失 → 人机验证视为 **disabled**，前端不渲染 widget
    - 两个 key 都有 → **enabled**
    - 只配一个 → **misconfigured**，登录/注册会直接报错（见 `lib/turnstile.ts`）

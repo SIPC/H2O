@@ -7,6 +7,7 @@ export const SETTING_KEYS = {
   newUserDefaultActive: "new_user_default_active",
   turnstileSiteKey: "turnstile_site_key",
   turnstileSecretKey: "turnstile_secret_key",
+  agentBundleUrl: "agent_bundle_url",
 } as const
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS]
@@ -19,6 +20,7 @@ export const SETTING_DEFAULTS: Record<SettingKey, unknown> = {
   [SETTING_KEYS.newUserDefaultActive]: true,
   [SETTING_KEYS.turnstileSiteKey]: "",
   [SETTING_KEYS.turnstileSecretKey]: "",
+  [SETTING_KEYS.agentBundleUrl]: "",
 }
 
 // 暴露给未登录前端的 key（用于首页/登录/注册页隐藏入口，不泄露内部策略）
