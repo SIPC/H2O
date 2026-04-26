@@ -35,6 +35,8 @@ type NodeRow = {
 }
 
 type HourPoint = {
+  index: number
+  bucketDate: string
   hour: number
   label: string
   txBytes: number
@@ -89,6 +91,8 @@ function formatBytes(bytes: number): string {
 
 function buildEmptyHourly(): HourPoint[] {
   return Array.from({ length: 24 }, (_, hour) => ({
+    index: hour,
+    bucketDate: "",
     hour,
     label: String(hour).padStart(2, "0"),
     txBytes: 0,
@@ -98,8 +102,9 @@ function buildEmptyHourly(): HourPoint[] {
 }
 
 function normalizeHourly(input: unknown): HourPoint[] {
-  const base = buildEmptyHourly()
-  if (!Array.isArray(input)) return base
+  if (!Array.isArray(input)) return buildEmptyHourly()
+
+  const out: HourPoint[] = []
 
   for (const item of input) {
     if (!item || typeof item !== "object") continue
@@ -116,16 +121,29 @@ function normalizeHourly(input: unknown): HourPoint[] {
         ? Math.max(0, Math.floor(row.rxBytes))
         : 0
 
-    base[hour] = {
+    out.push({
+      index:
+        typeof row.index === "number" && Number.isFinite(row.index)
+          ? Math.max(0, Math.floor(row.index))
+          : out.length,
+      bucketDate:
+        typeof row.bucketDate === "string" && row.bucketDate.trim()
+          ? row.bucketDate
+          : "",
       hour,
-      label: String(hour).padStart(2, "0"),
+      label:
+        typeof row.label === "string" && row.label.trim()
+          ? row.label
+          : String(hour).padStart(2, "0"),
       txBytes: tx,
       rxBytes: rx,
       totalBytes: tx + rx,
-    }
+    })
+
+    if (out.length >= 24) break
   }
 
-  return base
+  return out.length > 0 ? out : buildEmptyHourly()
 }
 
 // 只显示今天已经发生过的小时，保证最右点是当前小时

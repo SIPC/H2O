@@ -53,6 +53,8 @@ type UserRow = { id: number; username: string }
 type PlanRow = { id: number; name: string }
 
 type HourPoint = {
+  index: number
+  bucketDate: string
   hour: number
   label: string
   txBytes: number
@@ -121,6 +123,8 @@ function clampHour(hour: number): number {
 
 function buildEmptyHourly(): HourPoint[] {
   return Array.from({ length: 24 }, (_, hour) => ({
+    index: hour,
+    bucketDate: "",
     hour,
     label: String(hour).padStart(2, "0"),
     txBytes: 0,
@@ -129,8 +133,9 @@ function buildEmptyHourly(): HourPoint[] {
 }
 
 function normalizeHourly(input: unknown): HourPoint[] {
-  const base = buildEmptyHourly()
-  if (!Array.isArray(input)) return base
+  if (!Array.isArray(input)) return buildEmptyHourly()
+
+  const out: HourPoint[] = []
 
   for (const item of input) {
     if (!item || typeof item !== "object") continue
@@ -138,9 +143,20 @@ function normalizeHourly(input: unknown): HourPoint[] {
     if (typeof row.hour !== "number" || !Number.isFinite(row.hour)) continue
 
     const hour = clampHour(row.hour)
-    base[hour] = {
+    out.push({
+      index:
+        typeof row.index === "number" && Number.isFinite(row.index)
+          ? Math.max(0, Math.floor(row.index))
+          : out.length,
+      bucketDate:
+        typeof row.bucketDate === "string" && row.bucketDate.trim()
+          ? row.bucketDate
+          : "",
       hour,
-      label: String(hour).padStart(2, "0"),
+      label:
+        typeof row.label === "string" && row.label.trim()
+          ? row.label
+          : String(hour).padStart(2, "0"),
       txBytes:
         typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
           ? Math.max(0, Math.floor(row.txBytes))
@@ -149,10 +165,12 @@ function normalizeHourly(input: unknown): HourPoint[] {
         typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
           ? Math.max(0, Math.floor(row.rxBytes))
           : 0,
-    }
+    })
+
+    if (out.length >= 24) break
   }
 
-  return base
+  return out.length > 0 ? out : buildEmptyHourly()
 }
 
 function StatusCombobox({

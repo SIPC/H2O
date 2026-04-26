@@ -1,0 +1,104 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - package.json
+
+jobs:
+  build-and-publish:
+    name: Build agent and publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 准备 Node.js（用于读取 package.json 版本）
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 检查 package.json 的 version 是否发生变化
+        id: version
+        shell: bash
+        run: |
+          CURRENT_VERSION="$(node -p "require('./package.json').version")"
+          BEFORE_SHA="${{ github.event.before }}"
+          PREV_VERSION=""
+
+          if [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+            PREV_JSON="$(git show "$BEFORE_SHA:package.json" 2>/dev/null || true)"
+            if [ -n "$PREV_JSON" ]; then
+              PREV_VERSION="$(printf "%s" "$PREV_JSON" | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const v=JSON.parse(s).version;process.stdout.write(v?String(v):"")}catch{process.stdout.write("")}})')"
+            fi
+          fi
+
+          if [ "$CURRENT_VERSION" != "$PREV_VERSION" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=v$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+
+            echo "检测到 version 变化：$PREV_VERSION -> $CURRENT_VERSION"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "current_version=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
+            echo "version 未变化（$CURRENT_VERSION），后续步骤将跳过"
+          fi
+
+      - name: version 未变化，跳过发布
+        if: steps.version.outputs.changed != 'true'
+        shell: bash
+        run: echo "package.json version 未变化，跳过构建与发布"
+
+      - name: 安装 Go
+        if: steps.version.outputs.changed == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: 构建 agent 打包产物
+        if: steps.version.outputs.changed == 'true'
+        working-directory: agent
+        shell: bash
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: 生成 SHA256 校验文件
+        if: steps.version.outputs.changed == 'true'
+        working-directory: agent/dist
+        shell: bash
+        run: |
+          sha256sum h2o-agent-linux-amd64 > h2o-agent-linux-amd64.sha256
+          sha256sum h2o-agent-linux-arm64 > h2o-agent-linux-arm64.sha256
+          sha256sum h2o-agent-bundle.tar.gz > h2o-agent-bundle.tar.gz.sha256
+
+      - name: 发布到 GitHub Releases
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+
+          body: |
+            自动发布：检测到 `package.json` 版本变更为 `${{ steps.version.outputs.current_version }}`。
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          overwrite_files: true
+          files: |
+            agent/dist/h2o-agent-linux-amd64
+            agent/dist/h2o-agent-linux-arm64
+            agent/dist/h2o-agent-bundle.tar.gz
+            agent/dist/h2o-agent-linux-amd64.sha256
+            agent/dist/h2o-agent-linux-arm64.sha256
+            agent/dist/h2o-agent-bundle.tar.gz.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
