@@ -42,6 +42,10 @@ type TrafficOverview = {
   hourly: TrafficHour[]
 }
 
+type VersionCheckData = {
+  currentVersion: string
+}
+
 type TrendResult = {
   percent: number | null
   direction: "up" | "down" | "flat"
@@ -273,6 +277,10 @@ function TrafficSparkCard({
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 3 }}
+              isAnimationActive
+              animationBegin={0}
+              animationDuration={700}
+              animationEasing="linear"
             />
           </LineChart>
         </ChartContainer>
@@ -296,20 +304,29 @@ export default function AdminPage() {
     todayRxBytes: 0,
     hourly: buildEmptyHourly(),
   })
+  const [panelVersion, setPanelVersion] = useState("-")
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const [sessionRes, usersRes, nodesRes, plansRes, subsRes, trafficRes] =
-        await Promise.all([
-          fetch("/api/auth/session"),
-          fetch("/api/admin/users"),
-          fetch("/api/admin/nodes"),
-          fetch("/api/admin/plans"),
-          fetch("/api/admin/subscriptions"),
-          fetch("/api/admin/traffic/overview"),
-        ])
+      const [
+        sessionRes,
+        usersRes,
+        nodesRes,
+        plansRes,
+        subsRes,
+        trafficRes,
+        versionRes,
+      ] = await Promise.all([
+        fetch("/api/auth/session"),
+        fetch("/api/admin/users"),
+        fetch("/api/admin/nodes"),
+        fetch("/api/admin/plans"),
+        fetch("/api/admin/subscriptions"),
+        fetch("/api/admin/traffic/overview"),
+        fetch("/api/admin/version-check"),
+      ])
 
       const sessionJson = await sessionRes.json()
       const usersJson = await usersRes.json()
@@ -317,10 +334,21 @@ export default function AdminPage() {
       const plansJson = await plansRes.json()
       const subsJson = await subsRes.json()
       const trafficJson = await trafficRes.json()
+      const versionJson = await versionRes.json()
 
       if (!mounted) return
 
       if (sessionJson?.ok) setUser(sessionJson.data.user)
+
+      if (versionJson?.ok) {
+        const data = versionJson.data as VersionCheckData
+        if (
+          typeof data.currentVersion === "string" &&
+          data.currentVersion.trim()
+        ) {
+          setPanelVersion(data.currentVersion)
+        }
+      }
 
       setOverview({
         users: usersJson?.ok ? usersJson.data.length : 0,
@@ -368,6 +396,7 @@ export default function AdminPage() {
         <CardContent className="flex items-center gap-2 text-sm">
           <span>当前用户：{user?.username ?? "-"}</span>
           <Badge>{user?.role ?? "admin"}</Badge>
+          <span className="ml-auto text-muted-foreground">v{panelVersion}</span>
         </CardContent>
       </Card>
 

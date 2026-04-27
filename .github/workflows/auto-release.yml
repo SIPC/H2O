@@ -108,7 +108,10 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
 
           body: |
-            自动发布：检测到 `package.json` 版本变更为 `${{ steps.version.outputs.current_version }}`。
+            容器更新命令
+            ```
+            docker compose pull && docker compose up -d
+            ```
           draft: false
           prerelease: false
           generate_release_notes: true
