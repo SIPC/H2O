@@ -150,6 +150,7 @@ function normalizeHourly(input: unknown): HourPoint[] {
 
 function NodeUsageSpark({ hourly }: { hourly: HourPoint[] }) {
   const data = hourly
+  const shouldAnimate = data.length > 0
 
   return (
     <ChartContainer
@@ -179,6 +180,10 @@ function NodeUsageSpark({ hourly }: { hourly: HourPoint[] }) {
           strokeWidth={1.6}
           dot={false}
           activeDot={{ r: 2 }}
+          isAnimationActive={shouldAnimate}
+          animationBegin={0}
+          animationDuration={700}
+          animationEasing="linear"
         />
       </LineChart>
     </ChartContainer>
@@ -257,7 +262,7 @@ export default function AdminNodesPage() {
     }
 
     for (const id of ids) {
-      if (!nextHistory[id]) nextHistory[id] = buildEmptyHourly()
+      if (!nextHistory[id]) nextHistory[id] = []
     }
 
     if (!isMounted()) return
@@ -598,7 +603,7 @@ export default function AdminNodesPage() {
             <TBody>
               {rows.map((row) => {
                 const fresh = isFresh(row.last_report_at)
-                const hourly = historyByNode[row.id] ?? buildEmptyHourly()
+                const hourly = historyByNode[row.id] ?? []
 
                 return (
                   <TR key={row.id}>

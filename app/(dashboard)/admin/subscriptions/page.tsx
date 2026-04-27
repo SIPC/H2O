@@ -293,6 +293,7 @@ function SubscriptionHistorySpark({
   dataKey: "txBytes" | "rxBytes"
 }) {
   const data = hourly
+  const shouldAnimate = data.length > 0
   const config = dataKey === "txBytes" ? TX_SPARK_CONFIG : RX_SPARK_CONFIG
 
   return (
@@ -321,6 +322,10 @@ function SubscriptionHistorySpark({
           strokeWidth={1.6}
           dot={false}
           activeDot={{ r: 2 }}
+          isAnimationActive={shouldAnimate}
+          animationBegin={0}
+          animationDuration={700}
+          animationEasing="linear"
         />
       </LineChart>
     </ChartContainer>
@@ -391,7 +396,7 @@ export default function AdminSubscriptionsPage() {
     }
 
     for (const id of ids) {
-      if (!nextHistory[id]) nextHistory[id] = buildEmptyHourly()
+      if (!nextHistory[id]) nextHistory[id] = []
     }
 
     if (!isMounted()) return
@@ -589,7 +594,7 @@ export default function AdminSubscriptionsPage() {
             </THead>
             <TBody>
               {rows.map((row) => {
-                const hourly = historyBySub[row.id] ?? buildEmptyHourly()
+                const hourly = historyBySub[row.id] ?? []
 
                 return (
                   <TR key={row.id}>

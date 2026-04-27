@@ -191,6 +191,7 @@ function TrafficSparkCard({
   date: string
 }) {
   const trend = calculateTrend(data, dataKey)
+  const shouldAnimate = data.length > 0
 
   const trendClass =
     trend.direction === "down"
@@ -277,7 +278,7 @@ function TrafficSparkCard({
               strokeWidth={2}
               dot={false}
               activeDot={{ r: 3 }}
-              isAnimationActive
+              isAnimationActive={shouldAnimate}
               animationBegin={0}
               animationDuration={700}
               animationEasing="linear"
@@ -302,7 +303,7 @@ export default function AdminPage() {
     currentLocalHour: 0,
     todayTxBytes: 0,
     todayRxBytes: 0,
-    hourly: buildEmptyHourly(),
+    hourly: [],
   })
   const [panelVersion, setPanelVersion] = useState("-")
 
