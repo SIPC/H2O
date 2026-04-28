@@ -107,6 +107,25 @@ export async function GET(request: Request) {
       ? Math.max(0, Math.floor(todaySum.rx))
       : 0
 
+  const yesterdaySum = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(tx_bytes), 0) AS tx,
+         COALESCE(SUM(rx_bytes), 0) AS rx
+       FROM traffic_hourly_stats
+       WHERE bucket_date = date('now', 'localtime', '-1 day')`
+    )
+    .get() as { tx: number; rx: number } | undefined
+
+  const yesterdayTxBytes =
+    typeof yesterdaySum?.tx === "number" && Number.isFinite(yesterdaySum.tx)
+      ? Math.max(0, Math.floor(yesterdaySum.tx))
+      : 0
+  const yesterdayRxBytes =
+    typeof yesterdaySum?.rx === "number" && Number.isFinite(yesterdaySum.rx)
+      ? Math.max(0, Math.floor(yesterdaySum.rx))
+      : 0
+
   return NextResponse.json({
     ok: true,
     data: {
@@ -118,6 +137,8 @@ export async function GET(request: Request) {
       windowHours: 24,
       todayTxBytes,
       todayRxBytes,
+      yesterdayTxBytes,
+      yesterdayRxBytes,
       hourly,
     },
   })

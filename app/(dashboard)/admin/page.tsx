@@ -39,6 +39,8 @@ type TrafficOverview = {
   currentLocalHour: number
   todayTxBytes: number
   todayRxBytes: number
+  yesterdayTxBytes: number
+  yesterdayRxBytes: number
   hourly: TrafficHour[]
 }
 
@@ -143,30 +145,11 @@ function normalizeHourly(input: unknown): TrafficHour[] {
   return out.length > 0 ? out : buildEmptyHourly()
 }
 
-// 趋势：最近 1 小时 vs 前 1 小时，样本不足或基线为 0 则不显示百分比
-function calculateTrend(
-  data: TrafficHour[],
-  key: "txBytes" | "rxBytes"
-): TrendResult {
-  const WINDOW = 1
-  if (data.length < WINDOW * 2) return { percent: null, direction: "flat" }
-
-  const recent = data
-    .slice(-WINDOW)
-    .reduce(
-      (sum, item) => sum + (key === "txBytes" ? item.txBytes : item.rxBytes),
-      0
-    )
-  const previous = data
-    .slice(-WINDOW * 2, -WINDOW)
-    .reduce(
-      (sum, item) => sum + (key === "txBytes" ? item.txBytes : item.rxBytes),
-      0
-    )
-
+// 趋势：今日累计 vs 昨日累计，基线为 0 则不显示百分比
+function calculateDayTrend(current: number, previous: number): TrendResult {
   if (previous <= 0) return { percent: null, direction: "flat" }
 
-  const diff = ((recent - previous) / previous) * 100
+  const diff = ((current - previous) / previous) * 100
   if (Math.abs(diff) < 0.1) return { percent: 0, direction: "flat" }
 
   return {
@@ -182,6 +165,7 @@ function TrafficSparkCard({
   dataKey,
   config,
   date,
+  previousDayBytes,
 }: {
   title: string
   totalBytes: number
@@ -189,8 +173,9 @@ function TrafficSparkCard({
   dataKey: "txBytes" | "rxBytes"
   config: ChartConfig
   date: string
+  previousDayBytes: number
 }) {
-  const trend = calculateTrend(data, dataKey)
+  const trend = calculateDayTrend(totalBytes, previousDayBytes)
   const shouldAnimate = data.length > 0
 
   const trendClass =
@@ -227,7 +212,7 @@ function TrafficSparkCard({
           </p>
         </div>
 
-        <p className="mb-2 text-xs text-muted-foreground">较前 1 小时</p>
+        <p className="mb-2 text-xs text-muted-foreground">较前一天</p>
 
         <ChartContainer config={config} className="aspect-auto h-14 w-full">
           <LineChart
@@ -303,6 +288,8 @@ export default function AdminPage() {
     currentLocalHour: 0,
     todayTxBytes: 0,
     todayRxBytes: 0,
+    yesterdayTxBytes: 0,
+    yesterdayRxBytes: 0,
     hourly: [],
   })
   const [panelVersion, setPanelVersion] = useState("-")
@@ -376,6 +363,14 @@ export default function AdminPage() {
             typeof trafficJson.data.todayRxBytes === "number"
               ? Math.max(0, Math.floor(trafficJson.data.todayRxBytes))
               : 0,
+          yesterdayTxBytes:
+            typeof trafficJson.data.yesterdayTxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.yesterdayTxBytes))
+              : 0,
+          yesterdayRxBytes:
+            typeof trafficJson.data.yesterdayRxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.yesterdayRxBytes))
+              : 0,
           hourly: normalizeHourly(trafficJson.data.hourly),
         })
       }
@@ -440,6 +435,7 @@ export default function AdminPage() {
         <TrafficSparkCard
           title="今日总出"
           totalBytes={traffic.todayTxBytes}
+          previousDayBytes={traffic.yesterdayTxBytes}
           data={traffic.hourly}
           dataKey="txBytes"
           config={TX_CHART_CONFIG}
@@ -448,6 +444,7 @@ export default function AdminPage() {
         <TrafficSparkCard
           title="今日总入"
           totalBytes={traffic.todayRxBytes}
+          previousDayBytes={traffic.yesterdayRxBytes}
           data={traffic.hourly}
           dataKey="rxBytes"
           config={RX_CHART_CONFIG}
