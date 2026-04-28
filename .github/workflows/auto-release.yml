@@ -108,7 +108,6 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
 
           body: |
-            容器更新命令
             ```
             docker compose pull && docker compose up -d
             ```
