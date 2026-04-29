@@ -12,9 +12,12 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+
 import { Input } from "@/components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 import { cn, formatBytes } from "@/lib/utils"
+
+import { Eye, EyeOff } from "lucide-react"
 
 type SubscriptionRow = {
   id: number
@@ -129,6 +132,7 @@ export default function DashboardPage() {
   const [rows, setRows] = useState<SubscriptionRow[]>([])
   const [sub, setSub] = useState<SubUrls | null>(null)
   const [copied, setCopied] = useState(false)
+  const [urlMasked, setUrlMasked] = useState(true)
   // 数据到达时一起记录"参考当前时间"，避免在 render 里调 Date.now（React 19 purity 规则）
   const [referenceNow, setReferenceNow] = useState<number | null>(null)
   const [trafficOverview, setTrafficOverview] = useState<TrafficOverview>({
@@ -442,8 +446,23 @@ export default function DashboardPage() {
               <Input
                 readOnly
                 value={sub?.url ?? ""}
-                className="min-w-0 flex-1 font-mono text-xs"
+                className={cn(
+                  "min-w-0 flex-1 font-mono text-xs",
+                  urlMasked && "blur-sm"
+                )}
               />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setUrlMasked((v) => !v)}
+              >
+                {urlMasked ? (
+                  <EyeOff className="size-4" />
+                ) : (
+                  <Eye className="size-4" />
+                )}
+              </Button>
               <Button
                 type="button"
                 variant="outline"
