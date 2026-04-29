@@ -331,23 +331,21 @@ export default function DashboardPage() {
 
         {/* 今日流量卡 */}
         <Card className="overflow-hidden border-border/70">
-          <CardContent className="flex h-full flex-col p-4">
+          <CardContent className="relative flex h-full flex-col p-4">
             <p className="text-sm text-muted-foreground">今日流量</p>
             {hasValidSub ? (
               <>
-                <div className="mb-1 flex items-start justify-between gap-3">
-                  <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
-                    {formatBytes(todayTotal)}
-                  </p>
-                  <p
-                    className={cn(
-                      "mt-1 text-sm font-semibold tabular-nums",
-                      trendClass
-                    )}
-                  >
-                    {trendText}
-                  </p>
-                </div>
+                <p
+                  className={cn(
+                    "absolute top-4 right-4 text-sm font-semibold tabular-nums",
+                    trendClass
+                  )}
+                >
+                  {trendText}
+                </p>
+                <p className="mt-1 mb-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
+                  {formatBytes(todayTotal)}
+                </p>
                 <p className="mb-2 text-xs text-muted-foreground">较前一天</p>
                 <div className="mt-auto">
                   <ChartContainer
