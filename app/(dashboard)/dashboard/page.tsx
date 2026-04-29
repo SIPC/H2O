@@ -1,13 +1,20 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { Line, LineChart, XAxis } from "recharts"
 
 import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
+import { cn, formatBytes } from "@/lib/utils"
 
 type SubscriptionRow = {
   id: number
@@ -24,18 +31,97 @@ type SubUrls = {
   url: string
 }
 
-// 把字节数格式化为自适应单位
-function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"]
-  let value = bytes
-  let idx = 0
-  while (value >= 1024 && idx < units.length - 1) {
-    value /= 1024
-    idx += 1
+type TrafficHour = {
+  hour: number
+  label: string
+  bucketDate: string
+  txBytes: number
+  rxBytes: number
+  totalBytes: number
+}
+
+type TrafficOverview = {
+  date: string
+  currentLocalHour: number
+  todayTxBytes: number
+  todayRxBytes: number
+  yesterdayTxBytes: number
+  yesterdayRxBytes: number
+  hourly: TrafficHour[]
+}
+
+const TOTAL_CHART_CONFIG = {
+  totalBytes: {
+    label: "今日用量",
+    theme: {
+      light: "#171717",
+      dark: "#ffffff",
+    },
+  },
+} satisfies ChartConfig
+
+function getLocalDateString(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, "0")
+  const day = String(now.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function getPreviousDateString(dateString: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateString)) return dateString
+  const d = new Date(`${dateString}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return dateString
+  d.setDate(d.getDate() - 1)
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, "0")
+  const day = String(d.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+function buildEmptyHourly(): TrafficHour[] {
+  return Array.from({ length: 24 }, (_, hour) => ({
+    hour,
+    label: String(hour).padStart(2, "0"),
+    bucketDate: "",
+    txBytes: 0,
+    rxBytes: 0,
+    totalBytes: 0,
+  }))
+}
+
+function normalizeHourly(input: unknown): TrafficHour[] {
+  if (!Array.isArray(input)) return buildEmptyHourly()
+  const out: TrafficHour[] = []
+  for (const item of input) {
+    if (!item || typeof item !== "object") continue
+    const row = item as Partial<TrafficHour>
+    if (typeof row.hour !== "number" || !Number.isFinite(row.hour)) continue
+    const hour = Math.min(23, Math.max(0, Math.floor(row.hour)))
+    const tx =
+      typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
+        ? Math.max(0, Math.floor(row.txBytes))
+        : 0
+    const rx =
+      typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
+        ? Math.max(0, Math.floor(row.rxBytes))
+        : 0
+    out.push({
+      hour,
+      label:
+        typeof row.label === "string" && row.label.trim()
+          ? row.label
+          : String(hour).padStart(2, "0"),
+      bucketDate:
+        typeof row.bucketDate === "string" && row.bucketDate.trim()
+          ? row.bucketDate
+          : "",
+      txBytes: tx,
+      rxBytes: rx,
+      totalBytes: tx + rx,
+    })
   }
-  const decimals = idx === 0 ? 0 : value >= 100 ? 1 : 2
-  return `${value.toFixed(decimals)} ${units[idx]}`
+  return out.length > 0 ? out : buildEmptyHourly()
 }
 
 export default function DashboardPage() {
@@ -45,6 +131,15 @@ export default function DashboardPage() {
   const [copied, setCopied] = useState(false)
   // 数据到达时一起记录"参考当前时间"，避免在 render 里调 Date.now（React 19 purity 规则）
   const [referenceNow, setReferenceNow] = useState<number | null>(null)
+  const [trafficOverview, setTrafficOverview] = useState<TrafficOverview>({
+    date: "",
+    currentLocalHour: 0,
+    todayTxBytes: 0,
+    todayRxBytes: 0,
+    yesterdayTxBytes: 0,
+    yesterdayRxBytes: 0,
+    hourly: [],
+  })
 
   // 以"active 且未过期"为有效订阅口径（与订阅链接后端聚合一致）
   const validSubs = useMemo(() => {
@@ -82,18 +177,53 @@ export default function DashboardPage() {
     let mounted = true
 
     void (async () => {
-      const [subsRes, subRes] = await Promise.all([
+      const [subsRes, subRes, trafficRes] = await Promise.all([
         fetch("/api/user/subscriptions"),
         fetch("/api/user/subscription"),
+        fetch("/api/user/traffic/overview"),
       ])
       const subsJson = await subsRes.json()
       const subJson = await subRes.json()
+      const trafficJson = await trafficRes.json()
       if (!mounted) return
       if (subsJson?.ok) setRows(subsJson.data)
       if (subJson?.ok && typeof subJson.data?.path === "string") {
         setSub({ url: `${window.location.origin}${subJson.data.path}` })
       }
       setReferenceNow(Date.now())
+
+      if (trafficJson?.ok) {
+        setTrafficOverview({
+          date:
+            typeof trafficJson.data.date === "string"
+              ? trafficJson.data.date
+              : "",
+          currentLocalHour:
+            typeof trafficJson.data.currentLocalHour === "number"
+              ? Math.min(
+                  23,
+                  Math.max(0, Math.floor(trafficJson.data.currentLocalHour))
+                )
+              : 0,
+          todayTxBytes:
+            typeof trafficJson.data.todayTxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.todayTxBytes))
+              : 0,
+          todayRxBytes:
+            typeof trafficJson.data.todayRxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.todayRxBytes))
+              : 0,
+          yesterdayTxBytes:
+            typeof trafficJson.data.yesterdayTxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.yesterdayTxBytes))
+              : 0,
+          yesterdayRxBytes:
+            typeof trafficJson.data.yesterdayRxBytes === "number"
+              ? Math.max(0, Math.floor(trafficJson.data.yesterdayRxBytes))
+              : 0,
+          hourly: normalizeHourly(trafficJson.data.hourly),
+        })
+      }
     })()
 
     return () => {
@@ -139,113 +269,214 @@ export default function DashboardPage() {
     await loadSub()
   }
 
+  // 今日流量趋势数据
+  const todayTotal = trafficOverview.todayTxBytes + trafficOverview.todayRxBytes
+  const yesterdayTotal =
+    trafficOverview.yesterdayTxBytes + trafficOverview.yesterdayRxBytes
+  const tooltipDate = trafficOverview.date || getLocalDateString()
+
+  let trendText = "—"
+  let trendClass = "text-muted-foreground"
+  if (yesterdayTotal > 0) {
+    const diff = ((todayTotal - yesterdayTotal) / yesterdayTotal) * 100
+    if (Math.abs(diff) < 0.1) {
+      trendText = "→ 0.0%"
+    } else if (diff > 0) {
+      trendText = `↑ ${diff.toFixed(1)}%`
+      trendClass = "text-emerald-500"
+    } else {
+      trendText = `↓ ${Math.abs(diff).toFixed(1)}%`
+      trendClass = "text-red-500"
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
+      {/* 第一行：剩余流量 + 今日流量 */}
       <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
-        {/* 流量卡：展示剩余/总流量与使用率 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>流量</CardTitle>
-            <p className="text-xs text-muted-foreground">所有有效订阅合计</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        {/* 剩余流量卡 */}
+        <Card className="overflow-hidden border-border/70">
+          <CardContent className="flex h-full flex-col p-4">
+            <p className="text-sm text-muted-foreground">剩余流量</p>
             {hasValidSub ? (
               <>
-                <div>
-                  <div className="text-2xl font-semibold tracking-tight">
+                <div className="mb-1 flex items-baseline gap-1.5">
+                  <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
                     {formatBytes(traffic.remaining)}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    剩余 / 总 {formatBytes(traffic.total)}
+                  </p>
+                  <p className="text-xs text-muted-foreground tabular-nums">
+                    / {formatBytes(traffic.total)}
                   </p>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {`已用 ${formatBytes(traffic.used)}（${traffic.percent.toFixed(1)}%）`}
+                </p>
+                <div className="mt-auto h-2 w-full overflow-hidden rounded-full bg-muted">
                   <div
                     className="h-full rounded-full bg-primary transition-all"
                     style={{ width: `${traffic.percent}%` }}
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  已用 {formatBytes(traffic.used)}（{traffic.percent.toFixed(1)}
-                  %）
-                </p>
               </>
             ) : (
               <>
-                <div>
-                  <div className="text-2xl font-semibold tracking-tight text-muted-foreground">
-                    —
-                  </div>
-                  <p className="text-xs text-muted-foreground">暂无有效订阅</p>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted" />
+                <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight text-muted-foreground">
+                  —
+                </p>
+                <p className="text-xs text-muted-foreground">暂无有效订阅</p>
               </>
             )}
           </CardContent>
         </Card>
 
-        {/* 订阅链接卡：无有效订阅时仅 CardContent 模糊 + 遮罩提示，标题保持清晰 */}
-        <Card>
-          <CardHeader>
-            <CardTitle>订阅链接</CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Clash Verge / Mihomo / sing-box / Nekobox 等主流客户端均可直接导入，已按客户端自动下发对应配置。
-            </p>
-          </CardHeader>
-          <CardContent className="relative">
-            <div
-              aria-hidden={!hasValidSub}
-              className={
-                hasValidSub
-                  ? "flex flex-col gap-3"
-                  : "pointer-events-none flex flex-col gap-3 blur-sm select-none"
-              }
-            >
-              <div className="space-y-1">
-                <Label>通用订阅链接</Label>
-                <div className="flex gap-2">
-                  <Input
-                    readOnly
-                    value={sub?.url ?? ""}
-                    className="min-w-0 flex-1 font-mono text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={!sub}
-                    onClick={() => sub && void copy(sub.url)}
+        {/* 今日流量卡 */}
+        <Card className="overflow-hidden border-border/70">
+          <CardContent className="flex h-full flex-col p-4">
+            <p className="text-sm text-muted-foreground">今日流量</p>
+            {hasValidSub ? (
+              <>
+                <div className="mb-1 flex items-start justify-between gap-3">
+                  <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
+                    {formatBytes(todayTotal)}
+                  </p>
+                  <p
+                    className={cn(
+                      "mt-1 text-sm font-semibold tabular-nums",
+                      trendClass
+                    )}
                   >
-                    {copied ? "已复制" : "复制"}
-                  </Button>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
-                <p className="text-xs text-muted-foreground">
-                  链接中包含节点登录 Key。若泄露请立即重置。
-                </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void resetToken()}
-                >
-                  重置链接 / 登录Key
-                </Button>
-              </div>
-            </div>
-            {!hasValidSub ? (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="rounded-md border bg-background/80 px-4 py-2 text-center text-sm shadow-sm backdrop-blur">
-                  <p className="font-medium">当前暂无有效订阅</p>
-                  <p className="text-xs text-muted-foreground">
-                    请联系管理员开通套餐后再使用订阅链接
+                    {trendText}
                   </p>
                 </div>
-              </div>
-            ) : null}
+                <p className="mb-2 text-xs text-muted-foreground">较前一天</p>
+                <div className="mt-auto">
+                  <ChartContainer
+                    config={TOTAL_CHART_CONFIG}
+                    className="aspect-auto h-14 w-full"
+                  >
+                    <LineChart
+                      accessibilityLayer
+                      data={trafficOverview.hourly}
+                      margin={{ top: 6, right: 0, left: 0, bottom: 0 }}
+                    >
+                      <XAxis dataKey="label" hide />
+                      <ChartTooltip
+                        cursor={false}
+                        content={
+                          <ChartTooltipContent
+                            indicator="dot"
+                            labelFormatter={(value, payload) => {
+                              const pointDate =
+                                typeof payload?.[0]?.payload?.bucketDate ===
+                                  "string" &&
+                                payload[0].payload.bucketDate.trim()
+                                  ? payload[0].payload.bucketDate
+                                  : tooltipDate
+                              const fallbackLabel = payload?.[0]?.payload?.label
+                              const fallbackHour = payload?.[0]?.payload?.hour
+                              const hourLabel =
+                                typeof value === "string" && value.trim()
+                                  ? value
+                                  : typeof fallbackLabel === "string" &&
+                                      fallbackLabel.trim()
+                                    ? fallbackLabel
+                                    : typeof fallbackHour === "number" &&
+                                        Number.isFinite(fallbackHour)
+                                      ? String(fallbackHour).padStart(2, "0")
+                                      : "00"
+
+                              const normalizedHour = hourLabel.padStart(2, "0")
+                              if (normalizedHour === "00") {
+                                return `${getPreviousDateString(pointDate)} 24:00`
+                              }
+                              return `${pointDate} ${normalizedHour}:00`
+                            }}
+                            formatter={(value) => formatBytes(Number(value))}
+                          />
+                        }
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="totalBytes"
+                        stroke="var(--color-totalBytes)"
+                        strokeWidth={2}
+                        dot={false}
+                        activeDot={{ r: 3 }}
+                        isAnimationActive={trafficOverview.hourly.length > 0}
+                        animationBegin={0}
+                        animationDuration={700}
+                        animationEasing="linear"
+                      />
+                    </LineChart>
+                  </ChartContainer>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight text-muted-foreground">
+                  —
+                </p>
+                <p className="text-xs text-muted-foreground">暂无有效订阅</p>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
 
+      {/* 第二行：订阅链接 */}
+      <Card>
+        <CardHeader className="p-4 pb-0">
+          <CardTitle className="text-base">订阅链接</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Clash Verge / Mihomo / sing-box / Nekobox 等主流客户端均可直接导入
+          </p>
+        </CardHeader>
+        <CardContent className="relative p-4">
+          <div
+            aria-hidden={!hasValidSub}
+            className={
+              hasValidSub
+                ? "flex flex-col gap-2"
+                : "pointer-events-none flex flex-col gap-2 blur-sm select-none"
+            }
+          >
+            <div className="flex gap-2">
+              <Input
+                readOnly
+                value={sub?.url ?? ""}
+                className="min-w-0 flex-1 font-mono text-xs"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!sub}
+                onClick={() => sub && void copy(sub.url)}
+              >
+                {copied ? "已复制" : "复制"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void resetToken()}
+              >
+                重置
+              </Button>
+            </div>
+          </div>
+          {!hasValidSub ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="rounded-md border bg-background/80 px-4 py-2 text-center text-sm shadow-sm backdrop-blur">
+                <p className="font-medium">当前暂无有效订阅</p>
+                <p className="text-xs text-muted-foreground">
+                  请联系管理员开通套餐后再使用订阅链接
+                </p>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      {/* 第三行：我的订阅表格 */}
       <Card>
         <CardHeader>
           <CardTitle>我的订阅</CardTitle>

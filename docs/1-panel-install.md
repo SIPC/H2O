@@ -9,6 +9,8 @@
 docker compose up -d
 ```
 
+> **💡 提示：** 如果你是纯 IP+端口（HTTP）部署，需要先编辑 `docker-compose.yml`，取消 `H2O_SECURE_COOKIE: "false"` 的注释，否则登录后 cookie 无法存储，页面会一直报错。有域名并配置了 HTTPS 的用户无需修改。
+
 启动后访问：`http://你的服务器IP:3000`
 
 <img src="./imge/home.png" alt="主页" width="400" />

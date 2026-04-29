@@ -1,0 +1,157 @@
+import { NextResponse } from "next/server"
+
+import { requireUser } from "@/lib/auth"
+import { getDb } from "@/lib/db"
+
+type RollingRow = {
+  idx: number
+  bucket_date: string
+  bucket_hour: number
+  tx_bytes: number | null
+  rx_bytes: number | null
+}
+
+export async function GET(request: Request) {
+  const auth = requireUser(request)
+  if (!auth.ok) return auth.response
+
+  const db = getDb()
+
+  const nowRow = db
+    .prepare(
+      `SELECT
+         date('now', 'localtime') AS local_date,
+         CAST(strftime('%H', 'now', 'localtime') AS INTEGER) AS local_hour`
+    )
+    .get() as { local_date: string; local_hour: number } | undefined
+
+  const localDate = nowRow?.local_date ?? ""
+  const localHour =
+    typeof nowRow?.local_hour === "number" && Number.isFinite(nowRow.local_hour)
+      ? Math.min(23, Math.max(0, Math.floor(nowRow.local_hour)))
+      : 0
+
+  // 滚动 24 小时：按当前用户的所有订阅汇总 subscription_hourly_traffic
+  const rollingRows = db
+    .prepare(
+      `WITH RECURSIVE seq(i) AS (
+         SELECT 0
+         UNION ALL
+         SELECT i + 1 FROM seq WHERE i < 23
+       )
+       SELECT
+         seq.i AS idx,
+         date('now', 'localtime', printf('-%d hours', 23 - seq.i)) AS bucket_date,
+         CAST(
+           strftime('%H', 'now', 'localtime', printf('-%d hours', 23 - seq.i))
+           AS INTEGER
+         ) AS bucket_hour,
+         agg.tx_bytes AS tx_bytes,
+         agg.rx_bytes AS rx_bytes
+       FROM seq
+       LEFT JOIN (
+         SELECT
+           sht.bucket_date,
+           sht.bucket_hour,
+           SUM(sht.tx_bytes) AS tx_bytes,
+           SUM(sht.rx_bytes) AS rx_bytes
+         FROM subscription_hourly_traffic sht
+         JOIN subscriptions s ON s.id = sht.subscription_id
+         WHERE s.user_id = ?
+         GROUP BY sht.bucket_date, sht.bucket_hour
+       ) agg
+         ON agg.bucket_date = date('now', 'localtime', printf('-%d hours', 23 - seq.i))
+        AND agg.bucket_hour = CAST(
+          strftime('%H', 'now', 'localtime', printf('-%d hours', 23 - seq.i))
+          AS INTEGER
+        )
+       ORDER BY seq.i ASC`
+    )
+    .all(auth.user.id) as RollingRow[]
+
+  const hourly = rollingRows.map((row) => {
+    const hour =
+      typeof row.bucket_hour === "number" && Number.isFinite(row.bucket_hour)
+        ? Math.min(23, Math.max(0, Math.floor(row.bucket_hour)))
+        : 0
+
+    const txBytes =
+      typeof row.tx_bytes === "number" && Number.isFinite(row.tx_bytes)
+        ? Math.max(0, Math.floor(row.tx_bytes))
+        : 0
+    const rxBytes =
+      typeof row.rx_bytes === "number" && Number.isFinite(row.rx_bytes)
+        ? Math.max(0, Math.floor(row.rx_bytes))
+        : 0
+
+    return {
+      index:
+        typeof row.idx === "number" && Number.isFinite(row.idx)
+          ? Math.min(23, Math.max(0, Math.floor(row.idx)))
+          : 0,
+      bucketDate: row.bucket_date ?? "",
+      hour,
+      label: String(hour).padStart(2, "0"),
+      txBytes,
+      rxBytes,
+    }
+  })
+
+  // 今日累计
+  const todaySum = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(sht.tx_bytes), 0) AS tx,
+         COALESCE(SUM(sht.rx_bytes), 0) AS rx
+       FROM subscription_hourly_traffic sht
+       JOIN subscriptions s ON s.id = sht.subscription_id
+       WHERE s.user_id = ?
+         AND sht.bucket_date = date('now', 'localtime')`
+    )
+    .get(auth.user.id) as { tx: number; rx: number } | undefined
+
+  const todayTxBytes =
+    typeof todaySum?.tx === "number" && Number.isFinite(todaySum.tx)
+      ? Math.max(0, Math.floor(todaySum.tx))
+      : 0
+  const todayRxBytes =
+    typeof todaySum?.rx === "number" && Number.isFinite(todaySum.rx)
+      ? Math.max(0, Math.floor(todaySum.rx))
+      : 0
+
+  // 昨日累计
+  const yesterdaySum = db
+    .prepare(
+      `SELECT
+         COALESCE(SUM(sht.tx_bytes), 0) AS tx,
+         COALESCE(SUM(sht.rx_bytes), 0) AS rx
+       FROM subscription_hourly_traffic sht
+       JOIN subscriptions s ON s.id = sht.subscription_id
+       WHERE s.user_id = ?
+         AND sht.bucket_date = date('now', 'localtime', '-1 day')`
+    )
+    .get(auth.user.id) as { tx: number; rx: number } | undefined
+
+  const yesterdayTxBytes =
+    typeof yesterdaySum?.tx === "number" && Number.isFinite(yesterdaySum.tx)
+      ? Math.max(0, Math.floor(yesterdaySum.tx))
+      : 0
+  const yesterdayRxBytes =
+    typeof yesterdaySum?.rx === "number" && Number.isFinite(yesterdaySum.rx)
+      ? Math.max(0, Math.floor(yesterdaySum.rx))
+      : 0
+
+  return NextResponse.json({
+    ok: true,
+    data: {
+      date: localDate,
+      localHour,
+      currentLocalHour: 23,
+      todayTxBytes,
+      todayRxBytes,
+      yesterdayTxBytes,
+      yesterdayRxBytes,
+      hourly,
+    },
+  })
+}

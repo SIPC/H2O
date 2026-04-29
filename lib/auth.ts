@@ -19,6 +19,8 @@ function sha256(value: string) {
 }
 
 function cookieSecure() {
+  // 纯 IP+端口（HTTP）部署时设 H2O_SECURE_COOKIE=false，否则 cookie 无法存储
+  if (process.env.H2O_SECURE_COOKIE === "false") return false
   return process.env.NODE_ENV === "production"
 }
 
