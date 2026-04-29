@@ -32,6 +32,7 @@ type TrafficHour = {
   bucketDate: string
   txBytes: number
   rxBytes: number
+  totalBytes: number
 }
 
 type TrafficOverview = {
@@ -57,7 +58,7 @@ const TX_CHART_CONFIG = {
   txBytes: {
     label: "今日总出",
     theme: {
-      light: "#ffffff",
+      light: "#171717",
       dark: "#ffffff",
     },
   },
@@ -67,7 +68,17 @@ const RX_CHART_CONFIG = {
   rxBytes: {
     label: "今日总入",
     theme: {
-      light: "#ffffff",
+      light: "#171717",
+      dark: "#ffffff",
+    },
+  },
+} satisfies ChartConfig
+
+const TOTAL_CHART_CONFIG = {
+  totalBytes: {
+    label: "今日总量",
+    theme: {
+      light: "#171717",
       dark: "#ffffff",
     },
   },
@@ -106,6 +117,7 @@ function buildEmptyHourly(): TrafficHour[] {
     bucketDate: "",
     txBytes: 0,
     rxBytes: 0,
+    totalBytes: 0,
   }))
 }
 
@@ -121,6 +133,15 @@ function normalizeHourly(input: unknown): TrafficHour[] {
     if (typeof row.hour !== "number" || !Number.isFinite(row.hour)) continue
     const hour = clampHour(row.hour)
 
+    const tx =
+      typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
+        ? Math.max(0, Math.floor(row.txBytes))
+        : 0
+    const rx =
+      typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
+        ? Math.max(0, Math.floor(row.rxBytes))
+        : 0
+
     out.push({
       hour,
       label:
@@ -131,14 +152,9 @@ function normalizeHourly(input: unknown): TrafficHour[] {
         typeof row.bucketDate === "string" && row.bucketDate.trim()
           ? row.bucketDate
           : "",
-      txBytes:
-        typeof row.txBytes === "number" && Number.isFinite(row.txBytes)
-          ? Math.max(0, Math.floor(row.txBytes))
-          : 0,
-      rxBytes:
-        typeof row.rxBytes === "number" && Number.isFinite(row.rxBytes)
-          ? Math.max(0, Math.floor(row.rxBytes))
-          : 0,
+      txBytes: tx,
+      rxBytes: rx,
+      totalBytes: tx + rx,
     })
   }
 
@@ -170,7 +186,7 @@ function TrafficSparkCard({
   title: string
   totalBytes: number
   data: TrafficHour[]
-  dataKey: "txBytes" | "rxBytes"
+  dataKey: "txBytes" | "rxBytes" | "totalBytes"
   config: ChartConfig
   date: string
   previousDayBytes: number
@@ -431,7 +447,7 @@ export default function AdminPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <TrafficSparkCard
           title="今日总出"
           totalBytes={traffic.todayTxBytes}
@@ -448,6 +464,15 @@ export default function AdminPage() {
           data={traffic.hourly}
           dataKey="rxBytes"
           config={RX_CHART_CONFIG}
+          date={tooltipDate}
+        />
+        <TrafficSparkCard
+          title="今日总量"
+          totalBytes={traffic.todayTxBytes + traffic.todayRxBytes}
+          previousDayBytes={traffic.yesterdayTxBytes + traffic.yesterdayRxBytes}
+          data={traffic.hourly}
+          dataKey="totalBytes"
+          config={TOTAL_CHART_CONFIG}
           date={tooltipDate}
         />
       </div>
