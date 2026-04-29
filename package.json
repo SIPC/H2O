@@ -1,6 +1,6 @@
 {
   "name": "h2o",
-  "version": "2026.04.29.01",
+  "version": "2026.04.29.02",
   "type": "module",
   "private": true,
   "scripts": {

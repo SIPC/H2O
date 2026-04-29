@@ -210,23 +210,19 @@ function TrafficSparkCard({
 
   return (
     <Card className="overflow-hidden border-border/70">
-      <CardContent className="p-4">
-        <div className="mb-1 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
-              {formatBytes(totalBytes)}
-            </p>
-          </div>
-          <p
-            className={cn(
-              "mt-1 text-sm font-semibold tabular-nums",
-              trendClass
-            )}
-          >
-            {trendText}
-          </p>
-        </div>
+      <CardContent className="relative p-4">
+        <p className="text-sm text-muted-foreground">{title}</p>
+        <p
+          className={cn(
+            "absolute top-4 right-4 text-sm font-semibold tabular-nums",
+            trendClass
+          )}
+        >
+          {trendText}
+        </p>
+        <p className="mt-1 mb-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
+          {formatBytes(totalBytes)}
+        </p>
 
         <p className="mb-2 text-xs text-muted-foreground">较前一天</p>
 
