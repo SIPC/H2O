@@ -45,7 +45,6 @@ type TrafficHour = {
 
 type TrafficOverview = {
   date: string
-  currentLocalHour: number
   todayTxBytes: number
   todayRxBytes: number
   yesterdayTxBytes: number
@@ -127,6 +126,24 @@ function normalizeHourly(input: unknown): TrafficHour[] {
   return out.length > 0 ? out : buildEmptyHourly()
 }
 
+async function fetchDashboardData() {
+  const res = await fetch("/api/user/dashboard")
+  const json = await res.json()
+  if (!json?.ok) return null
+  return json.data as {
+    subscriptionPath?: string
+    subscriptions?: SubscriptionRow[]
+    traffic?: {
+      date: string
+      todayTxBytes: number
+      todayRxBytes: number
+      yesterdayTxBytes: number
+      yesterdayRxBytes: number
+      hourly: unknown
+    }
+  }
+}
+
 export default function DashboardPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<SubscriptionRow[]>([])
@@ -137,7 +154,6 @@ export default function DashboardPage() {
   const [referenceNow, setReferenceNow] = useState<number | null>(null)
   const [trafficOverview, setTrafficOverview] = useState<TrafficOverview>({
     date: "",
-    currentLocalHour: 0,
     todayTxBytes: 0,
     todayRxBytes: 0,
     yesterdayTxBytes: 0,
@@ -168,71 +184,42 @@ export default function DashboardPage() {
     return { total, used, remaining, percent }
   }, [validSubs])
 
-  async function loadSub() {
-    const response = await fetch("/api/user/subscription")
-    const json = await response.json()
-    // 后端只返回相对 path（部署域名不固定），在客户端用当前 origin 拼出完整 URL
-    if (json?.ok && typeof json.data?.path === "string") {
-      setSub({ url: `${window.location.origin}${json.data.path}` })
+  function applyDashboardData(
+    d: Awaited<ReturnType<typeof fetchDashboardData>>
+  ) {
+    if (!d) return
+    if (Array.isArray(d.subscriptions)) setRows(d.subscriptions)
+    if (typeof d.subscriptionPath === "string") {
+      setSub({ url: `${window.location.origin}${d.subscriptionPath}` })
+    }
+    setReferenceNow(Date.now())
+    if (d.traffic) {
+      const t = d.traffic
+      setTrafficOverview({
+        date: typeof t.date === "string" ? t.date : "",
+        todayTxBytes:
+          typeof t.todayTxBytes === "number"
+            ? Math.max(0, Math.floor(t.todayTxBytes))
+            : 0,
+        todayRxBytes:
+          typeof t.todayRxBytes === "number"
+            ? Math.max(0, Math.floor(t.todayRxBytes))
+            : 0,
+        yesterdayTxBytes:
+          typeof t.yesterdayTxBytes === "number"
+            ? Math.max(0, Math.floor(t.yesterdayTxBytes))
+            : 0,
+        yesterdayRxBytes:
+          typeof t.yesterdayRxBytes === "number"
+            ? Math.max(0, Math.floor(t.yesterdayRxBytes))
+            : 0,
+        hourly: normalizeHourly(t.hourly),
+      })
     }
   }
 
   useEffect(() => {
-    let mounted = true
-
-    void (async () => {
-      const [subsRes, subRes, trafficRes] = await Promise.all([
-        fetch("/api/user/subscriptions"),
-        fetch("/api/user/subscription"),
-        fetch("/api/user/traffic/overview"),
-      ])
-      const subsJson = await subsRes.json()
-      const subJson = await subRes.json()
-      const trafficJson = await trafficRes.json()
-      if (!mounted) return
-      if (subsJson?.ok) setRows(subsJson.data)
-      if (subJson?.ok && typeof subJson.data?.path === "string") {
-        setSub({ url: `${window.location.origin}${subJson.data.path}` })
-      }
-      setReferenceNow(Date.now())
-
-      if (trafficJson?.ok) {
-        setTrafficOverview({
-          date:
-            typeof trafficJson.data.date === "string"
-              ? trafficJson.data.date
-              : "",
-          currentLocalHour:
-            typeof trafficJson.data.currentLocalHour === "number"
-              ? Math.min(
-                  23,
-                  Math.max(0, Math.floor(trafficJson.data.currentLocalHour))
-                )
-              : 0,
-          todayTxBytes:
-            typeof trafficJson.data.todayTxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.todayTxBytes))
-              : 0,
-          todayRxBytes:
-            typeof trafficJson.data.todayRxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.todayRxBytes))
-              : 0,
-          yesterdayTxBytes:
-            typeof trafficJson.data.yesterdayTxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.yesterdayTxBytes))
-              : 0,
-          yesterdayRxBytes:
-            typeof trafficJson.data.yesterdayRxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.yesterdayRxBytes))
-              : 0,
-          hourly: normalizeHourly(trafficJson.data.hourly),
-        })
-      }
-    })()
-
-    return () => {
-      mounted = false
-    }
+    void fetchDashboardData().then(applyDashboardData)
   }, [])
 
   async function copy(value: string) {
@@ -270,7 +257,7 @@ export default function DashboardPage() {
       })
       return
     }
-    await loadSub()
+    await fetchDashboardData().then(applyDashboardData)
   }
 
   // 今日流量趋势数据

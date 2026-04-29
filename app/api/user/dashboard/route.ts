@@ -11,12 +11,38 @@ type RollingRow = {
   rx_bytes: number | null
 }
 
+// 合并 dashboard 页面所需的全部数据为单次请求
 export async function GET(request: Request) {
   const auth = requireUser(request)
   if (!auth.ok) return auth.response
 
   const db = getDb()
 
+  // --- 订阅路径 ---
+  const userRow = db
+    .prepare(`SELECT auth_token FROM users WHERE id = ? LIMIT 1`)
+    .get(auth.user.id) as { auth_token: string } | undefined
+
+  if (!userRow) {
+    return NextResponse.json(
+      { ok: false, error: { code: "NOT_FOUND", message: "用户不存在" } },
+      { status: 404 }
+    )
+  }
+
+  // --- 订阅列表 ---
+  const subscriptions = db
+    .prepare(
+      `SELECT s.id, s.start_time, s.expire_time, s.used_traffic_bytes, s.status,
+              p.name AS plan_name, p.traffic_limit_bytes, p.duration_days
+       FROM subscriptions s
+       JOIN plans p ON p.id = s.plan_id
+       WHERE s.user_id = ?
+       ORDER BY s.expire_time DESC`
+    )
+    .all(auth.user.id)
+
+  // --- 流量概览 ---
   const nowRow = db
     .prepare(
       `SELECT
@@ -31,7 +57,6 @@ export async function GET(request: Request) {
       ? Math.min(23, Math.max(0, Math.floor(nowRow.local_hour)))
       : 0
 
-  // 滚动 24 小时：按当前用户的所有订阅汇总 subscription_hourly_traffic
   const rollingRows = db
     .prepare(
       `WITH RECURSIVE seq(i) AS (
@@ -97,7 +122,6 @@ export async function GET(request: Request) {
     }
   })
 
-  // 今日累计
   const todaySum = db
     .prepare(
       `SELECT
@@ -119,7 +143,6 @@ export async function GET(request: Request) {
       ? Math.max(0, Math.floor(todaySum.rx))
       : 0
 
-  // 昨日累计
   const yesterdaySum = db
     .prepare(
       `SELECT
@@ -144,14 +167,17 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     data: {
-      date: localDate,
-      localHour,
-      currentLocalHour: 23,
-      todayTxBytes,
-      todayRxBytes,
-      yesterdayTxBytes,
-      yesterdayRxBytes,
-      hourly,
+      subscriptionPath: `/api/sub/${userRow.auth_token}`,
+      subscriptions,
+      traffic: {
+        date: localDate,
+        localHour,
+        todayTxBytes,
+        todayRxBytes,
+        yesterdayTxBytes,
+        yesterdayRxBytes,
+        hourly,
+      },
     },
   })
 }

@@ -75,7 +75,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
   - sing-box 客户端 → JSON 配置（`lib/subscription/build-singbox.ts`）
   - 其他 → 默认 base64 编码 URI 列表，`?format=plain` 返回明文
 - 响应头带 `Subscription-Userinfo: upload=0; download=<used>; total=<total>; expire=<ts>` 与 `Profile-Update-Interval: 24`，兼容订阅客户端
-- `app/api/user/subscription/route.ts` 只返回订阅路径（`/api/sub/<token>`），不含 host，由前端拼接完整 URL
+- `app/api/user/dashboard/route.ts` 合并返回订阅路径、订阅列表与流量概览，订阅路径不含 host，由前端拼接完整 URL
 
 ### API 返回体约定
 
@@ -88,7 +88,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
   - `admin/` — 管理员区（users/nodes/plans/subscriptions/auth-logs/event-logs/settings），`DashboardShell` 会过滤非 admin
 - `app/api/auth/*` — 登录/注册/登出/session 查询/bootstrap-admin
 - `app/api/admin/*` — 所有走 `requireAdmin`，包括 `users`、`nodes`、`plans`、`subscriptions`、`auth-logs`、`event-logs`、`settings`
-- `app/api/user/*` — 走 `requireUser`（self/reset-token/subscription/subscriptions）
+- `app/api/user/*` — 走 `requireUser`（self/reset-token/dashboard）
 - `app/api/node/auth/[authPath]` — Hysteria2 单用户认证回调，**不用**会话校验
 - `app/api/node/auth/[authPath]/traffic` — Agent 批量流量上报（差值法计算增量、在线快照、超额自动 block），**不用**会话校验
 - `app/api/sub/[token]` — 订阅分发，用 `auth_token` 匹配，**不用**会话校验

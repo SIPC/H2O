@@ -75,6 +75,7 @@ const adminSubMenus: AdminSubMenu[] = [
   { title: "节点管理", href: "/admin/nodes" },
   { title: "套餐管理", href: "/admin/plans" },
   { title: "订阅管理", href: "/admin/subscriptions" },
+  { title: "流量分析", href: "/admin/traffic-analysis" },
   {
     title: "日志",
     items: [
