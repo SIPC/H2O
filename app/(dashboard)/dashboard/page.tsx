@@ -180,7 +180,7 @@ export default function DashboardPage() {
     )
     const used = validSubs.reduce((sum, row) => sum + row.used_traffic_bytes, 0)
     const remaining = Math.max(0, total - used)
-    const percent = total > 0 ? Math.min(100, (used / total) * 100) : 0
+    const percent = total > 0 ? Math.min(100, (remaining / total) * 100) : 0
     return { total, used, remaining, percent }
   }, [validSubs])
 
@@ -300,7 +300,7 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <p className="mb-2 text-xs text-muted-foreground">
-                  {`已用 ${formatBytes(traffic.used)}（${traffic.percent.toFixed(1)}%）`}
+                  {`已用 ${formatBytes(traffic.used)}（${(100 - traffic.percent).toFixed(1)}%）`}
                 </p>
                 <div className="mt-auto h-2 w-full overflow-hidden rounded-full bg-muted">
                   <div
