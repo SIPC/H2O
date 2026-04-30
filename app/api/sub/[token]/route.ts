@@ -43,6 +43,15 @@ function maskUrl(rawUrl: string, token: string): string {
   return rawUrl.replace(token, maskToken(token))
 }
 
+// 从 X-Forwarded-Host/Proto 还原客户端真实 URL；无代理头时回退 request.url
+function getPublicUrl(request: Request): string {
+  const url = new URL(request.url)
+  const xfp = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim()
+  const xfh = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim()
+  if (xfp && xfh) return `${xfp}://${xfh}${url.pathname}${url.search}`
+  return request.url
+}
+
 // 订阅拉取日志统一入口：记录 URL、请求头、格式、节点数，方便在事件日志里回溯
 function logFetch(params: {
   user: { id: number; username: string } | null
@@ -59,7 +68,7 @@ function logFetch(params: {
 
   const detail: Record<string, unknown> = {
     method: params.request.method,
-    url: maskUrl(params.request.url, params.token),
+    url: maskUrl(getPublicUrl(params.request), params.token),
   }
   if (params.format) detail.format = params.format
   if (userAgent) detail.ua = userAgent
