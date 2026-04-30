@@ -18,9 +18,14 @@ export type NodeForUri = {
   down_mbps?: number | null
 }
 
+// IPv6 地址在 URI 中必须用方括号包裹（RFC 3986）
+function wrapHost(host: string): string {
+  return host.includes(":") ? `[${host}]` : host
+}
+
 export function buildHysteriaUri(token: string, node: NodeForUri): string {
   const auth = encodeURIComponent(token)
-  const host = node.ip
+  const host = wrapHost(node.ip)
   const portHopping = node.port_hopping?.trim()
   const address = portHopping
     ? `${host}:${portHopping}`

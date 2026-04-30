@@ -151,6 +151,11 @@ export function normalizePortHopping(raw: string | null | undefined) {
   return parsed.normalized
 }
 
+// IPv6 地址在 URI 中必须用方括号包裹（RFC 3986）
+function wrapHost(host: string): string {
+  return host.includes(":") ? `[${host}]` : host
+}
+
 /**
  * 根据端口跳跃配置构建 Hysteria 地址段
  * - 配置有效：host:443,5000-6000
@@ -161,9 +166,10 @@ export function buildHysteriaAddress(
   fallbackPort: number,
   portHopping: string | null | undefined
 ): string {
+  const wrapped = wrapHost(host)
   const parsed = parsePortHopping(portHopping)
-  if (!parsed.ok || !parsed.normalized) return `${host}:${fallbackPort}`
-  return `${host}:${parsed.normalized}`
+  if (!parsed.ok || !parsed.normalized) return `${wrapped}:${fallbackPort}`
+  return `${wrapped}:${parsed.normalized}`
 }
 
 /**
