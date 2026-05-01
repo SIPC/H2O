@@ -14,7 +14,6 @@ function geositeRule(tag: string) {
     tag,
     format: "binary" as const,
     url: `${GEOSITE_BASE}/${tag}.srs`,
-    download_detour: "direct",
   }
 }
 
@@ -24,7 +23,6 @@ function geoipRule(tag: string) {
     tag,
     format: "binary" as const,
     url: `${GEOIP_BASE}/${tag}.srs`,
-    download_detour: "direct",
   }
 }
 
@@ -33,6 +31,7 @@ export type SingboxConfig = {
   dns: Record<string, unknown>
   inbounds: Array<Record<string, unknown>>
   outbounds: Array<Record<string, unknown> | SingboxHysteria2Outbound>
+  http_clients: Array<Record<string, unknown>>
   route: Record<string, unknown>
   experimental: Record<string, unknown>
 }
@@ -49,18 +48,23 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
     dns: {
       servers: [
         // 境外域名：DoT 走代理，避免明文 UDP 53 外泄
-        { tag: "cloudflare", address: "tls://1.1.1.1", detour: "proxy" },
-        // 国内域名：DoT 直连加密（以前是明文 UDP 53 到 223.5.5.5）
-        { tag: "local", address: "tls://223.5.5.5", detour: "direct" },
-        { tag: "block", address: "rcode://success" },
+        { tag: "cloudflare", type: "tls", server: "1.1.1.1", detour: "proxy" },
+        // 国内域名：DoT 直连加密
+        { tag: "local", type: "tls", server: "223.5.5.5", detour: "direct" },
       ],
       rules: [
-        { outbound: "any", server: "local" },
-        { clash_mode: "global", server: "cloudflare" },
-        { clash_mode: "direct", server: "local" },
-        { rule_set: "geosite-cn", server: "local" },
+        // DNS 层拦截广告域名
+        {
+          rule_set: "geosite-category-ads-all",
+          action: "predefined",
+          rcode: "REFUSED",
+        },
+        { clash_mode: "global", action: "route", server: "cloudflare" },
+        { clash_mode: "direct", action: "route", server: "local" },
+        { rule_set: "geosite-cn", action: "route", server: "local" },
+        // 兜底：未匹配的域名走 cloudflare
+        { action: "route", server: "cloudflare" },
       ],
-      final: "cloudflare",
       strategy: "prefer_ipv4",
     },
     inbounds: [
@@ -78,7 +82,6 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
         auto_route: true,
         strict_route: true,
         stack: "mixed",
-        sniff: true,
       },
     ],
     outbounds: [
@@ -101,16 +104,17 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
       { type: "selector", tag: "telegram", outbounds: proxyPool },
       { type: "selector", tag: "apple", outbounds: directFirst },
       { type: "selector", tag: "microsoft", outbounds: directFirst },
-      { type: "direct", tag: "direct" },
-      { type: "block", tag: "block" },
-      { type: "dns", tag: "dns-out" },
+      { type: "direct", tag: "direct", domain_resolver: "local" },
     ],
+    http_clients: [{ tag: "direct-http", detour: "direct" }],
     route: {
       rules: [
-        { protocol: "dns", outbound: "dns-out" },
+        { inbound: "mixed-in", action: "sniff", timeout: "1s" },
+        { inbound: "tun-in", action: "sniff", timeout: "1s" },
+        { protocol: "dns", action: "hijack-dns" },
         { clash_mode: "direct", outbound: "direct" },
         { clash_mode: "global", outbound: "proxy" },
-        { rule_set: "geosite-category-ads-all", outbound: "block" },
+        { rule_set: "geosite-category-ads-all", action: "reject" },
         { rule_set: "geosite-openai", outbound: "ai" },
         {
           rule_set: [
@@ -122,7 +126,7 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
           outbound: "media",
         },
         {
-          rule_set: ["geosite-telegram", "geoip-telegram"],
+          rule_set: ["geosite-telegram"],
           outbound: "telegram",
         },
         {
@@ -141,13 +145,14 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
         geositeRule("geosite-disney"),
         geositeRule("geosite-spotify"),
         geositeRule("geosite-telegram"),
-        geoipRule("geoip-telegram"),
         geositeRule("geosite-apple"),
         geositeRule("geosite-icloud"),
         geositeRule("geosite-microsoft"),
         geositeRule("geosite-cn"),
         geoipRule("geoip-cn"),
       ],
+      default_http_client: "direct-http",
+      default_domain_resolver: "local",
       final: "proxy",
       auto_detect_interface: true,
     },
