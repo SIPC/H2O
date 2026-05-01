@@ -417,7 +417,7 @@ export default function DashboardPage() {
         <CardHeader className="p-4 pb-0">
           <CardTitle className="text-base">订阅链接</CardTitle>
           <p className="text-xs text-muted-foreground">
-            Clash Verge / Mihomo / sing-box / Nekobox 等主流客户端均可直接导入
+            Clash Verge / Nekobox / v2rayN 等主流客户端均可直接导入
           </p>
         </CardHeader>
         <CardContent className="relative p-4">

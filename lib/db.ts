@@ -42,6 +42,19 @@ function migrate(database: DatabaseSync) {
       obfs_password TEXT,
       insecure INTEGER NOT NULL DEFAULT 0 CHECK(insecure IN (0,1)),
       pin_sha256 TEXT,
+      node_ip TEXT,
+      node_port INTEGER,
+      node_port_hopping TEXT,
+      cert_mode TEXT NOT NULL DEFAULT 'self-signed',
+      cert_path TEXT,
+      key_path TEXT,
+      acme_domains TEXT,
+      acme_email TEXT,
+      acme_dns_provider TEXT,
+      acme_dns_config TEXT,
+      masquerade_type TEXT,
+      masquerade_config TEXT,
+      agent_interval INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -168,6 +181,19 @@ function migrate(database: DatabaseSync) {
     `ALTER TABLE nodes ADD COLUMN port_hopping TEXT`,
     `ALTER TABLE plans ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE nodes ADD COLUMN node_ip TEXT`,
+    `ALTER TABLE nodes ADD COLUMN node_port INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN node_port_hopping TEXT`,
+    `ALTER TABLE nodes ADD COLUMN cert_mode TEXT NOT NULL DEFAULT 'self-signed'`,
+    `ALTER TABLE nodes ADD COLUMN cert_path TEXT`,
+    `ALTER TABLE nodes ADD COLUMN key_path TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_domains TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_email TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_dns_provider TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_dns_config TEXT`,
+    `ALTER TABLE nodes ADD COLUMN masquerade_type TEXT`,
+    `ALTER TABLE nodes ADD COLUMN masquerade_config TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_interval INTEGER`,
   ]) {
     try {
       database.exec(alter)

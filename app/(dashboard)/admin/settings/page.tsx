@@ -16,6 +16,8 @@ type Settings = {
   turnstile_secret_key: string
   agent_bundle_url: string
   stats_retention_days: number
+  cloudflare_api_token: string
+  acme_email: string
 }
 
 const DEFAULTS: Settings = {
@@ -26,6 +28,8 @@ const DEFAULTS: Settings = {
   turnstile_secret_key: "",
   agent_bundle_url: "",
   stats_retention_days: 30,
+  cloudflare_api_token: "",
+  acme_email: "",
 }
 
 // 根据两 key 填写情况推断 Turnstile 当前状态，与后端 getTurnstileStatus 一致
@@ -92,7 +96,9 @@ export default function AdminSettingsPage() {
       draft.turnstile_site_key !== saved.turnstile_site_key ||
       draft.turnstile_secret_key !== saved.turnstile_secret_key ||
       draft.agent_bundle_url !== saved.agent_bundle_url ||
-      draft.stats_retention_days !== saved.stats_retention_days
+      draft.stats_retention_days !== saved.stats_retention_days ||
+      draft.cloudflare_api_token !== saved.cloudflare_api_token ||
+      draft.acme_email !== saved.acme_email
     )
   }, [draft, saved])
 
@@ -308,6 +314,54 @@ export default function AdminSettingsPage() {
                     })
                   }
                 />
+              </div>
+
+              <div className="space-y-3 rounded-md border p-3">
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">证书与 DNS</Label>
+                  <p className="text-xs text-muted-foreground">
+                    全局默认配置，节点未单独填写时使用这些值。用于 ACME
+                    自动证书签发与 Cloudflare DNS 解析管理。
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="acme_email" className="text-xs">
+                    ACME 邮箱
+                  </Label>
+                  <Input
+                    id="acme_email"
+                    type="email"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="[email protected]"
+                    value={draft.acme_email}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        acme_email: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cloudflare_api_token" className="text-xs">
+                    Cloudflare API Token
+                  </Label>
+                  <Input
+                    id="cloudflare_api_token"
+                    type="password"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="留空表示不使用"
+                    value={draft.cloudflare_api_token}
+                    onChange={(e) =>
+                      setDraft((prev) => ({
+                        ...prev,
+                        cloudflare_api_token: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
               </div>
 
               <div className="flex items-center gap-2 pt-2">

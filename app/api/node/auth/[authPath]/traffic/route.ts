@@ -114,12 +114,11 @@ export async function POST(
       ? rawRetentionDays
       : 30
 
-  // 只要 authPath 匹配某个启用节点就视为合法 agent（复用 Hy2 回调的信任模型）
+  // 只要 authPath 匹配某个节点就视为合法 agent（复用 Hy2 回调的信任模型）
+  // 不受节点禁用状态影响，节点被禁用一样可以上报状态
   const node = db
-    .prepare(
-      `SELECT id, name FROM nodes WHERE auth_path = ? AND status = 'enabled' LIMIT 1`
-    )
-    .get(authPath) as { id: number; name: string } | undefined
+    .prepare(`SELECT id, name, status FROM nodes WHERE auth_path = ? LIMIT 1`)
+    .get(authPath) as { id: number; name: string; status: string } | undefined
 
   if (!node) {
     writeAuthLog({

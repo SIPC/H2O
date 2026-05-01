@@ -101,16 +101,49 @@ jobs:
           sha256sum h2o-agent-linux-arm64 > h2o-agent-linux-arm64.sha256
           sha256sum h2o-agent-bundle.tar.gz > h2o-agent-bundle.tar.gz.sha256
 
+      - name: 生成 Release Body
+        if: steps.version.outputs.changed == 'true'
+        id: release_body
+        shell: bash
+        run: |
+          CURRENT_TAG="${{ steps.version.outputs.tag }}"
+
+          # 获取上一个 tag（排除当前 tag）
+          PREV_TAG=$(git tag --sort=-creatordate | grep -v "^${CURRENT_TAG}$" | head -n 1 || true)
+
+          # 构建 changelog
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (@%an)" --no-merges)
+            HEADER="## 📋 Changes since ${PREV_TAG}"
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (@%an)" --no-merges -20)
+            HEADER="## 📋 Recent Changes"
+          fi
+
+          # 写入 body 文件（避免多行变量在 shell 中的转义问题）
+          {
+            echo "$HEADER"
+            echo ""
+            if [ -n "$CHANGELOG" ]; then
+              echo "$CHANGELOG"
+            else
+              echo "_No commits found._"
+            fi
+            echo ""
+            echo "---"
+            echo ""
+            echo '```'
+            echo 'docker compose pull && docker compose up -d'
+            echo '```'
+          } > release_body.md
+
       - name: 发布到 GitHub Releases
         if: steps.version.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
 
-          body: |
-            ```
-            docker compose pull && docker compose up -d
-            ```
+          body_path: release_body.md
           draft: false
           prerelease: false
           generate_release_notes: true

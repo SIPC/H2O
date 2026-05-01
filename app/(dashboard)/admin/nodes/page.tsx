@@ -7,6 +7,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  Globe,
   MoreVertical,
   Pencil,
   Play,
@@ -20,7 +21,7 @@ import {
 import { useConfirm } from "@/components/confirm-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   ChartContainer,
   ChartTooltip,
@@ -38,12 +39,21 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
 type NodeRow = {
@@ -61,6 +71,21 @@ type NodeRow = {
   pin_sha256: string | null
   last_report_at: string | null
   online_count: number | null
+  // 节点配置
+  node_ip: string | null
+  node_port: number | null
+  node_port_hopping: string | null
+  cert_mode: string
+  cert_path: string | null
+  key_path: string | null
+  acme_domains: string | null
+  acme_email: string | null
+  acme_dns_provider: string | null
+  acme_dns_config: string | null
+  masquerade_type: string | null
+  masquerade_config: string | null
+  agent_interval: number | null
+  dns_status: "match" | "mismatch" | "unresolved" | "skip"
 }
 
 type HourPoint = {
@@ -259,6 +284,7 @@ function NodeCard({
   onToggleStatus,
   onShowAgentConfig,
   onShowDeployCommand,
+  onDnsResolve,
 }: {
   row: NodeRow
   hourly: HourPoint[]
@@ -268,6 +294,7 @@ function NodeCard({
   onToggleStatus: (row: NodeRow) => void
   onShowAgentConfig: (row: NodeRow) => void
   onShowDeployCommand: (row: NodeRow) => void
+  onDnsResolve: (row: NodeRow) => void
 }) {
   const fresh = isFresh(row.last_report_at)
   const onlineCount = row.online_count ?? 0
@@ -324,6 +351,32 @@ function NodeCard({
                   <Terminal className="h-4 w-4" />
                   一键部署
                 </DropdownMenuItem>
+                {row.node_ip && row.ip !== row.node_ip && (
+                  <DropdownMenuItem onClick={() => onDnsResolve(row)}>
+                    <Globe className="h-4 w-4" />
+                    DNS 解析
+                    {row.dns_status && row.dns_status !== "skip" && (
+                      <span
+                        className={cn(
+                          "ml-auto h-2 w-2 rounded-full",
+                          row.dns_status === "match" &&
+                            "bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]",
+                          row.dns_status === "mismatch" &&
+                            "bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)]",
+                          row.dns_status === "unresolved" &&
+                            "bg-yellow-500 shadow-[0_0_4px_rgba(234,179,8,0.6)]"
+                        )}
+                        title={
+                          row.dns_status === "match"
+                            ? "DNS 已指向正确 IP"
+                            : row.dns_status === "mismatch"
+                              ? "DNS 指向的 IP 与节点 IP 不一致"
+                              : "域名无法解析"
+                        }
+                      />
+                    )}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onToggleStatus(row)}>
                   {row.status === "enabled" ? (
@@ -396,6 +449,7 @@ function NodeCard({
 
 // 创建/编辑节点的表单内容
 function NodeForm({
+  // 订阅配置
   name,
   setName,
   ip,
@@ -412,10 +466,52 @@ function NodeForm({
   setInsecure,
   pinSha256,
   setPinSha256,
+  // 节点配置
+  nodeIp,
+  setNodeIp,
+  nodePortInput,
+  setNodePortInput,
+  certMode,
+  setCertMode,
+  certPath,
+  setCertPath,
+  keyPath,
+  setKeyPath,
+  acmeDomainsInput,
+  setAcmeDomainsInput,
+  acmeEmail,
+  setAcmeEmail,
+  acmeDnsProvider,
+  setAcmeDnsProvider,
+  acmeCfToken,
+  setAcmeCfToken,
+  // 伪装
+  masqueradeType,
+  setMasqueradeType,
+  masqContent,
+  setMasqContent,
+  masqContentType,
+  setMasqContentType,
+  masqStatusCode,
+  setMasqStatusCode,
+  masqProxyUrl,
+  setMasqProxyUrl,
+  masqProxyRewriteHost,
+  setMasqProxyRewriteHost,
+  masqProxyInsecure,
+  setMasqProxyInsecure,
+  masqProxyXForwarded,
+  setMasqProxyXForwarded,
+  masqFileDir,
+  setMasqFileDir,
+  // Agent 配置
+  agentInterval,
+  setAgentInterval,
   onSubmit,
   submitLabel,
   onCancel,
 }: {
+  // 订阅配置
   name: string
   setName: (v: string) => void
   ip: string
@@ -432,80 +528,405 @@ function NodeForm({
   setInsecure: (v: boolean) => void
   pinSha256: string
   setPinSha256: (v: string) => void
+  // 节点配置
+  nodeIp: string
+  setNodeIp: (v: string) => void
+  nodePortInput: string
+  setNodePortInput: (v: string) => void
+  certMode: string
+  setCertMode: (v: string) => void
+  certPath: string
+  setCertPath: (v: string) => void
+  keyPath: string
+  setKeyPath: (v: string) => void
+  acmeDomainsInput: string
+  setAcmeDomainsInput: (v: string) => void
+  acmeEmail: string
+  setAcmeEmail: (v: string) => void
+  acmeDnsProvider: string
+  setAcmeDnsProvider: (v: string) => void
+  acmeCfToken: string
+  setAcmeCfToken: (v: string) => void
+  // 伪装
+  masqueradeType: string
+  setMasqueradeType: (v: string) => void
+  masqContent: string
+  setMasqContent: (v: string) => void
+  masqContentType: string
+  setMasqContentType: (v: string) => void
+  masqStatusCode: string
+  setMasqStatusCode: (v: string) => void
+  masqProxyUrl: string
+  setMasqProxyUrl: (v: string) => void
+  masqProxyRewriteHost: boolean
+  setMasqProxyRewriteHost: (v: boolean) => void
+  masqProxyInsecure: boolean
+  setMasqProxyInsecure: (v: boolean) => void
+  masqProxyXForwarded: boolean
+  setMasqProxyXForwarded: (v: boolean) => void
+  masqFileDir: string
+  setMasqFileDir: (v: string) => void
+  // Agent 配置
+  agentInterval: string
+  setAgentInterval: (v: string) => void
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
   submitLabel: string
   onCancel?: () => void
 }) {
   return (
-    <form className="space-y-4" onSubmit={onSubmit}>
-      <div className="space-y-1">
-        <Label>名称</Label>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="节点名称"
-          required
-        />
-      </div>
-      <div className="space-y-1">
-        <Label>IP / 域名</Label>
-        <Input
-          value={ip}
-          onChange={(e) => setIp(e.target.value)}
-          placeholder="1.2.3.4 或 example.com"
-          required
-        />
-      </div>
-      <div className="space-y-1">
-        <Label>端口（支持端口跳跃）</Label>
-        <Input
-          value={portInput}
-          onChange={(e) => setPortInput(e.target.value)}
-          placeholder="如 443 或 1145,1155,1157 或 1145-1155"
-          required
-        />
-      </div>
-      <div className="space-y-1">
-        <Label>SNI</Label>
-        <Input
-          value={sni}
-          onChange={(e) => setSni(e.target.value)}
-          placeholder="可选，TLS SNI"
-        />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label>Obfs 类型</Label>
-          <Input
-            value={obfs}
-            onChange={(e) => setObfs(e.target.value)}
-            placeholder="可选"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>Obfs 密码</Label>
-          <Input
-            value={obfsPassword}
-            onChange={(e) => setObfsPassword(e.target.value)}
-            placeholder="可选"
-          />
-        </div>
-      </div>
-      <div className="space-y-1">
-        <Label>pinSHA256</Label>
-        <Input
-          value={pinSha256}
-          onChange={(e) => setPinSha256(e.target.value)}
-          placeholder="可选，自签证书的 SHA-256 指纹"
-        />
-      </div>
-      <label className="flex cursor-pointer items-center gap-2 text-sm">
-        <Checkbox
-          checked={insecure}
-          onCheckedChange={(next) => setInsecure(next === true)}
-        />
-        <span>跳过证书校验 (insecure)</span>
-      </label>
+    <form
+      className="space-y-4 **:data-[slot=label]:text-xs"
+      onSubmit={onSubmit}
+    >
+      {/* === 订阅配置 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            订阅配置
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>节点名称</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="节点名称"
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>订阅地址</Label>
+            <Input
+              value={ip}
+              onChange={(e) => setIp(e.target.value)}
+              placeholder="域名或 IP，如 hy2.example.com"
+              required
+            />
+            <p className="text-[11px] text-muted-foreground">
+              客户端通过此地址连接节点，域名会自动解析到节点 IP
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label>订阅端口（支持端口跳跃）</Label>
+            <Input
+              value={portInput}
+              onChange={(e) => setPortInput(e.target.value)}
+              placeholder="如 443 或 1145,1155,1157 或 1145-1155"
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>SNI</Label>
+            <Input
+              value={sni}
+              onChange={(e) => setSni(e.target.value)}
+              placeholder="可选，TLS SNI"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>Obfs 类型</Label>
+              <Select
+                value={obfs || "none"}
+                onValueChange={(v) => setObfs(v === "none" ? "" : v)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectGroup>
+                    <SelectItem value="none">不使用</SelectItem>
+                    <SelectItem value="salamander">Salamander</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>Obfs 密码</Label>
+              <Input
+                value={obfsPassword}
+                onChange={(e) => setObfsPassword(e.target.value)}
+                placeholder="可选"
+              />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>pinSHA256</Label>
+            <Input
+              value={pinSha256}
+              onChange={(e) => setPinSha256(e.target.value)}
+              placeholder="可选，自签证书的 SHA-256 指纹"
+            />
+          </div>
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <Checkbox
+              checked={insecure}
+              onCheckedChange={(next) => setInsecure(next === true)}
+            />
+            <span>跳过证书校验 (insecure)</span>
+          </label>
+        </CardContent>
+      </Card>
+
+      {/* === 节点配置 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            节点配置
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>节点 IP</Label>
+            <Input
+              value={nodeIp}
+              onChange={(e) => setNodeIp(e.target.value)}
+              placeholder="服务器实际 IP，如 1.2.3.4"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              用于一键部署和 DNS 解析，留空则使用订阅地址
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label>节点端口（支持端口跳跃）</Label>
+            <Input
+              value={nodePortInput}
+              onChange={(e) => setNodePortInput(e.target.value)}
+              placeholder="留空则与订阅端口一致"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>证书模式</Label>
+            <Select value={certMode} onValueChange={setCertMode}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectGroup>
+                  <SelectItem value="self-signed">自签证书</SelectItem>
+                  <SelectItem value="acme-http">ACME HTTP</SelectItem>
+                  <SelectItem value="acme-dns">ACME DNS</SelectItem>
+                  <SelectItem value="custom">自定义路径</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          {(certMode === "acme-http" || certMode === "acme-dns") && (
+            <>
+              <div className="space-y-1">
+                <Label>ACME 域名</Label>
+                <Textarea
+                  value={acmeDomainsInput}
+                  onChange={(e) => setAcmeDomainsInput(e.target.value)}
+                  placeholder={"每行一个，如\nexample.com\n*.example.com"}
+                  rows={3}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {certMode === "acme-http"
+                    ? "HTTP 验证仅支持裸域名，不支持通配符"
+                    : "DNS 验证支持通配符域名"}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label>ACME 邮箱</Label>
+                <Input
+                  type="email"
+                  value={acmeEmail}
+                  onChange={(e) => setAcmeEmail(e.target.value)}
+                  placeholder="留空则使用全局设置"
+                />
+              </div>
+            </>
+          )}
+          {certMode === "acme-dns" && (
+            <>
+              <div className="space-y-1">
+                <Label>DNS 服务商</Label>
+                <Select
+                  value={acmeDnsProvider}
+                  onValueChange={setAcmeDnsProvider}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="选择 DNS 服务商" />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectGroup>
+                      <SelectItem value="cloudflare">Cloudflare</SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Hysteria2 ACME 仅支持 DNS-01 验证，必须配置 DNS 服务商
+                </p>
+              </div>
+              {acmeDnsProvider === "cloudflare" && (
+                <div className="space-y-1">
+                  <Label>Cloudflare API Token</Label>
+                  <Input
+                    type="password"
+                    value={acmeCfToken}
+                    onChange={(e) => setAcmeCfToken(e.target.value)}
+                    placeholder="留空则使用全局设置"
+                  />
+                </div>
+              )}
+            </>
+          )}
+          {certMode === "custom" && (
+            <>
+              <div className="space-y-1">
+                <Label>证书路径</Label>
+                <Input
+                  value={certPath}
+                  onChange={(e) => setCertPath(e.target.value)}
+                  placeholder="/etc/hysteria/server.crt"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>私钥路径</Label>
+                <Input
+                  value={keyPath}
+                  onChange={(e) => setKeyPath(e.target.value)}
+                  placeholder="/etc/hysteria/server.key"
+                />
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* === 伪装 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            伪装
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>伪装类型</Label>
+            <Select value={masqueradeType} onValueChange={setMasqueradeType}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectGroup>
+                  <SelectItem value="none">不伪装</SelectItem>
+                  <SelectItem value="string">字符串</SelectItem>
+                  <SelectItem value="proxy">反向代理</SelectItem>
+                  <SelectItem value="file">静态文件</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          {masqueradeType === "string" && (
+            <>
+              <div className="space-y-1">
+                <Label>响应内容</Label>
+                <Textarea
+                  value={masqContent}
+                  onChange={(e) => setMasqContent(e.target.value)}
+                  placeholder="ok"
+                  rows={3}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Content-Type</Label>
+                  <Input
+                    value={masqContentType}
+                    onChange={(e) => setMasqContentType(e.target.value)}
+                    placeholder="text/plain; charset=utf-8"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>状态码</Label>
+                  <Input
+                    type="number"
+                    value={masqStatusCode}
+                    onChange={(e) => setMasqStatusCode(e.target.value)}
+                    placeholder="200"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+          {masqueradeType === "proxy" && (
+            <>
+              <div className="space-y-1">
+                <Label>代理 URL</Label>
+                <Input
+                  value={masqProxyUrl}
+                  onChange={(e) => setMasqProxyUrl(e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={masqProxyRewriteHost}
+                  onCheckedChange={(next) =>
+                    setMasqProxyRewriteHost(next === true)
+                  }
+                />
+                <span>Rewrite Host</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={masqProxyInsecure}
+                  onCheckedChange={(next) =>
+                    setMasqProxyInsecure(next === true)
+                  }
+                />
+                <span>跳过后端证书校验 (Insecure)</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={masqProxyXForwarded}
+                  onCheckedChange={(next) =>
+                    setMasqProxyXForwarded(next === true)
+                  }
+                />
+                <span>X-Forwarded-For</span>
+              </label>
+            </>
+          )}
+          {masqueradeType === "file" && (
+            <div className="space-y-1">
+              <Label>文件目录</Label>
+              <Input
+                value={masqFileDir}
+                onChange={(e) => setMasqFileDir(e.target.value)}
+                placeholder="/www/masq"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* === Agent 配置 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            Agent 配置
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 p-4 pt-2">
+          <div className="space-y-1">
+            <Label>上报间隔（秒）</Label>
+            <Input
+              type="number"
+              value={agentInterval}
+              onChange={(e) => setAgentInterval(e.target.value)}
+              placeholder="留空默认 120"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Agent 向面板上报流量与在线状态的时间间隔
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="flex gap-2 pt-2">
         <Button type="submit" className="flex-1">
           {submitLabel}
@@ -529,6 +950,9 @@ export default function AdminNodesPage() {
 
   // 创建面板
   const [hideIp, setHideIp] = useState(false)
+  const [dnsStatusMap, setDnsStatusMap] = useState<
+    Record<number, "match" | "mismatch" | "unresolved" | "skip">
+  >({})
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState("")
   const [ip, setIp] = useState("")
@@ -538,6 +962,27 @@ export default function AdminNodesPage() {
   const [obfsPassword, setObfsPassword] = useState("")
   const [insecure, setInsecure] = useState(false)
   const [pinSha256, setPinSha256] = useState("")
+  const [nodeIp, setNodeIp] = useState("")
+  const [nodePortInput, setNodePortInput] = useState("")
+  const [certMode, setCertMode] = useState("self-signed")
+  const [certPath, setCertPath] = useState("")
+  const [keyPath, setKeyPath] = useState("")
+  const [acmeDomainsInput, setAcmeDomainsInput] = useState("")
+  const [acmeEmail, setAcmeEmail] = useState("")
+  const [acmeDnsProvider, setAcmeDnsProvider] = useState("")
+  const [acmeCfToken, setAcmeCfToken] = useState("")
+  const [masqueradeType, setMasqueradeType] = useState("string")
+  const [masqContent, setMasqContent] = useState("ok")
+  const [masqContentType, setMasqContentType] = useState(
+    "text/plain; charset=utf-8"
+  )
+  const [masqStatusCode, setMasqStatusCode] = useState("200")
+  const [masqProxyUrl, setMasqProxyUrl] = useState("")
+  const [masqProxyRewriteHost, setMasqProxyRewriteHost] = useState(true)
+  const [masqProxyInsecure, setMasqProxyInsecure] = useState(false)
+  const [masqProxyXForwarded, setMasqProxyXForwarded] = useState(false)
+  const [masqFileDir, setMasqFileDir] = useState("/www/masq")
+  const [agentInterval, setAgentInterval] = useState("")
 
   // 编辑面板
   const [editingRow, setEditingRow] = useState<NodeRow | null>(null)
@@ -549,6 +994,27 @@ export default function AdminNodesPage() {
   const [editObfsPassword, setEditObfsPassword] = useState("")
   const [editInsecure, setEditInsecure] = useState(false)
   const [editPinSha256, setEditPinSha256] = useState("")
+  const [editNodeIp, setEditNodeIp] = useState("")
+  const [editNodePortInput, setEditNodePortInput] = useState("")
+  const [editCertMode, setEditCertMode] = useState("self-signed")
+  const [editCertPath, setEditCertPath] = useState("")
+  const [editKeyPath, setEditKeyPath] = useState("")
+  const [editAcmeDomainsInput, setEditAcmeDomainsInput] = useState("")
+  const [editAcmeEmail, setEditAcmeEmail] = useState("")
+  const [editAcmeDnsProvider, setEditAcmeDnsProvider] = useState("")
+  const [editAcmeCfToken, setEditAcmeCfToken] = useState("")
+  const [editMasqueradeType, setEditMasqueradeType] = useState("string")
+  const [editMasqContent, setEditMasqContent] = useState("ok")
+  const [editMasqContentType, setEditMasqContentType] = useState(
+    "text/plain; charset=utf-8"
+  )
+  const [editMasqStatusCode, setEditMasqStatusCode] = useState("200")
+  const [editMasqProxyUrl, setEditMasqProxyUrl] = useState("")
+  const [editMasqProxyRewriteHost, setEditMasqProxyRewriteHost] = useState(true)
+  const [editMasqProxyInsecure, setEditMasqProxyInsecure] = useState(false)
+  const [editMasqProxyXForwarded, setEditMasqProxyXForwarded] = useState(false)
+  const [editMasqFileDir, setEditMasqFileDir] = useState("/www/masq")
+  const [editAgentInterval, setEditAgentInterval] = useState("")
 
   async function loadHistory(
     nodeIds: number[],
@@ -613,7 +1079,25 @@ export default function AdminNodesPage() {
 
     const nextRows = json.data as NodeRow[]
     setRows(nextRows)
+    void loadDnsStatus()
     await loadHistory(nextRows.map((row) => row.id))
+  }
+
+  async function loadDnsStatus() {
+    try {
+      const res = await fetch("/api/admin/nodes/dns-status")
+      const json = await res.json()
+      if (json?.ok && json.data && typeof json.data === "object") {
+        setDnsStatusMap(
+          json.data as Record<
+            number,
+            "match" | "mismatch" | "unresolved" | "skip"
+          >
+        )
+      }
+    } catch {
+      // 静默失败，不影响主流程
+    }
   }
 
   useEffect(() => {
@@ -630,6 +1114,7 @@ export default function AdminNodesPage() {
         json?.ok && Array.isArray(json.data) ? (json.data as NodeRow[]) : []
 
       setRows(nextRows)
+      void loadDnsStatus()
       await loadHistory(
         nextRows.map((row) => row.id),
         () => mounted
@@ -645,8 +1130,102 @@ export default function AdminNodesPage() {
     }
   }, [])
 
+  // 解析 acmeDnsConfig
+  function buildAcmeDnsConfig(
+    src: "create" | "edit"
+  ): Record<string, string> | null {
+    const provider = src === "create" ? acmeDnsProvider : editAcmeDnsProvider
+    const token = src === "create" ? acmeCfToken : editAcmeCfToken
+    if (provider === "cloudflare" && token.trim()) {
+      return { cloudflare_api_token: token.trim() }
+    }
+    return null
+  }
+
+  function parseAcmeDomainsInput(raw: string): string[] {
+    return raw
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+  }
+
+  function buildMasqueradeConfigObj(
+    src: "create" | "edit"
+  ): Record<string, unknown> | null {
+    const type = src === "create" ? masqueradeType : editMasqueradeType
+    if (type === "none") return null
+    if (type === "string") {
+      return {
+        content: src === "create" ? masqContent : editMasqContent,
+        headers: {
+          "content-type":
+            src === "create" ? masqContentType : editMasqContentType,
+        },
+        statusCode: Number(
+          src === "create" ? masqStatusCode : editMasqStatusCode
+        ),
+      }
+    }
+    if (type === "proxy") {
+      return {
+        url: src === "create" ? masqProxyUrl : editMasqProxyUrl,
+        rewriteHost:
+          src === "create" ? masqProxyRewriteHost : editMasqProxyRewriteHost,
+        insecure: src === "create" ? masqProxyInsecure : editMasqProxyInsecure,
+        xForwarded:
+          src === "create" ? masqProxyXForwarded : editMasqProxyXForwarded,
+      }
+    }
+    if (type === "file") {
+      return {
+        dir: src === "create" ? masqFileDir : editMasqFileDir,
+      }
+    }
+    return null
+  }
+
+  async function resolveDns(row: NodeRow) {
+    try {
+      const res = await fetch(`/api/admin/nodes/${row.id}/dns`, {
+        method: "POST",
+      })
+      const json = await res.json()
+      if (!res.ok || !json.ok) {
+        await alert({
+          title: "DNS 解析失败",
+          description: json?.error?.message ?? "请稍后重试",
+          variant: "destructive",
+        })
+        return
+      }
+      const d = json.data
+      const actionText =
+        d.action === "created"
+          ? "已创建"
+          : d.action === "updated"
+            ? "已更新"
+            : "已是最新"
+      await alert({
+        title: "DNS 解析成功",
+        description: `${d.domain} → ${d.ip}（${actionText}，Zone: ${d.zone}）`,
+      })
+      // 刷新 DNS 解析状态指示
+      await loadDnsStatus()
+    } catch {
+      await alert({
+        title: "DNS 解析失败",
+        description: "网络错误，请稍后重试",
+        variant: "destructive",
+      })
+    }
+  }
+
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const acmeDomains =
+      certMode === "acme-http" || certMode === "acme-dns"
+        ? parseAcmeDomainsInput(acmeDomainsInput)
+        : []
     const response = await fetch("/api/admin/nodes", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -659,6 +1238,18 @@ export default function AdminNodesPage() {
         obfsPassword: obfsPassword || null,
         insecure,
         pinSha256: pinSha256 || null,
+        nodeIp: nodeIp || null,
+        nodePort: nodePortInput || null,
+        certMode,
+        certPath: certPath || null,
+        keyPath: keyPath || null,
+        acmeDomains: acmeDomains.length > 0 ? acmeDomains : null,
+        acmeEmail: acmeEmail || null,
+        acmeDnsProvider: acmeDnsProvider || null,
+        acmeDnsConfig: buildAcmeDnsConfig("create"),
+        masqueradeType,
+        masqueradeConfig: buildMasqueradeConfigObj("create"),
+        agentInterval: agentInterval ? Number(agentInterval) : null,
       }),
     })
 
@@ -673,6 +1264,25 @@ export default function AdminNodesPage() {
     setObfsPassword("")
     setInsecure(false)
     setPinSha256("")
+    setNodeIp("")
+    setNodePortInput("")
+    setCertMode("self-signed")
+    setCertPath("")
+    setKeyPath("")
+    setAcmeDomainsInput("")
+    setAcmeEmail("")
+    setAcmeDnsProvider("")
+    setAcmeCfToken("")
+    setMasqueradeType("string")
+    setMasqContent("ok")
+    setMasqContentType("text/plain; charset=utf-8")
+    setMasqStatusCode("200")
+    setMasqProxyUrl("")
+    setMasqProxyRewriteHost(true)
+    setMasqProxyInsecure(false)
+    setMasqProxyXForwarded(false)
+    setMasqFileDir("/www/masq")
+    setAgentInterval("")
     setCreateOpen(false)
     await load()
   }
@@ -724,12 +1334,92 @@ export default function AdminNodesPage() {
     setEditObfsPassword(row.obfs_password ?? "")
     setEditInsecure(row.insecure === 1)
     setEditPinSha256(row.pin_sha256 ?? "")
+    // 节点配置
+    setEditNodeIp(row.node_ip ?? "")
+    setEditNodePortInput(
+      row.node_port_hopping ?? (row.node_port ? String(row.node_port) : "")
+    )
+    // 旧值兼容：acme → acme-dns
+    const rawCertMode = row.cert_mode || "self-signed"
+    setEditCertMode(rawCertMode === "acme" ? "acme-dns" : rawCertMode)
+    setEditCertPath(row.cert_path ?? "")
+    setEditKeyPath(row.key_path ?? "")
+    // acme_domains 是 JSON 数组字符串
+    try {
+      const domains = row.acme_domains
+        ? (JSON.parse(row.acme_domains) as string[])
+        : []
+      setEditAcmeDomainsInput(domains.join("\n"))
+    } catch {
+      setEditAcmeDomainsInput("")
+    }
+    setEditAcmeEmail(row.acme_email ?? "")
+    setEditAcmeDnsProvider(row.acme_dns_provider ?? "")
+    // acme_dns_config 是 JSON 字符串
+    try {
+      const config = row.acme_dns_config
+        ? (JSON.parse(row.acme_dns_config) as Record<string, string>)
+        : {}
+      setEditAcmeCfToken(config.cloudflare_api_token ?? "")
+    } catch {
+      setEditAcmeCfToken("")
+    }
+    // 伪装配置
+    setEditMasqueradeType(row.masquerade_type || "string")
+    try {
+      const mc = row.masquerade_config
+        ? (JSON.parse(row.masquerade_config) as Record<string, unknown>)
+        : null
+      if (mc) {
+        if (row.masquerade_type === "string") {
+          setEditMasqContent((mc.content as string) ?? "ok")
+          const headers = mc.headers as Record<string, string> | undefined
+          setEditMasqContentType(
+            headers?.["content-type"] ?? "text/plain; charset=utf-8"
+          )
+          setEditMasqStatusCode(String(mc.statusCode ?? "200"))
+        } else if (row.masquerade_type === "proxy") {
+          setEditMasqProxyUrl((mc.url as string) ?? "")
+          setEditMasqProxyRewriteHost(mc.rewriteHost !== false)
+          setEditMasqProxyInsecure(mc.insecure === true)
+          setEditMasqProxyXForwarded(mc.xForwarded === true)
+        } else if (row.masquerade_type === "file") {
+          setEditMasqFileDir((mc.dir as string) ?? "/www/masq")
+        }
+      } else {
+        // 无伪装配置，重置为默认
+        setEditMasqContent("ok")
+        setEditMasqContentType("text/plain; charset=utf-8")
+        setEditMasqStatusCode("200")
+        setEditMasqProxyUrl("")
+        setEditMasqProxyRewriteHost(true)
+        setEditMasqProxyInsecure(false)
+        setEditMasqProxyXForwarded(false)
+        setEditMasqFileDir("/www/masq")
+      }
+    } catch {
+      setEditMasqContent("ok")
+      setEditMasqContentType("text/plain; charset=utf-8")
+      setEditMasqStatusCode("200")
+      setEditMasqProxyUrl("")
+      setEditMasqProxyRewriteHost(true)
+      setEditMasqProxyInsecure(false)
+      setEditMasqProxyXForwarded(false)
+      setEditMasqFileDir("/www/masq")
+    }
+    // Agent 配置
+    setEditAgentInterval(
+      row.agent_interval != null ? String(row.agent_interval) : ""
+    )
   }
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!editingRow) return
-
+    const editAcmeDomains =
+      editCertMode === "acme-http" || editCertMode === "acme-dns"
+        ? parseAcmeDomainsInput(editAcmeDomainsInput)
+        : []
     await updateNode(editingRow.id, {
       name: editName,
       ip: editIp,
@@ -739,6 +1429,18 @@ export default function AdminNodesPage() {
       obfsPassword: editObfsPassword,
       insecure: editInsecure,
       pinSha256: editPinSha256,
+      nodeIp: editNodeIp || null,
+      nodePort: editNodePortInput || null,
+      certMode: editCertMode,
+      certPath: editCertPath || null,
+      keyPath: editKeyPath || null,
+      acmeDomains: editAcmeDomains.length > 0 ? editAcmeDomains : null,
+      acmeEmail: editAcmeEmail || null,
+      acmeDnsProvider: editAcmeDnsProvider || null,
+      acmeDnsConfig: buildAcmeDnsConfig("edit"),
+      masqueradeType: editMasqueradeType,
+      masqueradeConfig: buildMasqueradeConfigObj("edit"),
+      agentInterval: editAgentInterval ? Number(editAgentInterval) : null,
     })
 
     setEditingRow(null)
@@ -756,7 +1458,7 @@ export default function AdminNodesPage() {
         auth_path: row.auth_path,
         hysteria_stats_url: "http://127.0.0.1:9999",
         hysteria_stats_secret: "<填入 Hy2 config 的 trafficStats.secret>",
-        interval_seconds: 120,
+        interval_seconds: row.agent_interval ?? 120,
       },
       null,
       2
@@ -781,6 +1483,28 @@ export default function AdminNodesPage() {
   }
 
   async function showDeployCommand(row: NodeRow) {
+    // ACME 节点先检查 DNS 解析状态
+    const isAcmeMode =
+      row.cert_mode === "acme" ||
+      row.cert_mode === "acme-dns" ||
+      row.cert_mode === "acme-http"
+    if (isAcmeMode && row.dns_status !== "skip" && row.dns_status !== "match") {
+      const statusText =
+        row.dns_status === "mismatch"
+          ? "DNS 指向的 IP 与节点 IP 不一致"
+          : "域名无法解析"
+      const shouldResolve = await confirm({
+        title: "DNS 解析状态异常",
+        description: `当前节点使用 ACME 证书模式，但${statusText}。建议先更新 DNS 解析再部署，否则 ACME 证书签发可能失败。`,
+        confirmText: "先更新解析",
+        cancelText: "仍然部署",
+      })
+      if (shouldResolve) {
+        await resolveDns(row)
+        return
+      }
+    }
+
     const response = await fetch(`/api/admin/nodes/${row.id}/deploy-command`)
     const json = await response.json()
 
@@ -814,11 +1538,23 @@ export default function AdminNodesPage() {
 
     const meta = json.data?.meta as
       | {
+          cert_mode?: string
           cert_path?: string
           key_path?: string
           interval_seconds?: number
+          deploy_port?: number
+          deploy_port_hopping?: string | null
+          obfs?: string | null
+          acme_domains?: string[]
+          acme_email?: string | null
+          acme_dns_provider?: string | null
         }
       | undefined
+
+    const isAcme =
+      meta?.cert_mode === "acme-http" ||
+      meta?.cert_mode === "acme-dns" ||
+      meta?.cert_mode === "acme"
 
     await alert({
       title: `${row.name} 的一键部署命令${copied ? "（已复制）" : ""}`,
@@ -826,15 +1562,43 @@ export default function AdminNodesPage() {
         <div className="space-y-3">
           <div className="space-y-1 text-xs text-muted-foreground">
             <p>在节点服务器以 root 执行（将自动安装/配置 hy2 与 agent）。</p>
-            <p>若证书或私钥文件不存在，部署脚本会自动生成自签证书。</p>
           </div>
           <pre className="max-h-[260px] min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
             {command}
           </pre>
           <div className="space-y-1 text-xs text-muted-foreground">
-            <p>证书路径：{meta?.cert_path ?? "/etc/hysteria/server.crt"}</p>
-            <p>私钥路径：{meta?.key_path ?? "/etc/hysteria/server.key"}</p>
+            <p>
+              端口：{meta?.deploy_port ?? 443}
+              {meta?.deploy_port_hopping &&
+                `（端口跳跃：${meta.deploy_port_hopping}）`}
+            </p>
+            {meta?.obfs === "salamander" && <p>混淆：Salamander</p>}
             <p>上报间隔：{meta?.interval_seconds ?? 120} 秒</p>
+            {isAcme ? (
+              <>
+                <p>
+                  ACME 域名：
+                  {meta?.acme_domains?.length
+                    ? meta.acme_domains.join("，")
+                    : "未设置"}
+                </p>
+                {meta?.acme_email && <p>ACME 邮箱：{meta.acme_email}</p>}
+                {meta?.cert_mode === "acme-dns" && (
+                  <p>DNS 服务商：{meta?.acme_dns_provider ?? "未设置"}</p>
+                )}
+              </>
+            ) : (
+              <>
+                <p>
+                  证书路径：
+                  {meta?.cert_path ?? "/etc/hysteria/server.crt"}
+                </p>
+                <p>
+                  私钥路径：
+                  {meta?.key_path ?? "/etc/hysteria/server.key"}
+                </p>
+              </>
+            )}
           </div>
         </div>
       ),
@@ -888,7 +1652,7 @@ export default function AdminNodesPage() {
           {rows.map((row) => (
             <NodeCard
               key={row.id}
-              row={row}
+              row={{ ...row, dns_status: dnsStatusMap[row.id] ?? "skip" }}
               hourly={historyByNode[row.id] ?? buildEmptyHourly()}
               hideIp={hideIp}
               onEdit={startEdit}
@@ -900,6 +1664,7 @@ export default function AdminNodesPage() {
               }
               onShowAgentConfig={(r) => void showAgentConfig(r)}
               onShowDeployCommand={(r) => void showDeployCommand(r)}
+              onDnsResolve={(r) => void resolveDns(r)}
             />
           ))}
         </div>
@@ -907,7 +1672,7 @@ export default function AdminNodesPage() {
 
       {/* 创建节点 - 右侧滑出面板 */}
       <Sheet open={createOpen} onOpenChange={setCreateOpen}>
-        <SheetContent>
+        <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>添加节点</SheetTitle>
             <SheetDescription>
@@ -932,6 +1697,44 @@ export default function AdminNodesPage() {
               setInsecure={setInsecure}
               pinSha256={pinSha256}
               setPinSha256={setPinSha256}
+              nodeIp={nodeIp}
+              setNodeIp={setNodeIp}
+              nodePortInput={nodePortInput}
+              setNodePortInput={setNodePortInput}
+              certMode={certMode}
+              setCertMode={setCertMode}
+              certPath={certPath}
+              setCertPath={setCertPath}
+              keyPath={keyPath}
+              setKeyPath={setKeyPath}
+              acmeDomainsInput={acmeDomainsInput}
+              setAcmeDomainsInput={setAcmeDomainsInput}
+              acmeEmail={acmeEmail}
+              setAcmeEmail={setAcmeEmail}
+              acmeDnsProvider={acmeDnsProvider}
+              setAcmeDnsProvider={setAcmeDnsProvider}
+              acmeCfToken={acmeCfToken}
+              setAcmeCfToken={setAcmeCfToken}
+              masqueradeType={masqueradeType}
+              setMasqueradeType={setMasqueradeType}
+              masqContent={masqContent}
+              setMasqContent={setMasqContent}
+              masqContentType={masqContentType}
+              setMasqContentType={setMasqContentType}
+              masqStatusCode={masqStatusCode}
+              setMasqStatusCode={setMasqStatusCode}
+              masqProxyUrl={masqProxyUrl}
+              setMasqProxyUrl={setMasqProxyUrl}
+              masqProxyRewriteHost={masqProxyRewriteHost}
+              setMasqProxyRewriteHost={setMasqProxyRewriteHost}
+              masqProxyInsecure={masqProxyInsecure}
+              setMasqProxyInsecure={setMasqProxyInsecure}
+              masqProxyXForwarded={masqProxyXForwarded}
+              setMasqProxyXForwarded={setMasqProxyXForwarded}
+              masqFileDir={masqFileDir}
+              setMasqFileDir={setMasqFileDir}
+              agentInterval={agentInterval}
+              setAgentInterval={setAgentInterval}
               onSubmit={create}
               submitLabel="创建节点"
             />
@@ -946,7 +1749,7 @@ export default function AdminNodesPage() {
           if (!open) setEditingRow(null)
         }}
       >
-        <SheetContent>
+        <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>编辑节点 {editingRow?.name}</SheetTitle>
             <SheetDescription>修改节点配置，保存后立即生效。</SheetDescription>
@@ -969,6 +1772,44 @@ export default function AdminNodesPage() {
               setInsecure={setEditInsecure}
               pinSha256={editPinSha256}
               setPinSha256={setEditPinSha256}
+              nodeIp={editNodeIp}
+              setNodeIp={setEditNodeIp}
+              nodePortInput={editNodePortInput}
+              setNodePortInput={setEditNodePortInput}
+              certMode={editCertMode}
+              setCertMode={setEditCertMode}
+              certPath={editCertPath}
+              setCertPath={setEditCertPath}
+              keyPath={editKeyPath}
+              setKeyPath={setEditKeyPath}
+              acmeDomainsInput={editAcmeDomainsInput}
+              setAcmeDomainsInput={setEditAcmeDomainsInput}
+              acmeEmail={editAcmeEmail}
+              setAcmeEmail={setEditAcmeEmail}
+              acmeDnsProvider={editAcmeDnsProvider}
+              setAcmeDnsProvider={setEditAcmeDnsProvider}
+              acmeCfToken={editAcmeCfToken}
+              setAcmeCfToken={setEditAcmeCfToken}
+              masqueradeType={editMasqueradeType}
+              setMasqueradeType={setEditMasqueradeType}
+              masqContent={editMasqContent}
+              setMasqContent={setEditMasqContent}
+              masqContentType={editMasqContentType}
+              setMasqContentType={setEditMasqContentType}
+              masqStatusCode={editMasqStatusCode}
+              setMasqStatusCode={setEditMasqStatusCode}
+              masqProxyUrl={editMasqProxyUrl}
+              setMasqProxyUrl={setEditMasqProxyUrl}
+              masqProxyRewriteHost={editMasqProxyRewriteHost}
+              setMasqProxyRewriteHost={setEditMasqProxyRewriteHost}
+              masqProxyInsecure={editMasqProxyInsecure}
+              setMasqProxyInsecure={setEditMasqProxyInsecure}
+              masqProxyXForwarded={editMasqProxyXForwarded}
+              setMasqProxyXForwarded={setEditMasqProxyXForwarded}
+              masqFileDir={editMasqFileDir}
+              setMasqFileDir={setEditMasqFileDir}
+              agentInterval={editAgentInterval}
+              setAgentInterval={setEditAgentInterval}
               onSubmit={submitEdit}
               submitLabel="保存修改"
               onCancel={() => setEditingRow(null)}

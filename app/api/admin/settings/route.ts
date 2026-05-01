@@ -4,6 +4,7 @@ import { requireAdmin } from "@/lib/auth"
 import { writeAdminEvent } from "@/lib/logs-db"
 import {
   getAllSettings,
+  SENSITIVE_SETTING_KEYS,
   setSetting,
   SETTING_DEFAULTS,
   SETTING_KEYS,
@@ -12,10 +13,7 @@ import {
 import { getClientIp } from "@/lib/turnstile"
 
 // 审计日志里不应出现的敏感 key：只记录是否改动，不记录明文
-const SENSITIVE_KEYS = new Set<SettingKey>([
-  SETTING_KEYS.turnstileSecretKey,
-  SETTING_KEYS.agentBundleUrl,
-])
+const SENSITIVE_KEYS = new Set<SettingKey>(SENSITIVE_SETTING_KEYS)
 
 const STATS_RETENTION_DAYS_MIN = 1
 const STATS_RETENTION_DAYS_MAX = 365

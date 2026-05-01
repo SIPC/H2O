@@ -16,6 +16,19 @@ type NodeRow = {
   status: "enabled" | "disabled"
   obfs: string | null
   obfs_password: string | null
+  node_ip: string | null
+  node_port: number | null
+  node_port_hopping: string | null
+  cert_mode: string
+  cert_path: string | null
+  key_path: string | null
+  acme_domains: string | null
+  acme_email: string | null
+  acme_dns_provider: string | null
+  acme_dns_config: string | null
+  masquerade_type: string | null
+  masquerade_config: string | null
+  agent_interval: number | null
 }
 
 const DEFAULT_AGENT_BUNDLE_URL =
@@ -42,30 +55,6 @@ function detectOrigin(request: Request): string {
 
   if (xfp && xfh) return `${xfp}://${xfh}`
   return `${url.protocol}//${url.host}`
-}
-
-function normalizeAbsPath(raw: string | null, fallback: string): string {
-  const value = raw?.trim() ?? ""
-  if (!value) return fallback
-  if (!value.startsWith("/")) return fallback
-  if (/[\r\n]/.test(value)) return fallback
-  return value
-}
-
-function parseIntervalSeconds(raw: string | null): number | null {
-  const text = raw?.trim() ?? ""
-  if (!text) return 120
-  if (!/^\d+$/.test(text)) return null
-  const n = Number(text)
-  if (!Number.isInteger(n) || n < 30 || n > 3600) return null
-  return n
-}
-
-function parseStatsSecret(raw: string | null): string | null {
-  const value = (raw?.trim() || randomBytes(24).toString("hex")).trim()
-  if (value.length < 8 || value.length > 256) return null
-  if (/[\r\n]/.test(value)) return null
-  return value
 }
 
 function isHttpUrl(raw: string): boolean {
@@ -119,7 +108,11 @@ export async function GET(
   const db = getDb()
   const node = db
     .prepare(
-      `SELECT id, name, ip, port, port_hopping, auth_path, status, obfs, obfs_password
+      `SELECT id, name, ip, port, port_hopping, auth_path, status, obfs, obfs_password,
+              node_ip, node_port, node_port_hopping,
+              cert_mode, cert_path, key_path,
+              acme_domains, acme_email, acme_dns_provider, acme_dns_config,
+              masquerade_type, masquerade_config, agent_interval
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -138,34 +131,11 @@ export async function GET(
     return jsonError("INVALID_PANEL_URL", "panel_url 不合法", 400)
   }
 
-  const certPath = normalizeAbsPath(
-    reqUrl.searchParams.get("cert_path"),
-    "/etc/hysteria/server.crt"
-  )
-  const keyPath = normalizeAbsPath(
-    reqUrl.searchParams.get("key_path"),
-    "/etc/hysteria/server.key"
-  )
+  // 证书路径：从 DB 读取，回退默认值
+  const certPath = node.cert_path?.trim() || "/etc/hysteria/server.crt"
+  const keyPath = node.key_path?.trim() || "/etc/hysteria/server.key"
 
-  const intervalSeconds = parseIntervalSeconds(
-    reqUrl.searchParams.get("interval_seconds")
-  )
-  if (intervalSeconds == null) {
-    return jsonError(
-      "INVALID_INTERVAL",
-      "interval_seconds 必须是 30~3600 的整数",
-      400
-    )
-  }
-
-  const statsSecret = parseStatsSecret(reqUrl.searchParams.get("stats_secret"))
-  if (!statsSecret) {
-    return jsonError(
-      "INVALID_STATS_SECRET",
-      "stats_secret 不合法（长度 8~256，且不能包含换行）",
-      400
-    )
-  }
+  const statsSecret = randomBytes(24).toString("hex")
 
   const settingsAgentBundleUrl = getSetting<string>(
     SETTING_KEYS.agentBundleUrl,
@@ -180,6 +150,13 @@ export async function GET(
   if (!agentBundleUrl || !isHttpUrl(agentBundleUrl)) {
     return jsonError("INVALID_AGENT_BUNDLE_URL", "agent_bundle_url 不合法", 400)
   }
+
+  // 部署端口回退到订阅端口
+  // 注意：仅当节点端口完全未配置时才回退；若节点端口已明确设置，
+  // 端口跳跃以节点配置为准（null 表示不跳跃）
+  const deployPort = node.node_port ?? node.port
+  const deployPortHopping =
+    node.node_port != null ? node.node_port_hopping : node.port_hopping
 
   if (node.obfs && node.obfs !== "salamander") {
     return jsonError(
@@ -197,22 +174,110 @@ export async function GET(
     )
   }
 
+  // ACME 配置解析
+  let acmeDomains: string[] = []
+  if (node.acme_domains) {
+    try {
+      acmeDomains = JSON.parse(node.acme_domains) as string[]
+    } catch {
+      acmeDomains = []
+    }
+  }
+
+  // ACME 邮箱：节点级 > 全局设置
+  const acmeEmail =
+    node.acme_email?.trim() ||
+    getSetting<string>(SETTING_KEYS.acmeEmail, "").trim()
+
+  // ACME DNS 配置解析（节点级 > 全局设置回退）
+  let acmeDnsConfig: Record<string, string> = {}
+  if (node.acme_dns_config) {
+    try {
+      acmeDnsConfig = JSON.parse(node.acme_dns_config) as Record<string, string>
+    } catch {
+      acmeDnsConfig = {}
+    }
+  }
+  // 节点未单独配置 CF Token 时回退到全局站点设置
+  if (
+    (node.acme_dns_provider === "cloudflare" ||
+      node.cert_mode === "acme-dns" ||
+      node.cert_mode === "acme") &&
+    !acmeDnsConfig.cloudflare_api_token
+  ) {
+    const globalCfToken = getSetting<string>(
+      SETTING_KEYS.cloudflareApiToken,
+      ""
+    ).trim()
+    if (globalCfToken) {
+      acmeDnsConfig = { cloudflare_api_token: globalCfToken }
+    }
+  }
+
   const rawParams = new URLSearchParams()
   rawParams.set("panel_url", panelUrl)
   rawParams.set("auth_path", node.auth_path)
-  rawParams.set("port", String(node.port))
-  if (node.port_hopping) {
-    rawParams.set("port_hopping", node.port_hopping)
+  rawParams.set("port", String(deployPort))
+  if (deployPortHopping) {
+    rawParams.set("port_hopping", deployPortHopping)
   }
   rawParams.set("cert_path", certPath)
   rawParams.set("key_path", keyPath)
   rawParams.set("stats_secret", statsSecret)
-  rawParams.set("interval_seconds", String(intervalSeconds))
+  rawParams.set("interval_seconds", String(node.agent_interval ?? 120))
   rawParams.set("agent_bundle_url", agentBundleUrl)
+  rawParams.set(
+    "cert_mode",
+    node.cert_mode === "acme" ? "acme-dns" : node.cert_mode || "self-signed"
+  )
 
   if (node.obfs === "salamander") {
     rawParams.set("obfs", "salamander")
     rawParams.set("obfs_password", node.obfs_password ?? "")
+  }
+
+  // ACME 配置：acme-http 和 acme-dns 都需要域名和邮箱
+  const isAcme =
+    node.cert_mode === "acme-http" ||
+    node.cert_mode === "acme-dns" ||
+    node.cert_mode === "acme"
+  if (isAcme) {
+    if (acmeDomains.length > 0) {
+      rawParams.set("acme_domains", JSON.stringify(acmeDomains))
+    }
+    if (acmeEmail) {
+      rawParams.set("acme_email", acmeEmail)
+    }
+    // acme-dns 需要 DNS 服务商配置
+    if (node.cert_mode === "acme-dns" || node.cert_mode === "acme") {
+      const dnsProvider =
+        node.acme_dns_provider ||
+        (acmeDnsConfig.cloudflare_api_token ? "cloudflare" : "")
+      if (dnsProvider) {
+        rawParams.set("acme_dns_provider", dnsProvider)
+      }
+      if (Object.keys(acmeDnsConfig).length > 0) {
+        rawParams.set("acme_dns_config", JSON.stringify(acmeDnsConfig))
+      }
+    }
+  }
+
+  // 伪装配置
+  let masqueradeConfig: Record<string, unknown> = {}
+  if (node.masquerade_config) {
+    try {
+      masqueradeConfig = JSON.parse(node.masquerade_config) as Record<
+        string,
+        unknown
+      >
+    } catch {
+      masqueradeConfig = {}
+    }
+  }
+  const masqueradeType = node.masquerade_type || "string"
+  rawParams.set("masquerade_type", masqueradeType)
+  if (Object.keys(masqueradeConfig).length > 0) {
+    rawParams.set("masquerade_config", JSON.stringify(masqueradeConfig))
   }
 
   // 将原始 query 整体做 base64url 编码，避免命令里明文展开所有参数
@@ -236,11 +301,17 @@ export async function GET(
       script_url: `${scriptUrl.origin}${scriptUrl.pathname}`,
       payload_base64: payloadBase64,
       meta: {
+        cert_mode: node.cert_mode || "self-signed",
         cert_path: certPath,
         key_path: keyPath,
-        interval_seconds: intervalSeconds,
-        // 仅供管理员核对
+        interval_seconds: node.agent_interval ?? 120,
         stats_secret: statsSecret,
+        deploy_port: deployPort,
+        deploy_port_hopping: deployPortHopping,
+        obfs: node.obfs || null,
+        acme_domains: acmeDomains,
+        acme_email: acmeEmail || null,
+        acme_dns_provider: node.acme_dns_provider || null,
       },
     },
   })

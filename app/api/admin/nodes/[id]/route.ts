@@ -7,6 +7,7 @@ import { parseUnifiedPortInput } from "@/lib/port-hopping"
 import { getClientIp } from "@/lib/turnstile"
 
 type UpdateNodeBody = {
+  // 订阅配置
   name?: string
   ip?: string
   port?: string | number
@@ -16,6 +17,20 @@ type UpdateNodeBody = {
   obfsPassword?: string | null
   insecure?: boolean
   pinSha256?: string | null
+  // 节点配置
+  nodeIp?: string | null
+  nodePort?: string | number | null
+  nodePortHopping?: string | null
+  certMode?: "self-signed" | "acme" | "custom"
+  certPath?: string | null
+  keyPath?: string | null
+  acmeDomains?: string[] | null
+  acmeEmail?: string | null
+  acmeDnsProvider?: string | null
+  acmeDnsConfig?: Record<string, string> | null
+  masqueradeType?: string | null
+  masqueradeConfig?: Record<string, unknown> | null
+  agentInterval?: number | null
 }
 
 export async function PATCH(
@@ -126,6 +141,129 @@ export async function PATCH(
       body.pinSha256 && body.pinSha256.trim() ? body.pinSha256.trim() : null
     )
     changedFields.push("pin_sha256")
+  }
+
+  // 节点配置字段
+  if (body.nodeIp !== undefined) {
+    updates.push("node_ip = ?")
+    values.push(body.nodeIp && body.nodeIp.trim() ? body.nodeIp.trim() : null)
+    changedFields.push("node_ip")
+  }
+
+  if (
+    body.nodePort !== undefined &&
+    body.nodePort !== null &&
+    String(body.nodePort).trim()
+  ) {
+    const resolvedNode = parseUnifiedPortInput(String(body.nodePort))
+    if (!resolvedNode.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_NODE_PORT",
+        detail: { nodeId, nodePort: body.nodePort },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_NODE_PORT", message: resolvedNode.error },
+        },
+        { status: 400 }
+      )
+    }
+    updates.push("node_port = ?", "node_port_hopping = ?")
+    values.push(resolvedNode.port, resolvedNode.portHopping)
+    changedFields.push("node_port", "node_port_hopping")
+  } else if (body.nodePortHopping !== undefined) {
+    updates.push("node_port_hopping = ?")
+    values.push(
+      body.nodePortHopping && body.nodePortHopping.trim()
+        ? body.nodePortHopping.trim()
+        : null
+    )
+    changedFields.push("node_port_hopping")
+  }
+
+  if (body.certMode !== undefined) {
+    updates.push("cert_mode = ?")
+    values.push(body.certMode)
+    changedFields.push("cert_mode")
+  }
+
+  if (body.certPath !== undefined) {
+    updates.push("cert_path = ?")
+    values.push(
+      body.certPath && body.certPath.trim() ? body.certPath.trim() : null
+    )
+    changedFields.push("cert_path")
+  }
+
+  if (body.keyPath !== undefined) {
+    updates.push("key_path = ?")
+    values.push(
+      body.keyPath && body.keyPath.trim() ? body.keyPath.trim() : null
+    )
+    changedFields.push("key_path")
+  }
+
+  if (body.acmeDomains !== undefined) {
+    updates.push("acme_domains = ?")
+    values.push(
+      body.acmeDomains && body.acmeDomains.length > 0
+        ? JSON.stringify(body.acmeDomains)
+        : null
+    )
+    changedFields.push("acme_domains")
+  }
+
+  if (body.acmeEmail !== undefined) {
+    updates.push("acme_email = ?")
+    values.push(
+      body.acmeEmail && body.acmeEmail.trim() ? body.acmeEmail.trim() : null
+    )
+    changedFields.push("acme_email")
+  }
+
+  if (body.acmeDnsProvider !== undefined) {
+    updates.push("acme_dns_provider = ?")
+    values.push(
+      body.acmeDnsProvider && body.acmeDnsProvider.trim()
+        ? body.acmeDnsProvider.trim()
+        : null
+    )
+    changedFields.push("acme_dns_provider")
+  }
+
+  if (body.acmeDnsConfig !== undefined) {
+    updates.push("acme_dns_config = ?")
+    values.push(body.acmeDnsConfig ? JSON.stringify(body.acmeDnsConfig) : null)
+    changedFields.push("acme_dns_config")
+  }
+
+  if (body.masqueradeType !== undefined) {
+    updates.push("masquerade_type = ?")
+    values.push(body.masqueradeType?.trim() || null)
+    changedFields.push("masquerade_type")
+  }
+
+  if (body.masqueradeConfig !== undefined) {
+    updates.push("masquerade_config = ?")
+    values.push(
+      body.masqueradeConfig ? JSON.stringify(body.masqueradeConfig) : null
+    )
+    changedFields.push("masquerade_config")
+  }
+
+  if (body.agentInterval !== undefined) {
+    updates.push("agent_interval = ?")
+    values.push(
+      body.agentInterval != null && body.agentInterval > 0
+        ? body.agentInterval
+        : null
+    )
+    changedFields.push("agent_interval")
   }
 
   if (updates.length === 0) {

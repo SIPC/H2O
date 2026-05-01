@@ -9,6 +9,8 @@ export const SETTING_KEYS = {
   turnstileSecretKey: "turnstile_secret_key",
   agentBundleUrl: "agent_bundle_url",
   statsRetentionDays: "stats_retention_days",
+  cloudflareApiToken: "cloudflare_api_token",
+  acmeEmail: "acme_email",
 } as const
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS]
@@ -23,7 +25,14 @@ export const SETTING_DEFAULTS: Record<SettingKey, unknown> = {
   [SETTING_KEYS.turnstileSecretKey]: "",
   [SETTING_KEYS.agentBundleUrl]: "",
   [SETTING_KEYS.statsRetentionDays]: 30,
+  [SETTING_KEYS.cloudflareApiToken]: "",
+  [SETTING_KEYS.acmeEmail]: "",
 }
+
+export const SENSITIVE_SETTING_KEYS: SettingKey[] = [
+  SETTING_KEYS.turnstileSecretKey,
+  SETTING_KEYS.cloudflareApiToken,
+]
 
 // 暴露给未登录前端的 key（用于首页/登录/注册页隐藏入口，不泄露内部策略）
 // site key 天生会出现在浏览器里，可以公开；secret key 绝不能放入
