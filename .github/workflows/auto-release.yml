@@ -113,7 +113,7 @@ jobs:
 
           # 构建 changelog
           if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%an)" --no-merges | head -n -1)
+            CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%an)" --no-merges)
             HEADER="## 📋 Changes logs"
           else
             CHANGELOG=$(git log --pretty=format:"- %s (%an)" --no-merges -20)
@@ -181,7 +181,7 @@ jobs:
             sipcink/h2o:${{ steps.version.outputs.tag }}
 
       - name: 发送 Telegram 通知
-        if: steps.version.outputs.changed == 'true' && github.event_name != 'workflow_dispatch'
+        if: steps.version.outputs.changed == 'true'
         shell: bash
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -196,7 +196,7 @@ jobs:
           fi
 
           # 只提取 changelog 条目（以 - 开头的行），转为 HTML 安全字符
-          CHANGELOG=$(grep '^- ' release_body.md | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | sed 's/^- /• /')
+          CHANGELOG=$(grep '^- ' release_body.md | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | sed 's/^- /• /' || true)
 
           # 构建消息（用实际换行，Telegram 用 \n 而非 <br>）
           MSG_FILE=$(mktemp)
