@@ -113,10 +113,10 @@ jobs:
 
           # 构建 changelog
           if [ -n "$PREV_TAG" ]; then
-            CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (@%an)" --no-merges)
-            HEADER="## 📋 Changes since ${PREV_TAG}"
+            CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty=format:"- %s (%an)" --no-merges)
+            HEADER="## 📋 Changes logs"
           else
-            CHANGELOG=$(git log --pretty=format:"- %s (@%an)" --no-merges -20)
+            CHANGELOG=$(git log --pretty=format:"- %s (%an)" --no-merges -20)
             HEADER="## 📋 Recent Changes"
           fi
 
