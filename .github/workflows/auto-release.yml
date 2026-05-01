@@ -146,7 +146,7 @@ jobs:
           body_path: release_body.md
           draft: false
           prerelease: false
-          generate_release_notes: true
+          generate_release_notes: false
           overwrite_files: true
           files: |
             agent/dist/h2o-agent-linux-amd64
@@ -179,3 +179,33 @@ jobs:
           tags: |
             sipcink/h2o:latest
             sipcink/h2o:${{ steps.version.outputs.tag }}
+
+      - name: 发送 Telegram 通知
+        if: steps.version.outputs.changed == 'true' && github.event_name != 'workflow_dispatch'
+        shell: bash
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          REPO="${{ github.repository }}"
+
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+            echo "Telegram secrets 未配置，跳过通知"
+            exit 0
+          fi
+
+          # 只提取 changelog 条目（以 - 开头的行），转为 Telegram HTML 格式
+          CHANGELOG=$(grep '^- ' release_body.md | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | sed 's/^- /• /' | sed ':a;N;$!ba;s/\n/<br>/g')
+
+          MSG="🚀 <b>H2O $TAG 已发布</b>"
+          if [ -n "$CHANGELOG" ]; then
+            MSG="$MSG<br><br>$CHANGELOG"
+          fi
+          MSG="$MSG<br><br>📦 <a href=\"https://github.com/$REPO/releases/tag/$TAG\">GitHub Release</a>"
+
+          PAYLOAD=$(jq -n --arg chat "$TG_CHAT_ID" --arg msg "$MSG" '{chat_id:$chat,text:$msg,parse_mode:"HTML",disable_web_page_preview:true}')
+
+          curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"

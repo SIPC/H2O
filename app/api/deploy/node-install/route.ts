@@ -318,7 +318,7 @@ function buildScript(params: InstallParams) {
 
   lines.push(
     'echo "[h2o] 安装/更新 hysteria"',
-    "curl -fsSL https://get.hy2.sh/ | bash",
+    'curl -A "H2O-Agent" -fsSL https://get.hy2.sh/ | bash',
     "",
     'echo "[h2o] 写入 /etc/hysteria/config.yaml"',
     "mkdir -p /etc/hysteria",
@@ -335,7 +335,7 @@ function buildScript(params: InstallParams) {
     'echo "[h2o] 下载并安装 h2o-agent"',
     "WORKDIR=$(mktemp -d /tmp/h2o-node-install.XXXXXX)",
     "trap 'rm -rf \"$WORKDIR\"' EXIT",
-    'curl -fsSL "$AGENT_BUNDLE_URL" -o "$WORKDIR/h2o-agent-bundle.tar.gz"',
+    'curl -A "H2O-Agent" -fsSL "$AGENT_BUNDLE_URL" -o "$WORKDIR/h2o-agent-bundle.tar.gz"',
     'tar xzf "$WORKDIR/h2o-agent-bundle.tar.gz" -C "$WORKDIR"',
     'bash "$WORKDIR/install.sh"',
     "",

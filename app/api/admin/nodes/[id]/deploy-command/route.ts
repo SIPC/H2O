@@ -286,7 +286,7 @@ export async function GET(
   const scriptUrl = new URL("/api/deploy/node-install", panelUrl)
   scriptUrl.searchParams.set("payload", payloadBase64)
 
-  const command = `curl -fsSL "${scriptUrl.toString()}" | bash`
+  const command = `curl -A "Mozilla/5.0" -fsSL "${scriptUrl.toString()}" | bash`
 
   return NextResponse.json({
     ok: true,
