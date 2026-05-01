@@ -26,11 +26,9 @@ function wrapHost(host: string): string {
 export function buildHysteriaUri(token: string, node: NodeForUri): string {
   const auth = encodeURIComponent(token)
   const host = wrapHost(node.ip)
-  const portHopping = node.port_hopping?.trim()
-  const address = portHopping
-    ? `${host}:${portHopping}`
-    : `${host}:${node.port}`
-  const base = `hysteria2://${auth}@${address}/`
+  // 地址部分始终使用单个整数端口，确保 .NET Uri / 标准 URL 解析器可识别
+  // 端口跳跃范围通过 mport query 参数传递，兼容 v2rayN
+  const base = `hysteria2://${auth}@${host}:${node.port}/`
 
   const params = new URLSearchParams()
   if (node.sni) params.set("sni", node.sni)
@@ -38,6 +36,11 @@ export function buildHysteriaUri(token: string, node: NodeForUri): string {
   if (node.obfs_password) params.set("obfs-password", node.obfs_password)
   if (node.insecure === 1) params.set("insecure", "1")
   if (node.pin_sha256) params.set("pinSHA256", node.pin_sha256)
+  // v2rayN 通过 mport 参数识别端口跳跃
+  const portHopping = node.port_hopping?.trim()
+  if (portHopping) {
+    params.set("mport", portHopping.replace(/:/g, "-"))
+  }
   if (typeof node.up_mbps === "number" && node.up_mbps > 0) {
     params.set("upmbps", String(node.up_mbps))
   }
