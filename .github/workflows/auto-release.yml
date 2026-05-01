@@ -195,16 +195,23 @@ jobs:
             exit 0
           fi
 
-          # 只提取 changelog 条目（以 - 开头的行），转为 Telegram HTML 格式
-          CHANGELOG=$(grep '^- ' release_body.md | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | sed 's/^- /• /' | sed ':a;N;$!ba;s/\n/<br>/g')
+          # 只提取 changelog 条目（以 - 开头的行），转为 HTML 安全字符
+          CHANGELOG=$(grep '^- ' release_body.md | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' | sed 's/^- /• /')
 
-          MSG="🚀 <b>H2O $TAG 已发布</b>"
-          if [ -n "$CHANGELOG" ]; then
-            MSG="$MSG<br><br>$CHANGELOG"
-          fi
-          MSG="$MSG<br><br>📦 <a href=\"https://github.com/$REPO/releases/tag/$TAG\">GitHub Release</a>"
+          # 构建消息（用实际换行，Telegram 用 \n 而非 <br>）
+          MSG_FILE=$(mktemp)
+          {
+            echo "🚀 <b>H2O $TAG 已发布</b>"
+            echo ""
+            if [ -n "$CHANGELOG" ]; then
+              echo "$CHANGELOG"
+              echo ""
+            fi
+            echo "📦 <a href=\"https://github.com/$REPO/releases/tag/$TAG\">GitHub Release</a>"
+          } > "$MSG_FILE"
 
-          PAYLOAD=$(jq -n --arg chat "$TG_CHAT_ID" --arg msg "$MSG" '{chat_id:$chat,text:$msg,parse_mode:"HTML",disable_web_page_preview:true}')
+          PAYLOAD=$(jq -n --arg chat "$TG_CHAT_ID" --rawfile msg "$MSG_FILE" '{chat_id:$chat,text:$msg,parse_mode:"HTML",disable_web_page_preview:true}')
+          rm -f "$MSG_FILE"
 
           curl -s -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -H "Content-Type: application/json" \
