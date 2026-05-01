@@ -176,6 +176,11 @@ export async function PATCH(
     updates.push("node_port = ?", "node_port_hopping = ?")
     values.push(resolvedNode.port, resolvedNode.portHopping)
     changedFields.push("node_port", "node_port_hopping")
+  } else if (body.nodePort !== undefined) {
+    // nodePort 显式为空 → 清除节点端口，回退到订阅端口
+    updates.push("node_port = ?", "node_port_hopping = ?")
+    values.push(null, null)
+    changedFields.push("node_port", "node_port_hopping")
   } else if (body.nodePortHopping !== undefined) {
     updates.push("node_port_hopping = ?")
     values.push(
