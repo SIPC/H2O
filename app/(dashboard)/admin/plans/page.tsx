@@ -6,7 +6,7 @@ import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
   DropdownMenu,
@@ -172,106 +172,145 @@ function PlanForm({
   onCancel?: () => void
 }) {
   return (
-    <form className="flex flex-col gap-4" onSubmit={onSubmit}>
-      <div className="space-y-1">
-        <Label>名称</Label>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          required
-        />
-      </div>
-      <div className="space-y-1">
-        <Label>流量上限 (GB)</Label>
-        <Input
-          type="number"
-          min="0"
-          step="0.01"
-          value={trafficLimitGb}
-          onChange={(e) => setTrafficLimitGb(e.target.value)}
-          required
-        />
-      </div>
-      <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <Label>时长 (天)</Label>
-          <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-            <Switch
-              checked={permanent}
-              onCheckedChange={setPermanent}
-              size="sm"
-            />
-            永久有效
-          </label>
-        </div>
-        {!permanent && (
-          <Input
-            value={durationDays}
-            onChange={(e) => setDurationDays(e.target.value)}
-            required
-          />
-        )}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label>上行限速 (Mbps)</Label>
-          <Input
-            type="number"
-            min="0"
-            step="1"
-            value={upMbps}
-            onChange={(e) => setUpMbps(e.target.value)}
-            placeholder="0 = 不限"
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>下行限速 (Mbps)</Label>
-          <Input
-            type="number"
-            min="0"
-            step="1"
-            value={downMbps}
-            onChange={(e) => setDownMbps(e.target.value)}
-            placeholder="0 = 不限"
-          />
-        </div>
-      </div>
-
-      {/* 自动续订 */}
-      <div className="space-y-3 rounded-md border p-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <Label>自动续订</Label>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              开启后流量按周期自动重置，被封的订阅也会自动解封
-            </p>
-          </div>
-          <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />
-        </div>
-        {autoRenew && (
+    <form
+      className="space-y-4 **:data-[slot=label]:text-xs"
+      onSubmit={onSubmit}
+    >
+      {/* === 基础信息 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            基础信息
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>续订周期 (天)</Label>
+            <Label>名称</Label>
             <Input
-              type="number"
-              min="1"
-              step="1"
-              value={renewalPeriodDays}
-              onChange={(e) => setRenewalPeriodDays(e.target.value)}
-              placeholder="例如 30"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
               required
             />
           </div>
-        )}
-      </div>
+          <div className="space-y-1">
+            <Label>流量上限 (GB)</Label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={trafficLimitGb}
+              onChange={(e) => setTrafficLimitGb(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <Label>时长 (天)</Label>
+              <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                <Switch
+                  checked={permanent}
+                  onCheckedChange={setPermanent}
+                  size="sm"
+                />
+                永久有效
+              </label>
+            </div>
+            {!permanent && (
+              <Input
+                value={durationDays}
+                onChange={(e) => setDurationDays(e.target.value)}
+                required
+              />
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="space-y-1">
-        <Label>可用节点</Label>
-        <NodeCheckboxGroup
-          nodes={nodes}
-          value={selectedNodeIds}
-          onChange={setSelectedNodeIds}
-        />
-      </div>
+      {/* === 限速设置 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            限速设置
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>上行限速 (Mbps)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={upMbps}
+                onChange={(e) => setUpMbps(e.target.value)}
+                placeholder="0 = 不限"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>下行限速 (Mbps)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={downMbps}
+                onChange={(e) => setDownMbps(e.target.value)}
+                placeholder="0 = 不限"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* === 可用节点 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            可用节点
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <NodeCheckboxGroup
+            nodes={nodes}
+            value={selectedNodeIds}
+            onChange={setSelectedNodeIds}
+          />
+        </CardContent>
+      </Card>
+
+      {/* === 自动续订 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            自动续订
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label>自动续订</Label>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                开启后流量按周期自动重置，被封的订阅也会自动解封
+              </p>
+            </div>
+            <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />
+          </div>
+          {autoRenew && (
+            <div className="space-y-1">
+              <Label>续订周期 (天)</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={renewalPeriodDays}
+                onChange={(e) => setRenewalPeriodDays(e.target.value)}
+                placeholder="例如 30"
+                required
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex gap-2 pt-2">
         <Button type="submit">{submitLabel}</Button>
         {onCancel && (

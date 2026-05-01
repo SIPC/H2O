@@ -669,6 +669,114 @@ function NodeForm({
         </CardContent>
       </Card>
 
+      {/* === 伪装 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            伪装
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>伪装类型</Label>
+            <Select value={masqueradeType} onValueChange={setMasqueradeType}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                <SelectGroup>
+                  <SelectItem value="none">不伪装</SelectItem>
+                  <SelectItem value="string">字符串</SelectItem>
+                  <SelectItem value="proxy">反向代理</SelectItem>
+                  <SelectItem value="file">静态文件</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          {masqueradeType === "string" && (
+            <>
+              <div className="space-y-1">
+                <Label>响应内容</Label>
+                <Textarea
+                  value={masqContent}
+                  onChange={(e) => setMasqContent(e.target.value)}
+                  placeholder="ok"
+                  rows={3}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>Content-Type</Label>
+                  <Input
+                    value={masqContentType}
+                    onChange={(e) => setMasqContentType(e.target.value)}
+                    placeholder="text/plain; charset=utf-8"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>状态码</Label>
+                  <Input
+                    type="number"
+                    value={masqStatusCode}
+                    onChange={(e) => setMasqStatusCode(e.target.value)}
+                    placeholder="200"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+          {masqueradeType === "proxy" && (
+            <>
+              <div className="space-y-1">
+                <Label>代理 URL</Label>
+                <Input
+                  value={masqProxyUrl}
+                  onChange={(e) => setMasqProxyUrl(e.target.value)}
+                  placeholder="https://example.com"
+                />
+              </div>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={masqProxyRewriteHost}
+                  onCheckedChange={(next) =>
+                    setMasqProxyRewriteHost(next === true)
+                  }
+                />
+                <span>Rewrite Host</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={masqProxyInsecure}
+                  onCheckedChange={(next) =>
+                    setMasqProxyInsecure(next === true)
+                  }
+                />
+                <span>跳过后端证书校验 (Insecure)</span>
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <Checkbox
+                  checked={masqProxyXForwarded}
+                  onCheckedChange={(next) =>
+                    setMasqProxyXForwarded(next === true)
+                  }
+                />
+                <span>X-Forwarded-For</span>
+              </label>
+            </>
+          )}
+          {masqueradeType === "file" && (
+            <div className="space-y-1">
+              <Label>文件目录</Label>
+              <Input
+                value={masqFileDir}
+                onChange={(e) => setMasqFileDir(e.target.value)}
+                placeholder="/www/masq"
+              />
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* === 节点配置 === */}
       <Card>
         <CardHeader className="p-4 pb-1">
@@ -792,114 +900,6 @@ function NodeForm({
                 />
               </div>
             </>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* === 伪装 === */}
-      <Card>
-        <CardHeader className="p-4 pb-1">
-          <CardTitle className="text-base leading-none font-semibold">
-            伪装
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <Label>伪装类型</Label>
-            <Select value={masqueradeType} onValueChange={setMasqueradeType}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectGroup>
-                  <SelectItem value="none">不伪装</SelectItem>
-                  <SelectItem value="string">字符串</SelectItem>
-                  <SelectItem value="proxy">反向代理</SelectItem>
-                  <SelectItem value="file">静态文件</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          {masqueradeType === "string" && (
-            <>
-              <div className="space-y-1">
-                <Label>响应内容</Label>
-                <Textarea
-                  value={masqContent}
-                  onChange={(e) => setMasqContent(e.target.value)}
-                  placeholder="ok"
-                  rows={3}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>Content-Type</Label>
-                  <Input
-                    value={masqContentType}
-                    onChange={(e) => setMasqContentType(e.target.value)}
-                    placeholder="text/plain; charset=utf-8"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>状态码</Label>
-                  <Input
-                    type="number"
-                    value={masqStatusCode}
-                    onChange={(e) => setMasqStatusCode(e.target.value)}
-                    placeholder="200"
-                  />
-                </div>
-              </div>
-            </>
-          )}
-          {masqueradeType === "proxy" && (
-            <>
-              <div className="space-y-1">
-                <Label>代理 URL</Label>
-                <Input
-                  value={masqProxyUrl}
-                  onChange={(e) => setMasqProxyUrl(e.target.value)}
-                  placeholder="https://example.com"
-                />
-              </div>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox
-                  checked={masqProxyRewriteHost}
-                  onCheckedChange={(next) =>
-                    setMasqProxyRewriteHost(next === true)
-                  }
-                />
-                <span>Rewrite Host</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox
-                  checked={masqProxyInsecure}
-                  onCheckedChange={(next) =>
-                    setMasqProxyInsecure(next === true)
-                  }
-                />
-                <span>跳过后端证书校验 (Insecure)</span>
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 text-sm">
-                <Checkbox
-                  checked={masqProxyXForwarded}
-                  onCheckedChange={(next) =>
-                    setMasqProxyXForwarded(next === true)
-                  }
-                />
-                <span>X-Forwarded-For</span>
-              </label>
-            </>
-          )}
-          {masqueradeType === "file" && (
-            <div className="space-y-1">
-              <Label>文件目录</Label>
-              <Input
-                value={masqFileDir}
-                onChange={(e) => setMasqFileDir(e.target.value)}
-                placeholder="/www/masq"
-              />
-            </div>
           )}
         </CardContent>
       </Card>
