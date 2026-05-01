@@ -79,7 +79,7 @@ const TX_SPARK_CONFIG = {
   txBytes: {
     label: "总出",
     theme: {
-      light: "#ffffff",
+      light: "#171717",
       dark: "#ffffff",
     },
   },
@@ -89,7 +89,7 @@ const RX_SPARK_CONFIG = {
   rxBytes: {
     label: "总入",
     theme: {
-      light: "#ffffff",
+      light: "#171717",
       dark: "#ffffff",
     },
   },

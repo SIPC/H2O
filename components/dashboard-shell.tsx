@@ -4,11 +4,14 @@ import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import { FormEvent, Fragment, ReactNode, useEffect, useState } from "react"
+import { useTheme } from "next-themes"
 import {
   ChevronRight,
   LayoutDashboard,
   LogOut,
+  Moon,
   Shield,
+  Sun,
   UserCircle2,
 } from "lucide-react"
 
@@ -30,7 +33,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { TooltipProvider } from "@/components/ui/tooltip"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   Sidebar,
   SidebarContent,
@@ -134,6 +142,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         item.items.some((child) => isRouteActive(pathname, child.href))
     )
   )
+  const { resolvedTheme, setTheme } = useTheme()
 
   useEffect(() => {
     let mounted = true
@@ -440,6 +449,18 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                   })}
                 </BreadcrumbList>
               </Breadcrumb>
+              <Button
+                variant="outline"
+                size="icon"
+                className="ml-auto"
+                onClick={() =>
+                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                }
+              >
+                <Sun className="size-4 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
+                <Moon className="absolute size-4 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
+                <span className="sr-only">切换主题</span>
+              </Button>
             </header>
 
             <main className="flex-1">{children}</main>
