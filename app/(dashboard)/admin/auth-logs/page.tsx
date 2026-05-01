@@ -5,7 +5,6 @@ import { ChevronsUpDown, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Command,
   CommandEmpty,
@@ -234,200 +233,201 @@ export default function AdminLogsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>认证日志</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Hysteria2 节点 HTTP 认证回调记录；登录 / 注册 / 轮换 Key 等业务事件请查看「事件日志」。
-          </p>
-        </CardHeader>
-        <CardContent>
-          <form className="mb-4 grid gap-3 md:grid-cols-4" onSubmit={submit}>
-            <div className="space-y-1">
-              <Label>账号</Label>
-              <NamedEntityCombobox
-                items={users.map((u) => ({ id: u.id, name: u.username }))}
-                value={username}
-                onChange={(v) => void switchUsername(v)}
-                placeholder="全部账号"
-                searchPlaceholder="搜索用户名"
-                clearLabel="全部账号"
-                emptyText="无匹配账号"
-                className="h-9 w-full"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>节点</Label>
-              <NamedEntityCombobox
-                items={nodes}
-                value={nodeName}
-                onChange={(v) => void switchNode(v)}
-                placeholder="全部节点"
-                searchPlaceholder="搜索节点名"
-                clearLabel="全部节点"
-                emptyText="无匹配节点"
-                className="h-9 w-full"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>结果</Label>
-              <div className="flex gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={successFilter === "all" ? "default" : "outline"}
-                  onClick={() => void switchFilter("all")}
-                >
-                  全部
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={successFilter === "1" ? "default" : "outline"}
-                  onClick={() => void switchFilter("1")}
-                >
-                  成功
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={successFilter === "0" ? "default" : "outline"}
-                  onClick={() => void switchFilter("0")}
-                >
-                  失败
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-end gap-2">
-              <Button type="submit">查询</Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setUsername("")
-                  setNodeName("")
-                  setSuccessFilter("all")
-                  void load({
-                    page: 1,
-                    filter: "all",
-                    username: "",
-                    nodeName: "",
-                  })
-                }}
-              >
-                重置
-              </Button>
-            </div>
-          </form>
+      {/* 页面标题 */}
+      <div>
+        <h1 className="text-2xl font-bold">认证日志</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Hysteria2 节点 HTTP 认证回调记录；登录 / 注册 / 轮换 Key
+          等业务事件请查看「事件日志」。
+        </p>
+      </div>
 
-          <Table>
-            <THead>
-              <TR>
-                <TH>时间</TH>
-                <TH>节点</TH>
-                <TH>账号</TH>
-                <TH>IP</TH>
-                <TH>结果</TH>
-                <TH>原因</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {rows.map((row) => (
-                <TR key={row.id}>
-                  <TD>
-                    {new Date(
-                      row.created_at.endsWith("Z")
-                        ? row.created_at
-                        : `${row.created_at}Z`
-                    ).toLocaleString()}
-                  </TD>
-                  <TD>{row.node_name ?? "-"}</TD>
-                  <TD>{row.username ?? "-"}</TD>
-                  <TD className="font-mono text-xs">{row.ip ?? "-"}</TD>
-                  <TD>
-                    {row.success === 1 ? (
-                      <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                        成功
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-destructive/15 text-destructive">
-                        失败
-                      </Badge>
-                    )}
-                  </TD>
-                  <TD className="text-xs">
-                    {row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"}
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-            <div className="flex items-center gap-3 text-muted-foreground">
-              <span>
-                共 {total} 条
-                {total > 0 ? `，当前 ${rangeStart}–${rangeEnd}` : ""}
-              </span>
-              <span className="flex items-center gap-1">
-                每页
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <Button
-                    key={size}
-                    type="button"
-                    size="xs"
-                    variant={pageSize === size ? "default" : "outline"}
-                    onClick={() => void changePageSize(size)}
-                  >
-                    {size}
-                  </Button>
-                ))}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => void changePage(1)}
-              >
-                首页
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => void changePage(page - 1)}
-              >
-                上一页
-              </Button>
-              <span className="text-muted-foreground">
-                第 {page} / {totalPages} 页
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page >= totalPages}
-                onClick={() => void changePage(page + 1)}
-              >
-                下一页
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page >= totalPages}
-                onClick={() => void changePage(totalPages)}
-              >
-                末页
-              </Button>
-            </div>
+      {/* 筛选条件 */}
+      <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
+        <div className="space-y-1">
+          <Label>账号</Label>
+          <NamedEntityCombobox
+            items={users.map((u) => ({ id: u.id, name: u.username }))}
+            value={username}
+            onChange={(v) => void switchUsername(v)}
+            placeholder="全部账号"
+            searchPlaceholder="搜索用户名"
+            clearLabel="全部账号"
+            emptyText="无匹配账号"
+            className="w-full"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>节点</Label>
+          <NamedEntityCombobox
+            items={nodes}
+            value={nodeName}
+            onChange={(v) => void switchNode(v)}
+            placeholder="全部节点"
+            searchPlaceholder="搜索节点名"
+            clearLabel="全部节点"
+            emptyText="无匹配节点"
+            className="w-full"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>结果</Label>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={successFilter === "all" ? "default" : "outline"}
+              onClick={() => void switchFilter("all")}
+            >
+              全部
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={successFilter === "1" ? "default" : "outline"}
+              onClick={() => void switchFilter("1")}
+            >
+              成功
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={successFilter === "0" ? "default" : "outline"}
+              onClick={() => void switchFilter("0")}
+            >
+              失败
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="flex items-end gap-2">
+          <Button type="submit">查询</Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setUsername("")
+              setNodeName("")
+              setSuccessFilter("all")
+              void load({
+                page: 1,
+                filter: "all",
+                username: "",
+                nodeName: "",
+              })
+            }}
+          >
+            重置
+          </Button>
+        </div>
+      </form>
+
+      {/* 日志列表 */}
+      <Table>
+        <THead>
+          <TR>
+            <TH>时间</TH>
+            <TH>节点</TH>
+            <TH>账号</TH>
+            <TH>IP</TH>
+            <TH>结果</TH>
+            <TH>原因</TH>
+          </TR>
+        </THead>
+        <TBody>
+          {rows.map((row) => (
+            <TR key={row.id}>
+              <TD>
+                {new Date(
+                  row.created_at.endsWith("Z")
+                    ? row.created_at
+                    : `${row.created_at}Z`
+                ).toLocaleString()}
+              </TD>
+              <TD>{row.node_name ?? "-"}</TD>
+              <TD>{row.username ?? "-"}</TD>
+              <TD className="font-mono text-xs">{row.ip ?? "-"}</TD>
+              <TD>
+                {row.success === 1 ? (
+                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    成功
+                  </Badge>
+                ) : (
+                  <Badge className="bg-destructive/15 text-destructive">
+                    失败
+                  </Badge>
+                )}
+              </TD>
+              <TD className="text-xs">
+                {row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"}
+              </TD>
+            </TR>
+          ))}
+        </TBody>
+      </Table>
+
+      {/* 分页 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <span>
+            共 {total} 条{total > 0 ? `，当前 ${rangeStart}–${rangeEnd}` : ""}
+          </span>
+          <span className="flex items-center gap-1">
+            每页
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <Button
+                key={size}
+                type="button"
+                size="xs"
+                variant={pageSize === size ? "default" : "outline"}
+                onClick={() => void changePageSize(size)}
+              >
+                {size}
+              </Button>
+            ))}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => void changePage(1)}
+          >
+            首页
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => void changePage(page - 1)}
+          >
+            上一页
+          </Button>
+          <span className="text-muted-foreground">
+            第 {page} / {totalPages} 页
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page >= totalPages}
+            onClick={() => void changePage(page + 1)}
+          >
+            下一页
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page >= totalPages}
+            onClick={() => void changePage(totalPages)}
+          >
+            末页
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }

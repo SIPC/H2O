@@ -1,12 +1,21 @@
 "use client"
 
 import { FormEvent, useEffect, useState } from "react"
-import { ChevronsUpDown } from "lucide-react"
+import {
+  ChevronsUpDown,
+  MoreVertical,
+  Pencil,
+  Plus,
+  ShieldBan,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react"
 import { Line, LineChart, XAxis } from "recharts"
 
+import { Badge } from "@/components/ui/badge"
 import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card } from "@/components/ui/card"
 import {
   ChartContainer,
   ChartTooltip,
@@ -22,11 +31,12 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -34,6 +44,14 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
@@ -173,56 +191,6 @@ function normalizeHourly(input: unknown): HourPoint[] {
   return out.length > 0 ? out : buildEmptyHourly()
 }
 
-function StatusCombobox({
-  value,
-  onChange,
-  className,
-}: {
-  value: SubscriptionStatus
-  onChange: (value: SubscriptionStatus) => void
-  className?: string
-}) {
-  const [open, setOpen] = useState(false)
-  const current = statusOptions.find((option) => option.value === value)
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          className={cn("justify-between", className)}
-        >
-          {current?.label ?? value}
-          <ChevronsUpDown className="size-4 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0">
-        <Command>
-          <CommandList>
-            <CommandEmpty>无匹配项</CommandEmpty>
-            <CommandGroup>
-              {statusOptions.map((option) => (
-                <CommandItem
-                  key={option.value}
-                  value={option.value}
-                  data-checked={value === option.value}
-                  onSelect={() => {
-                    onChange(option.value)
-                    setOpen(false)
-                  }}
-                >
-                  {option.label}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
 // 通用 ID-标签下拉选择，支持输入过滤（用户选择、套餐选择共用）
 function EntityCombobox({
   options,
@@ -332,20 +300,146 @@ function SubscriptionHistorySpark({
   )
 }
 
+// 订阅表单（创建 / 编辑共用）
+function SubscriptionForm({
+  isEdit,
+  userId,
+  setUserId,
+  planId,
+  setPlanId,
+  users,
+  plans,
+  status,
+  setStatus,
+  editExpire,
+  setEditExpire,
+  editUsed,
+  setEditUsed,
+  onSubmit,
+  submitLabel,
+  onCancel,
+}: {
+  isEdit: boolean
+  userId: number | null
+  setUserId: (v: number | null) => void
+  planId: number | null
+  setPlanId: (v: number | null) => void
+  users: UserRow[]
+  plans: PlanRow[]
+  status: SubscriptionStatus
+  setStatus: (v: SubscriptionStatus) => void
+  editExpire: string
+  setEditExpire: (v: string) => void
+  editUsed: string
+  setEditUsed: (v: string) => void
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void
+  submitLabel: string
+  onCancel?: () => void
+}) {
+  return (
+    <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+      {!isEdit && (
+        <>
+          <div className="space-y-1">
+            <Label>用户</Label>
+            <EntityCombobox
+              options={users.map((u) => ({
+                value: u.id,
+                label: `#${u.id} ${u.username}`,
+              }))}
+              value={userId}
+              onChange={setUserId}
+              placeholder="选择用户"
+              searchPlaceholder="搜索用户名"
+              emptyText="无匹配用户"
+              className="w-full"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>套餐</Label>
+            <EntityCombobox
+              options={plans.map((p) => ({
+                value: p.id,
+                label: `#${p.id} ${p.name}`,
+              }))}
+              value={planId}
+              onChange={setPlanId}
+              placeholder="选择套餐"
+              searchPlaceholder="搜索套餐名"
+              emptyText="无匹配套餐"
+              className="w-full"
+            />
+          </div>
+        </>
+      )}
+
+      {isEdit && (
+        <>
+          <div className="space-y-1">
+            <Label>状态</Label>
+            <div className="flex gap-2">
+              {statusOptions.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  variant={status === option.value ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setStatus(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label>到期时间</Label>
+            <Input
+              type="datetime-local"
+              value={editExpire}
+              onChange={(e) => setEditExpire(e.target.value)}
+              required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>已用流量 (bytes)</Label>
+            <Input
+              value={editUsed}
+              onChange={(e) => setEditUsed(e.target.value)}
+              required
+            />
+          </div>
+        </>
+      )}
+
+      <div className="flex gap-2 pt-2">
+        <Button type="submit">{submitLabel}</Button>
+        {onCancel && (
+          <Button type="button" variant="outline" onClick={onCancel}>
+            取消
+          </Button>
+        )}
+      </div>
+    </form>
+  )
+}
+
 export default function AdminSubscriptionsPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<Row[]>([])
   const [users, setUsers] = useState<UserRow[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
-  const [userId, setUserId] = useState<number | null>(null)
-  const [planId, setPlanId] = useState<number | null>(null)
 
   const [historyBySub, setHistoryBySub] = useState<Record<number, HourPoint[]>>(
     {}
   )
 
-  const [editOpen, setEditOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<Row | null>(null)
+  // 创建面板
+  const [createOpen, setCreateOpen] = useState(false)
+  const [userId, setUserId] = useState<number | null>(null)
+  const [planId, setPlanId] = useState<number | null>(null)
+
+  // 编辑面板
+  const [editingRow, setEditingRow] = useState<Row | null>(null)
   const [editStatus, setEditStatus] = useState<SubscriptionStatus>("active")
   const [editExpire, setEditExpire] = useState("")
   const [editUsed, setEditUsed] = useState("0")
@@ -453,6 +547,11 @@ export default function AdminSubscriptionsPage() {
     }
   }, [])
 
+  function resetCreateForm() {
+    setUserId(null)
+    setPlanId(null)
+  }
+
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (userId === null || planId === null) {
@@ -471,8 +570,8 @@ export default function AdminSubscriptionsPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) return
 
-    setUserId(null)
-    setPlanId(null)
+    resetCreateForm()
+    setCreateOpen(false)
     await load()
   }
 
@@ -488,26 +587,24 @@ export default function AdminSubscriptionsPage() {
     await load()
   }
 
-  function openEdit(row: Row) {
-    setEditTarget(row)
+  function startEdit(row: Row) {
+    setEditingRow(row)
     setEditStatus(row.status)
     setEditExpire(toDatetimeLocal(row.expire_time))
     setEditUsed(String(row.used_traffic_bytes))
-    setEditOpen(true)
   }
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!editTarget) return
+    if (!editingRow) return
 
-    await patchSub(editTarget.id, {
+    await patchSub(editingRow.id, {
       status: editStatus,
       expireTime: new Date(editExpire).toISOString(),
       usedTrafficBytes: Number(editUsed),
     })
 
-    setEditOpen(false)
-    setEditTarget(null)
+    setEditingRow(null)
   }
 
   async function remove(row: Row) {
@@ -536,187 +633,200 @@ export default function AdminSubscriptionsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>订阅管理</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form className="mb-4 grid gap-3 md:grid-cols-3" onSubmit={create}>
-            <div className="space-y-1">
-              <Label>用户</Label>
-              <EntityCombobox
-                options={users.map((u) => ({
-                  value: u.id,
-                  label: `#${u.id} ${u.username}`,
-                }))}
-                value={userId}
-                onChange={setUserId}
-                placeholder="选择用户"
-                searchPlaceholder="搜索用户名"
-                emptyText="无匹配用户"
-                className="h-9 w-full"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>套餐</Label>
-              <EntityCombobox
-                options={plans.map((p) => ({
-                  value: p.id,
-                  label: `#${p.id} ${p.name}`,
-                }))}
-                value={planId}
-                onChange={setPlanId}
-                placeholder="选择套餐"
-                searchPlaceholder="搜索套餐名"
-                emptyText="无匹配套餐"
-                className="h-9 w-full"
-              />
-            </div>
-            <div className="flex items-end">
-              <Button type="submit">创建订阅</Button>
-            </div>
-          </form>
+      {/* 页面标题 */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">订阅管理</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            共 {rows.length} 个订阅
+          </p>
+        </div>
+        <Button onClick={() => setCreateOpen(true)}>
+          <Plus className="mr-1.5 h-4 w-4" />
+          添加订阅
+        </Button>
+      </div>
 
-          <Table>
-            <THead>
-              <TR>
-                <TH>ID</TH>
-                <TH>用户</TH>
-                <TH>套餐</TH>
-                <TH>已用流量</TH>
-                <TH>流量上限</TH>
-                <TH>总出历史</TH>
-                <TH>总入历史</TH>
-                <TH>状态</TH>
-                <TH>到期时间</TH>
-                <TH>操作</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {rows.map((row) => {
-                const hourly = historyBySub[row.id] ?? []
+      {/* 订阅列表 */}
+      {rows.length === 0 ? (
+        <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+          <p className="text-sm">暂无订阅</p>
+          <p className="mt-1 text-xs">点击右上角「添加订阅」创建第一个订阅</p>
+        </Card>
+      ) : (
+        <Table>
+          <THead>
+            <TR>
+              <TH>ID</TH>
+              <TH>用户</TH>
+              <TH>套餐</TH>
+              <TH>已用流量</TH>
+              <TH>流量上限</TH>
+              <TH>总出历史</TH>
+              <TH>总入历史</TH>
+              <TH>状态</TH>
+              <TH>到期时间</TH>
+              <TH className="w-12"></TH>
+            </TR>
+          </THead>
+          <TBody>
+            {rows.map((row) => {
+              const hourly = historyBySub[row.id] ?? []
 
-                return (
-                  <TR key={row.id}>
-                    <TD>{row.id}</TD>
-                    <TD>{row.username}</TD>
-                    <TD>{row.plan_name}</TD>
-                    <TD>{formatBytes(row.used_traffic_bytes)}</TD>
-                    <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
-                    <TD className="min-w-[170px] py-1">
-                      <SubscriptionHistorySpark
-                        hourly={hourly}
-                        dataKey="txBytes"
-                      />
-                    </TD>
-                    <TD className="min-w-[170px] py-1">
-                      <SubscriptionHistorySpark
-                        hourly={hourly}
-                        dataKey="rxBytes"
-                      />
-                    </TD>
-                    <TD>{statusLabel[row.status] ?? row.status}</TD>
-                    <TD>{new Date(row.expire_time).toLocaleString()}</TD>
-                    <TD>
-                      <div className="flex flex-wrap gap-2">
+              return (
+                <TR key={row.id}>
+                  <TD>{row.id}</TD>
+                  <TD className="font-medium">{row.username}</TD>
+                  <TD>{row.plan_name}</TD>
+                  <TD>{formatBytes(row.used_traffic_bytes)}</TD>
+                  <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
+                  <TD className="min-w-[170px] py-1">
+                    <SubscriptionHistorySpark
+                      hourly={hourly}
+                      dataKey="txBytes"
+                    />
+                  </TD>
+                  <TD className="min-w-[170px] py-1">
+                    <SubscriptionHistorySpark
+                      hourly={hourly}
+                      dataKey="rxBytes"
+                    />
+                  </TD>
+                  <TD>
+                    <Badge
+                      className={
+                        row.status === "active"
+                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                          : row.status === "blocked"
+                            ? "bg-destructive/15 text-destructive"
+                            : "bg-muted text-muted-foreground"
+                      }
+                    >
+                      {statusLabel[row.status] ?? row.status}
+                    </Badge>
+                  </TD>
+                  <TD>{new Date(row.expire_time).toLocaleString()}</TD>
+                  <TD>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm">
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => startEdit(row)}>
+                          <Pencil className="mr-2 h-4 w-4" />
+                          编辑
+                        </DropdownMenuItem>
                         {row.status === "blocked" ? (
-                          <Button
-                            size="xs"
-                            variant="outline"
+                          <DropdownMenuItem
                             onClick={() =>
                               void patchSub(row.id, { status: "active" })
                             }
                           >
+                            <ShieldCheck className="mr-2 h-4 w-4" />
                             解封
-                          </Button>
+                          </DropdownMenuItem>
                         ) : (
-                          <Button
-                            size="xs"
-                            variant="outline"
+                          <DropdownMenuItem
                             onClick={() =>
                               void patchSub(row.id, { status: "blocked" })
                             }
                           >
+                            <ShieldBan className="mr-2 h-4 w-4" />
                             封禁
-                          </Button>
+                          </DropdownMenuItem>
                         )}
-                        <Button
-                          size="xs"
-                          variant="outline"
-                          onClick={() => openEdit(row)}
-                        >
-                          编辑
-                        </Button>
-                        <Button
-                          size="xs"
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
                           variant="destructive"
                           onClick={() => void remove(row)}
                         >
+                          <Trash2 className="mr-2 h-4 w-4" />
                           删除
-                        </Button>
-                      </div>
-                    </TD>
-                  </TR>
-                )
-              })}
-            </TBody>
-          </Table>
-        </CardContent>
-      </Card>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TD>
+                </TR>
+              )
+            })}
+          </TBody>
+        </Table>
+      )}
 
-      <Dialog
-        open={editOpen}
+      {/* 创建订阅 - 右侧滑出面板 */}
+      <Sheet
+        open={createOpen}
         onOpenChange={(open) => {
-          setEditOpen(open)
-          if (!open) setEditTarget(null)
+          setCreateOpen(open)
+          if (!open) resetCreateForm()
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
+        <SheetContent className="data-[side=right]:sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>添加订阅</SheetTitle>
+            <SheetDescription>选择用户和套餐，创建新的订阅。</SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <SubscriptionForm
+              isEdit={false}
+              userId={userId}
+              setUserId={setUserId}
+              planId={planId}
+              setPlanId={setPlanId}
+              users={users}
+              plans={plans}
+              status="active"
+              setStatus={() => {}}
+              editExpire=""
+              setEditExpire={() => {}}
+              editUsed=""
+              setEditUsed={() => {}}
+              onSubmit={create}
+              submitLabel="创建订阅"
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* 编辑订阅 - 右侧滑出面板 */}
+      <Sheet
+        open={editingRow !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingRow(null)
+        }}
+      >
+        <SheetContent className="data-[side=right]:sm:max-w-lg">
+          <SheetHeader>
+            <SheetTitle>
               编辑订阅{" "}
-              {editTarget ? `#${editTarget.id} (${editTarget.username})` : ""}
-            </DialogTitle>
-          </DialogHeader>
-          <form className="grid gap-3" onSubmit={submitEdit}>
-            <div className="space-y-1">
-              <Label>状态</Label>
-              <StatusCombobox
-                value={editStatus}
-                onChange={setEditStatus}
-                className="h-9 w-full"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>到期时间</Label>
-              <Input
-                type="datetime-local"
-                value={editExpire}
-                onChange={(e) => setEditExpire(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>已用流量(bytes)</Label>
-              <Input
-                value={editUsed}
-                onChange={(e) => setEditUsed(e.target.value)}
-                required
-              />
-            </div>
-            <div className="flex gap-2">
-              <Button type="submit">保存</Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setEditOpen(false)}
-              >
-                取消
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
+              {editingRow ? `#${editingRow.id} (${editingRow.username})` : ""}
+            </SheetTitle>
+            <SheetDescription>修改订阅配置，保存后立即生效。</SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <SubscriptionForm
+              isEdit
+              userId={null}
+              setUserId={() => {}}
+              planId={null}
+              setPlanId={() => {}}
+              users={users}
+              plans={plans}
+              status={editStatus}
+              setStatus={setEditStatus}
+              editExpire={editExpire}
+              setEditExpire={setEditExpire}
+              editUsed={editUsed}
+              setEditUsed={setEditUsed}
+              onSubmit={submitEdit}
+              submitLabel="保存修改"
+              onCancel={() => setEditingRow(null)}
+            />
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   )
 }

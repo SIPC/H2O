@@ -5,7 +5,6 @@ import { ChevronsUpDown, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Command,
   CommandEmpty,
@@ -15,11 +14,12 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Label } from "@/components/ui/label"
 import {
   Popover,
@@ -398,213 +398,210 @@ export default function AdminEventLogsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>事件日志</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            登录 / 注册 / 登出 / 轮换 Key 等业务事件；节点认证请求请查看「认证日志」。
-          </p>
-        </CardHeader>
-        <CardContent>
-          <form className="mb-4 grid gap-3 md:grid-cols-4" onSubmit={submit}>
-            <div className="space-y-1">
-              <Label>账号</Label>
-              <UserFilterCombobox
-                users={users}
-                value={username}
-                onChange={(v) => void switchUsername(v)}
-                className="h-9 w-full"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>事件类型</Label>
-              <EventCombobox
-                value={eventFilter}
-                onChange={(next) => void switchEvent(next)}
-                className="h-9 w-full"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>结果</Label>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={successFilter === "all" ? "default" : "outline"}
-                  onClick={() => void switchSuccess("all")}
-                >
-                  全部
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={successFilter === "1" ? "default" : "outline"}
-                  onClick={() => void switchSuccess("1")}
-                >
-                  成功
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={successFilter === "0" ? "default" : "outline"}
-                  onClick={() => void switchSuccess("0")}
-                >
-                  失败
-                </Button>
-              </div>
-            </div>
-            <div className="flex items-end gap-2">
-              <Button type="submit">查询</Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setUsername("")
-                  setSuccessFilter("all")
-                  setEventFilter("all")
-                  void load({
-                    page: 1,
-                    success: "all",
-                    event: "all",
-                    username: "",
-                  })
-                }}
-              >
-                重置
-              </Button>
-            </div>
-          </form>
+      {/* 页面标题 */}
+      <div>
+        <h1 className="text-2xl font-bold">事件日志</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          登录 / 注册 / 登出 / 轮换 Key
+          等业务事件；节点认证请求请查看「认证日志」。
+        </p>
+      </div>
 
-          <Table>
-            <THead>
-              <TR>
-                <TH>时间</TH>
-                <TH>事件</TH>
-                <TH>账号</TH>
-                <TH>IP</TH>
-                <TH>结果</TH>
-                <TH>原因</TH>
-                <TH className="w-[80px]">操作</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {rows.map((row) => (
-                <TR key={row.id}>
-                  <TD>
-                    {new Date(
-                      row.created_at.endsWith("Z")
-                        ? row.created_at
-                        : `${row.created_at}Z`
-                    ).toLocaleString()}
-                  </TD>
-                  <TD>{eventLabel[row.event] ?? row.event}</TD>
-                  <TD>{row.username ?? "-"}</TD>
-                  <TD className="font-mono text-xs">{row.ip ?? "-"}</TD>
-                  <TD>
-                    {row.success === 1 ? (
-                      <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                        成功
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-destructive/15 text-destructive">
-                        失败
-                      </Badge>
-                    )}
-                  </TD>
-                  <TD className="text-xs">
-                    {row.reason
-                      ? (reasonLabel[row.reason] ?? row.reason)
-                      : "-"}
-                  </TD>
-                  <TD>
-                    <Button
-                      type="button"
-                      size="xs"
-                      variant="outline"
-                      onClick={() => setActiveRow(row)}
-                    >
-                      详情
-                    </Button>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
-            <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
-              <span>
-                共 {total} 条{total > 0 ? `，当前 ${rangeStart}–${rangeEnd}` : ""}
-              </span>
-              <span className="flex items-center gap-1">
-                每页
-                {PAGE_SIZE_OPTIONS.map((size) => (
-                  <Button
-                    key={size}
-                    type="button"
-                    size="xs"
-                    variant={pageSize === size ? "default" : "outline"}
-                    onClick={() => void changePageSize(size)}
-                  >
-                    {size}
-                  </Button>
-                ))}
-              </span>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => void changePage(1)}
-              >
-                首页
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page <= 1}
-                onClick={() => void changePage(page - 1)}
-              >
-                上一页
-              </Button>
-              <span className="text-muted-foreground">
-                第 {page} / {totalPages} 页
-              </span>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page >= totalPages}
-                onClick={() => void changePage(page + 1)}
-              >
-                下一页
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={page >= totalPages}
-                onClick={() => void changePage(totalPages)}
-              >
-                末页
-              </Button>
-            </div>
+      {/* 筛选条件 */}
+      <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
+        <div className="space-y-1">
+          <Label>账号</Label>
+          <UserFilterCombobox
+            users={users}
+            value={username}
+            onChange={(v) => void switchUsername(v)}
+            className="w-full"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>事件类型</Label>
+          <EventCombobox
+            value={eventFilter}
+            onChange={(next) => void switchEvent(next)}
+            className="w-full"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>结果</Label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant={successFilter === "all" ? "default" : "outline"}
+              onClick={() => void switchSuccess("all")}
+            >
+              全部
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={successFilter === "1" ? "default" : "outline"}
+              onClick={() => void switchSuccess("1")}
+            >
+              成功
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={successFilter === "0" ? "default" : "outline"}
+              onClick={() => void switchSuccess("0")}
+            >
+              失败
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="flex items-end gap-2">
+          <Button type="submit">查询</Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setUsername("")
+              setSuccessFilter("all")
+              setEventFilter("all")
+              void load({
+                page: 1,
+                success: "all",
+                event: "all",
+                username: "",
+              })
+            }}
+          >
+            重置
+          </Button>
+        </div>
+      </form>
 
-      <EventLogDetailDialog
-        row={activeRow}
-        onClose={() => setActiveRow(null)}
-      />
+      {/* 日志列表 */}
+      <Table>
+        <THead>
+          <TR>
+            <TH>时间</TH>
+            <TH>事件</TH>
+            <TH>账号</TH>
+            <TH>IP</TH>
+            <TH>结果</TH>
+            <TH>原因</TH>
+            <TH className="w-[80px]">操作</TH>
+          </TR>
+        </THead>
+        <TBody>
+          {rows.map((row) => (
+            <TR key={row.id}>
+              <TD>
+                {new Date(
+                  row.created_at.endsWith("Z")
+                    ? row.created_at
+                    : `${row.created_at}Z`
+                ).toLocaleString()}
+              </TD>
+              <TD>{eventLabel[row.event] ?? row.event}</TD>
+              <TD>{row.username ?? "-"}</TD>
+              <TD className="font-mono text-xs">{row.ip ?? "-"}</TD>
+              <TD>
+                {row.success === 1 ? (
+                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    成功
+                  </Badge>
+                ) : (
+                  <Badge className="bg-destructive/15 text-destructive">
+                    失败
+                  </Badge>
+                )}
+              </TD>
+              <TD className="text-xs">
+                {row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"}
+              </TD>
+              <TD>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  onClick={() => setActiveRow(row)}
+                >
+                  详情
+                </Button>
+              </TD>
+            </TR>
+          ))}
+        </TBody>
+      </Table>
+
+      {/* 分页 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+        <div className="flex flex-wrap items-center gap-3 text-muted-foreground">
+          <span>
+            共 {total} 条{total > 0 ? `，当前 ${rangeStart}–${rangeEnd}` : ""}
+          </span>
+          <span className="flex items-center gap-1">
+            每页
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <Button
+                key={size}
+                type="button"
+                size="xs"
+                variant={pageSize === size ? "default" : "outline"}
+                onClick={() => void changePageSize(size)}
+              >
+                {size}
+              </Button>
+            ))}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => void changePage(1)}
+          >
+            首页
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page <= 1}
+            onClick={() => void changePage(page - 1)}
+          >
+            上一页
+          </Button>
+          <span className="text-muted-foreground">
+            第 {page} / {totalPages} 页
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page >= totalPages}
+            onClick={() => void changePage(page + 1)}
+          >
+            下一页
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={page >= totalPages}
+            onClick={() => void changePage(totalPages)}
+          >
+            末页
+          </Button>
+        </div>
+      </div>
+
+      <EventLogDetailSheet row={activeRow} onClose={() => setActiveRow(null)} />
     </div>
   )
 }
 
-function EventLogDetailDialog({
+function EventLogDetailSheet({
   row,
   onClose,
 }: {
@@ -619,65 +616,66 @@ function EventLogDetailDialog({
     : ""
 
   return (
-    <Dialog
+    <Sheet
       open={row !== null}
       onOpenChange={(open) => {
         if (!open) onClose()
       }}
     >
-      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>日志详情</DialogTitle>
-        </DialogHeader>
-        {row ? (
-          <div className="grid gap-3 text-sm">
-            <DetailField label="时间" value={createdAt} />
-            <DetailField
-              label="事件"
-              value={eventLabel[row.event] ?? row.event}
-            />
-            <DetailField label="账号" value={row.username ?? "-"} />
-            <DetailField
-              label="IP"
-              value={row.ip ?? "-"}
-              mono
-            />
-            <DetailField
-              label="结果"
-              value={row.success === 1 ? "成功" : "失败"}
-            />
-            <DetailField
-              label="原因"
-              value={
-                row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"
-              }
-            />
-            {entries && entries.length > 0 ? (
-              <div className="mt-2 rounded-md border">
-                <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
-                  数据
-                </div>
-                <div className="divide-y">
-                  {entries.map(([key, value]) => (
-                    <div
-                      key={key}
-                      className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2 text-xs"
-                    >
-                      <div className="text-muted-foreground">
-                        {detailLabel[key] ?? key}
+      <SheetContent className="data-[side=right]:sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle>日志详情</SheetTitle>
+          <SheetDescription>
+            {row ? `#${row.id} · ${eventLabel[row.event] ?? row.event}` : ""}
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto px-4 pb-4">
+          {row ? (
+            <div className="grid gap-3 text-sm">
+              <DetailField label="时间" value={createdAt} />
+              <DetailField
+                label="事件"
+                value={eventLabel[row.event] ?? row.event}
+              />
+              <DetailField label="账号" value={row.username ?? "-"} />
+              <DetailField label="IP" value={row.ip ?? "-"} mono />
+              <DetailField
+                label="结果"
+                value={row.success === 1 ? "成功" : "失败"}
+              />
+              <DetailField
+                label="原因"
+                value={
+                  row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"
+                }
+              />
+              {entries && entries.length > 0 ? (
+                <div className="mt-2 rounded-md border">
+                  <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
+                    数据
+                  </div>
+                  <div className="divide-y">
+                    {entries.map(([key, value]) => (
+                      <div
+                        key={key}
+                        className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2 text-xs"
+                      >
+                        <div className="text-muted-foreground">
+                          {detailLabel[key] ?? key}
+                        </div>
+                        <div className="font-mono break-all whitespace-pre-wrap">
+                          {renderDetailValue(value)}
+                        </div>
                       </div>
-                      <div className="font-mono break-all whitespace-pre-wrap">
-                        {renderDetailValue(value)}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
 
@@ -693,9 +691,7 @@ function DetailField({
   return (
     <div className="grid grid-cols-[80px_1fr] gap-2">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div
-        className={cn("text-sm break-all", mono && "font-mono text-xs")}
-      >
+      <div className={cn("text-sm break-all", mono && "font-mono text-xs")}>
         {value}
       </div>
     </div>
