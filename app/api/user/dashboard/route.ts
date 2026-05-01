@@ -30,11 +30,12 @@ export async function GET(request: Request) {
     )
   }
 
-  // --- 订阅列表 ---
+  // --- 订阅列表（含续订信息） ---
   const subscriptions = db
     .prepare(
       `SELECT s.id, s.start_time, s.expire_time, s.used_traffic_bytes, s.status,
-              p.name AS plan_name, p.traffic_limit_bytes, p.duration_days
+              s.renewal_anchor, p.name AS plan_name, p.traffic_limit_bytes,
+              p.duration_days, p.auto_renew, p.renewal_period_days
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
        WHERE s.user_id = ?

@@ -64,7 +64,9 @@ function migrate(database: DatabaseSync) {
       traffic_limit_bytes INTEGER NOT NULL,
       duration_days INTEGER NOT NULL,
       up_mbps INTEGER NOT NULL DEFAULT 0,
-      down_mbps INTEGER NOT NULL DEFAULT 0
+      down_mbps INTEGER NOT NULL DEFAULT 0,
+      auto_renew INTEGER NOT NULL DEFAULT 0 CHECK(auto_renew IN (0,1)),
+      renewal_period_days INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS plan_nodes (
@@ -83,6 +85,7 @@ function migrate(database: DatabaseSync) {
       expire_time TEXT NOT NULL,
       used_traffic_bytes INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','expired','blocked')),
+      renewal_anchor TEXT,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(plan_id) REFERENCES plans(id)
     );
@@ -194,6 +197,9 @@ function migrate(database: DatabaseSync) {
     `ALTER TABLE nodes ADD COLUMN masquerade_type TEXT`,
     `ALTER TABLE nodes ADD COLUMN masquerade_config TEXT`,
     `ALTER TABLE nodes ADD COLUMN agent_interval INTEGER`,
+    `ALTER TABLE plans ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE plans ADD COLUMN renewal_period_days INTEGER`,
+    `ALTER TABLE subscriptions ADD COLUMN renewal_anchor TEXT`,
   ]) {
     try {
       database.exec(alter)

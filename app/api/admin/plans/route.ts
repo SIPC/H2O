@@ -12,6 +12,8 @@ type CreatePlanBody = {
   upMbps?: number
   downMbps?: number
   nodeIds?: number[]
+  autoRenew?: boolean
+  renewalPeriodDays?: number
 }
 
 export async function GET(request: Request) {
@@ -22,7 +24,7 @@ export async function GET(request: Request) {
   const plans = db
     .prepare(
       `SELECT p.id, p.name, p.traffic_limit_bytes, p.duration_days,
-              p.up_mbps, p.down_mbps,
+              p.up_mbps, p.down_mbps, p.auto_renew, p.renewal_period_days,
               GROUP_CONCAT(pn.node_id) AS node_ids
        FROM plans p
        LEFT JOIN plan_nodes pn ON pn.plan_id = p.id
@@ -43,7 +45,9 @@ export async function POST(request: Request) {
 
   // 限速字段可选，缺省视为 0（不限速）
   const upMbps =
-    typeof body.upMbps === "number" && Number.isFinite(body.upMbps) && body.upMbps >= 0
+    typeof body.upMbps === "number" &&
+    Number.isFinite(body.upMbps) &&
+    body.upMbps >= 0
       ? Math.floor(body.upMbps)
       : 0
   const downMbps =
@@ -52,6 +56,38 @@ export async function POST(request: Request) {
     body.downMbps >= 0
       ? Math.floor(body.downMbps)
       : 0
+
+  // 自动续订字段
+  const autoRenew = body.autoRenew === true ? 1 : 0
+  const renewalPeriodDays =
+    autoRenew === 1 &&
+    typeof body.renewalPeriodDays === "number" &&
+    Number.isInteger(body.renewalPeriodDays) &&
+    body.renewalPeriodDays > 0
+      ? body.renewalPeriodDays
+      : null
+
+  // 开启续订但未提供合法周期
+  if (autoRenew === 1 && renewalPeriodDays === null) {
+    writeAdminEvent({
+      event: "PLAN_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message: "开启自动续订时必须提供合法的续订周期（正整数天数）",
+        },
+      },
+      { status: 400 }
+    )
+  }
 
   if (
     !body.name ||
@@ -81,10 +117,18 @@ export async function POST(request: Request) {
 
     const planRes = db
       .prepare(
-        `INSERT INTO plans(name, traffic_limit_bytes, duration_days, up_mbps, down_mbps)
-         VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO plans(name, traffic_limit_bytes, duration_days, up_mbps, down_mbps, auto_renew, renewal_period_days)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(body.name, body.trafficLimitBytes, body.durationDays, upMbps, downMbps)
+      .run(
+        body.name,
+        body.trafficLimitBytes,
+        body.durationDays,
+        upMbps,
+        downMbps,
+        autoRenew,
+        renewalPeriodDays
+      )
 
     const planId = Number(planRes.lastInsertRowid)
     const insertPlanNode = db.prepare(
@@ -111,6 +155,8 @@ export async function POST(request: Request) {
         upMbps,
         downMbps,
         nodeCount: body.nodeIds.length,
+        autoRenew,
+        renewalPeriodDays,
       },
     })
 

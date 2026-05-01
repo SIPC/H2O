@@ -12,6 +12,8 @@ type UpdatePlanBody = {
   upMbps?: number
   downMbps?: number
   nodeIds?: number[]
+  autoRenew?: boolean
+  renewalPeriodDays?: number
 }
 
 export async function PATCH(
@@ -70,7 +72,8 @@ export async function PATCH(
   }
 
   if (typeof body.durationDays === "number") {
-    if (body.durationDays <= 0 || !Number.isFinite(body.durationDays)) {
+    if (body.durationDays < 0 || !Number.isFinite(body.durationDays)) {
+      // 0 表示永久，负数非法
       writeAdminEvent({
         event: "PLAN_UPDATE",
         actor: auth.user,
@@ -120,6 +123,72 @@ export async function PATCH(
       values.push(Math.floor(raw))
       changedFields.push(col)
     }
+  }
+
+  // 自动续订字段
+  if (typeof body.autoRenew === "boolean") {
+    const autoRenewVal = body.autoRenew ? 1 : 0
+    updates.push("auto_renew = ?")
+    values.push(autoRenewVal)
+    changedFields.push("auto_renew")
+
+    if (autoRenewVal === 1) {
+      if (
+        typeof body.renewalPeriodDays !== "number" ||
+        !Number.isInteger(body.renewalPeriodDays) ||
+        body.renewalPeriodDays <= 0
+      ) {
+        writeAdminEvent({
+          event: "PLAN_UPDATE",
+          actor: auth.user,
+          ip,
+          success: false,
+          reason: "INVALID_PAYLOAD",
+          detail: { planId },
+        })
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_PAYLOAD",
+              message: "开启自动续订时必须提供合法的续订周期（正整数天数）",
+            },
+          },
+          { status: 400 }
+        )
+      }
+      updates.push("renewal_period_days = ?")
+      values.push(body.renewalPeriodDays)
+      changedFields.push("renewal_period_days")
+    } else {
+      // 关闭续订时清除周期
+      updates.push("renewal_period_days = NULL")
+    }
+  } else if (typeof body.renewalPeriodDays === "number") {
+    // 单独更新周期（套餐已开启续订的情况）
+    if (
+      !Number.isInteger(body.renewalPeriodDays) ||
+      body.renewalPeriodDays <= 0
+    ) {
+      writeAdminEvent({
+        event: "PLAN_UPDATE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { planId },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: "续订周期必须为正整数" },
+        },
+        { status: 400 }
+      )
+    }
+    updates.push("renewal_period_days = ?")
+    values.push(body.renewalPeriodDays)
+    changedFields.push("renewal_period_days")
   }
 
   const hasScalarChanges = updates.length > 0

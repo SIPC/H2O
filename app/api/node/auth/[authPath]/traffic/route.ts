@@ -239,6 +239,50 @@ export async function POST(
        WHERE bucket_date < date('now', 'localtime', ?)`
     )
 
+    // ── 续订检查：在流量累加前，对所有开启自动续订的活跃 / 被封订阅执行周期重置 ──
+    const pendingRenewalSubs = db
+      .prepare(
+        `SELECT s.id, s.used_traffic_bytes, s.status,
+                s.renewal_anchor, s.start_time,
+                p.renewal_period_days
+         FROM subscriptions s
+         JOIN plans p ON p.id = s.plan_id
+         WHERE p.auto_renew = 1
+           AND p.renewal_period_days > 0
+           AND s.status IN ('active', 'blocked')
+           AND s.expire_time > datetime('now')`
+      )
+      .all() as Array<{
+      id: number
+      used_traffic_bytes: number
+      status: string
+      renewal_anchor: string | null
+      start_time: string
+      renewal_period_days: number
+    }>
+
+    const renewSub = db.prepare(
+      `UPDATE subscriptions
+       SET used_traffic_bytes = 0, status = 'active', renewal_anchor = ?
+       WHERE id = ?`
+    )
+
+    for (const sub of pendingRenewalSubs) {
+      const anchor = sub.renewal_anchor ?? sub.start_time
+      const anchorTime = new Date(anchor).getTime()
+      if (!Number.isFinite(anchorTime)) continue
+
+      const elapsedDays = (Date.now() - anchorTime) / (1000 * 60 * 60 * 24)
+      if (elapsedDays < sub.renewal_period_days) continue
+
+      const cycles = Math.floor(elapsedDays / sub.renewal_period_days)
+      const newAnchor = new Date(
+        anchorTime + cycles * sub.renewal_period_days * 24 * 60 * 60 * 1000
+      ).toISOString()
+
+      renewSub.run(newAnchor, sub.id)
+    }
+
     for (const [username, stat] of traffic) {
       const user = selectUser.get(username) as
         | { id: number; username: string; status: "active" | "disabled" }

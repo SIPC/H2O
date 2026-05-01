@@ -75,17 +75,23 @@ export async function POST(request: Request) {
     )
   }
 
-  // 到期时间由开始时间 + 套餐天数计算
-  const expire = new Date(startTime)
-  expire.setDate(expire.getDate() + plan.duration_days)
+  // 到期时间由开始时间 + 套餐天数计算，duration_days=0 表示永久
+  const expire =
+    plan.duration_days === 0
+      ? new Date("9999-12-31T23:59:59.000Z")
+      : (() => {
+          const d = new Date(startTime)
+          d.setDate(d.getDate() + plan.duration_days)
+          return d
+        })()
 
   try {
     const result = db
       .prepare(
-        `INSERT INTO subscriptions(user_id, plan_id, start_time, expire_time, used_traffic_bytes, status)
-         VALUES (?, ?, ?, ?, 0, 'active')`
+        `INSERT INTO subscriptions(user_id, plan_id, start_time, expire_time, used_traffic_bytes, status, renewal_anchor)
+         VALUES (?, ?, ?, ?, 0, 'active', ?)`
       )
-      .run(body.userId, body.planId, startTime, expire.toISOString())
+      .run(body.userId, body.planId, startTime, expire.toISOString(), startTime)
 
     const newSubId = Number(result.lastInsertRowid)
     writeAdminEvent({

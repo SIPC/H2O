@@ -28,6 +28,19 @@ type SubscriptionRow = {
   start_time: string
   expire_time: string
   status: string
+  renewal_anchor: string | null
+  auto_renew: number
+  renewal_period_days: number | null
+}
+
+function nextRenewalDate(row: SubscriptionRow): string | null {
+  if (row.auto_renew !== 1 || !row.renewal_period_days) return null
+  const anchor = new Date(row.renewal_anchor ?? row.start_time).getTime()
+  if (!Number.isFinite(anchor)) return null
+  const next = new Date(anchor + row.renewal_period_days * 24 * 60 * 60 * 1000)
+  // 如果计算出的下次重置时间已过，说明还没有触发续订检查，显示 "即将重置"
+  if (next.getTime() <= Date.now()) return "即将重置"
+  return next.toLocaleDateString()
 }
 
 type SubUrls = {
@@ -493,21 +506,38 @@ export default function DashboardPage() {
                 <TH>套餐</TH>
                 <TH>流量上限</TH>
                 <TH>已用流量</TH>
+                <TH>重置时间</TH>
                 <TH>状态</TH>
                 <TH>到期时间</TH>
               </TR>
             </THead>
             <TBody>
-              {rows.map((row) => (
-                <TR key={row.id}>
-                  <TD>{row.id}</TD>
-                  <TD>{row.plan_name}</TD>
-                  <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
-                  <TD>{formatBytes(row.used_traffic_bytes)}</TD>
-                  <TD>{row.status}</TD>
-                  <TD>{new Date(row.expire_time).toLocaleString()}</TD>
-                </TR>
-              ))}
+              {rows.map((row) => {
+                const nextRenew = nextRenewalDate(row)
+                return (
+                  <TR key={row.id}>
+                    <TD>{row.id}</TD>
+                    <TD>{row.plan_name}</TD>
+                    <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
+                    <TD>{formatBytes(row.used_traffic_bytes)}</TD>
+                    <TD className="text-xs">
+                      {nextRenew ? (
+                        <span title={`每 ${row.renewal_period_days} 天重置`}>
+                          {row.renewal_period_days} 天 · {nextRenew}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TD>
+                    <TD>{row.status}</TD>
+                    <TD>
+                      {row.duration_days === 0
+                        ? "永久"
+                        : new Date(row.expire_time).toLocaleString()}
+                    </TD>
+                  </TR>
+                )
+              })}
             </TBody>
           </Table>
         </CardContent>
