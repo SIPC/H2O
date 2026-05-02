@@ -291,7 +291,8 @@ export default function AdminLogsPage() {
       <div>
         <h1 className="text-2xl font-bold">认证日志</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Hysteria2 节点 HTTP 认证回调记录；登录 / 注册 / 轮换 Key
+          Hysteria2 节点 HTTP 认证回调记录；Agent
+          批量流量上报请查看「上报日志」，登录 / 注册 / 轮换 Key
           等业务事件请查看「事件日志」。
         </p>
       </div>

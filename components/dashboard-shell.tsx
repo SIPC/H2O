@@ -84,6 +84,7 @@ const adminSubMenus: AdminSubMenu[] = [
     items: [
       { title: "事件日志", href: "/admin/event-logs" },
       { title: "认证日志", href: "/admin/auth-logs" },
+      { title: "上报日志", href: "/admin/report-logs" },
     ],
   },
   { title: "站点设置", href: "/admin/settings" },
@@ -225,7 +226,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild size="lg" className="h-11">
                     <Link href="/dashboard">
-                      <div className="flex h-8 w-[120px] items-center group-data-[collapsible=icon]:hidden">
+                      <div className="flex h-8 w-30 items-center group-data-[collapsible=icon]:hidden">
                         <Image
                           src="/logo-black.png"
                           alt="H2O"

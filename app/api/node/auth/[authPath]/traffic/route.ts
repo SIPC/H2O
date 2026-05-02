@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
-import { writeAuthLog } from "@/lib/logs-db"
+import {
+  type AgentTrafficReportLogFields,
+  type AgentTrafficUserLogFields,
+  writeAgentTrafficLogs,
+  writeAuthLog,
+} from "@/lib/logs-db"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
 // agent 每次上报的 payload 结构
@@ -59,6 +64,46 @@ function normalizeAgentVersion(input: unknown): string | null | false {
   return version
 }
 
+function getTrafficTotals(traffic: Map<string, { tx: number; rx: number }>) {
+  let totalTxBytes = 0
+  let totalRxBytes = 0
+  for (const stat of traffic.values()) {
+    totalTxBytes += stat.tx
+    totalRxBytes += stat.rx
+  }
+  return { totalTxBytes, totalRxBytes }
+}
+
+function getOnlineCount(online: Map<string, number>) {
+  let count = 0
+  for (const onlineCount of online.values()) count += onlineCount
+  return count
+}
+
+function stringifyDetail(detail: Record<string, unknown>) {
+  return JSON.stringify(detail)
+}
+
+// 日志写入失败不影响 Agent 上报主流程
+function writeAgentTrafficLogsSafely(params: {
+  report: AgentTrafficReportLogFields
+  userLogs?: AgentTrafficUserLogFields[]
+}) {
+  try {
+    writeAgentTrafficLogs(params.report, params.userLogs ?? [])
+  } catch {
+    // 忽略日志库异常，避免影响业务库流量结算
+  }
+}
+
+function writeAuthLogSafely(fields: Parameters<typeof writeAuthLog>[0]) {
+  try {
+    writeAuthLog(fields)
+  } catch {
+    // 忽略日志库异常，避免影响 Agent 上报主流程
+  }
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ authPath: string }> }
@@ -73,7 +118,7 @@ export async function POST(
   try {
     body = (await request.json()) as TrafficPayload
   } catch {
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: null,
       node_name: authPath,
       user_id: null,
@@ -81,6 +126,23 @@ export async function POST(
       ip,
       success: false,
       reason: "BAD_PAYLOAD",
+    })
+    writeAgentTrafficLogsSafely({
+      report: {
+        node_id: null,
+        node_name: null,
+        auth_path: authPath,
+        ip,
+        success: false,
+        reason: "BAD_PAYLOAD",
+        reported_users: 0,
+        online_count: 0,
+        total_tx_bytes: 0,
+        total_rx_bytes: 0,
+        delta_tx_bytes: 0,
+        delta_rx_bytes: 0,
+        detail: stringifyDetail({ error: "INVALID_JSON" }),
+      },
     })
     return NextResponse.json(
       { ok: false, error: { code: "BAD_PAYLOAD", message: "请求体不合法" } },
@@ -92,7 +154,7 @@ export async function POST(
   const online = normalizeOnline(body.online)
   const agentVersion = normalizeAgentVersion(body.agent_version)
   if (traffic === null || online === null || agentVersion === false) {
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: null,
       node_name: authPath,
       user_id: null,
@@ -100,6 +162,23 @@ export async function POST(
       ip,
       success: false,
       reason: "BAD_PAYLOAD",
+    })
+    writeAgentTrafficLogsSafely({
+      report: {
+        node_id: null,
+        node_name: null,
+        auth_path: authPath,
+        ip,
+        success: false,
+        reason: "BAD_PAYLOAD",
+        reported_users: 0,
+        online_count: 0,
+        total_tx_bytes: 0,
+        total_rx_bytes: 0,
+        delta_tx_bytes: 0,
+        delta_rx_bytes: 0,
+        detail: stringifyDetail({ error: "INVALID_FIELD_TYPE" }),
+      },
     })
     return NextResponse.json(
       {
@@ -109,6 +188,9 @@ export async function POST(
       { status: 400 }
     )
   }
+
+  const { totalTxBytes, totalRxBytes } = getTrafficTotals(traffic)
+  const totalOnlineCount = getOnlineCount(online)
 
   const db = getDb()
 
@@ -131,7 +213,7 @@ export async function POST(
     .get(authPath) as { id: number; name: string; status: string } | undefined
 
   if (!node) {
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: null,
       node_name: authPath,
       user_id: null,
@@ -140,12 +222,30 @@ export async function POST(
       success: false,
       reason: "NO_NODE",
     })
+    writeAgentTrafficLogsSafely({
+      report: {
+        node_id: null,
+        node_name: null,
+        auth_path: authPath,
+        ip,
+        success: false,
+        reason: "NO_NODE",
+        reported_users: traffic.size,
+        online_count: totalOnlineCount,
+        total_tx_bytes: totalTxBytes,
+        total_rx_bytes: totalRxBytes,
+        delta_tx_bytes: 0,
+        delta_rx_bytes: 0,
+        agent_version: agentVersion,
+      },
+    })
     return NextResponse.json(
       { ok: false, error: { code: "NO_NODE", message: "未知节点" } },
       { status: 404 }
     )
   }
 
+  const agentUserLogs: AgentTrafficUserLogFields[] = []
   let processed = 0
   let skipped = 0
   let blocked = 0
@@ -300,7 +400,23 @@ export async function POST(
 
       if (!user) {
         skipped++
-        writeAuthLog({
+        agentUserLogs.push({
+          node_id: node.id,
+          node_name: node.name,
+          user_id: null,
+          username,
+          reported_tx_bytes: stat.tx,
+          reported_rx_bytes: stat.rx,
+          last_tx_bytes: null,
+          last_rx_bytes: null,
+          delta_tx_bytes: 0,
+          delta_rx_bytes: 0,
+          online_count: online.get(username) ?? 0,
+          subscription_id: null,
+          success: false,
+          reason: "NO_USER",
+        })
+        writeAuthLogSafely({
           node_id: node.id,
           node_name: node.name,
           user_id: null,
@@ -314,7 +430,23 @@ export async function POST(
 
       if (user.status !== "active") {
         skipped++
-        writeAuthLog({
+        agentUserLogs.push({
+          node_id: node.id,
+          node_name: node.name,
+          user_id: user.id,
+          username: user.username,
+          reported_tx_bytes: stat.tx,
+          reported_rx_bytes: stat.rx,
+          last_tx_bytes: null,
+          last_rx_bytes: null,
+          delta_tx_bytes: 0,
+          delta_rx_bytes: 0,
+          online_count: online.get(username) ?? 0,
+          subscription_id: null,
+          success: false,
+          reason: "USER_DISABLED",
+        })
+        writeAuthLogSafely({
           node_id: node.id,
           node_name: node.name,
           user_id: user.id,
@@ -334,9 +466,40 @@ export async function POST(
           }
         | undefined
 
+      const last = selectLast.get(node.id, user.id) as
+        | { last_tx_bytes: number; last_rx_bytes: number }
+        | undefined
+
+      const lastTx = last?.last_tx_bytes ?? 0
+      const lastRx = last?.last_rx_bytes ?? 0
+      const counterReset = stat.tx < lastTx || stat.rx < lastRx
+
       if (!activeSub) {
+        const ignoredDeltaTx = stat.tx < lastTx ? stat.tx : stat.tx - lastTx
+        const ignoredDeltaRx = stat.rx < lastRx ? stat.rx : stat.rx - lastRx
         skipped++
-        writeAuthLog({
+        agentUserLogs.push({
+          node_id: node.id,
+          node_name: node.name,
+          user_id: user.id,
+          username: user.username,
+          reported_tx_bytes: stat.tx,
+          reported_rx_bytes: stat.rx,
+          last_tx_bytes: last ? lastTx : null,
+          last_rx_bytes: last ? lastRx : null,
+          delta_tx_bytes: 0,
+          delta_rx_bytes: 0,
+          online_count: online.get(username) ?? 0,
+          subscription_id: null,
+          success: false,
+          reason: "NO_SUB",
+          detail: stringifyDetail({
+            discarded_delta_tx_bytes: ignoredDeltaTx,
+            discarded_delta_rx_bytes: ignoredDeltaRx,
+            counter_reset: counterReset,
+          }),
+        })
+        writeAuthLogSafely({
           node_id: node.id,
           node_name: node.name,
           user_id: user.id,
@@ -350,18 +513,26 @@ export async function POST(
         continue
       }
 
-      const last = selectLast.get(node.id, user.id) as
-        | { last_tx_bytes: number; last_rx_bytes: number }
-        | undefined
-
-      const lastTx = last?.last_tx_bytes ?? 0
-      const lastRx = last?.last_rx_bytes ?? 0
-
       // Hy2 重启会导致 /traffic 计数归零：分别对 tx/rx 做差值，若回退则按当前累计值记增量
       const deltaTx = stat.tx < lastTx ? stat.tx : stat.tx - lastTx
       const deltaRx = stat.rx < lastRx ? stat.rx : stat.rx - lastRx
       const delta = deltaTx + deltaRx
       const nextUsage = activeSub.used_traffic_bytes + delta
+
+      const baseUserLog = {
+        node_id: node.id,
+        node_name: node.name,
+        user_id: user.id,
+        username: user.username,
+        reported_tx_bytes: stat.tx,
+        reported_rx_bytes: stat.rx,
+        last_tx_bytes: last ? lastTx : null,
+        last_rx_bytes: last ? lastRx : null,
+        delta_tx_bytes: deltaTx,
+        delta_rx_bytes: deltaRx,
+        online_count: online.get(username) ?? 0,
+        subscription_id: activeSub.id,
+      }
 
       if (nextUsage > activeSub.traffic_limit_bytes) {
         blockSub.run(nextUsage, activeSub.id)
@@ -371,7 +542,18 @@ export async function POST(
           upsertSubscriptionHourly.run(activeSub.id, deltaTx, deltaRx)
         }
         blocked++
-        writeAuthLog({
+        agentUserLogs.push({
+          ...baseUserLog,
+          success: false,
+          reason: "TRAFFIC_EXCEEDED",
+          detail: stringifyDetail({
+            used_traffic_bytes: activeSub.used_traffic_bytes,
+            next_usage_bytes: nextUsage,
+            traffic_limit_bytes: activeSub.traffic_limit_bytes,
+            counter_reset: counterReset,
+          }),
+        })
+        writeAuthLogSafely({
           node_id: node.id,
           node_name: node.name,
           user_id: user.id,
@@ -386,8 +568,24 @@ export async function POST(
         hourlyRxDelta += deltaRx
         upsertSubscriptionHourly.run(activeSub.id, deltaTx, deltaRx)
         processed++
+        agentUserLogs.push({
+          ...baseUserLog,
+          success: true,
+          reason: "OK",
+          detail: counterReset
+            ? stringifyDetail({ counter_reset: true })
+            : null,
+        })
       } else {
         processed++
+        agentUserLogs.push({
+          ...baseUserLog,
+          success: true,
+          reason: "OK",
+          detail: counterReset
+            ? stringifyDetail({ counter_reset: true })
+            : null,
+        })
       }
 
       upsertLast.run(node.id, user.id, stat.tx, stat.rx)
@@ -430,7 +628,7 @@ export async function POST(
     db.exec("COMMIT")
   } catch {
     db.exec("ROLLBACK")
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: node.id,
       node_name: node.name,
       user_id: null,
@@ -439,11 +637,48 @@ export async function POST(
       success: false,
       reason: "BAD_PAYLOAD",
     })
+    writeAgentTrafficLogsSafely({
+      report: {
+        node_id: node.id,
+        node_name: node.name,
+        auth_path: authPath,
+        ip,
+        success: false,
+        reason: "INTERNAL",
+        reported_users: traffic.size,
+        online_count: totalOnlineCount,
+        total_tx_bytes: totalTxBytes,
+        total_rx_bytes: totalRxBytes,
+        delta_tx_bytes: 0,
+        delta_rx_bytes: 0,
+        agent_version: agentVersion,
+      },
+    })
     return NextResponse.json(
       { ok: false, error: { code: "INTERNAL", message: "处理失败" } },
       { status: 500 }
     )
   }
+
+  writeAgentTrafficLogsSafely({
+    report: {
+      node_id: node.id,
+      node_name: node.name,
+      auth_path: authPath,
+      ip,
+      success: true,
+      reason: "OK",
+      reported_users: traffic.size,
+      online_count: totalOnlineCount,
+      total_tx_bytes: totalTxBytes,
+      total_rx_bytes: totalRxBytes,
+      delta_tx_bytes: hourlyTxDelta,
+      delta_rx_bytes: hourlyRxDelta,
+      agent_version: agentVersion,
+      detail: stringifyDetail({ processed, skipped, blocked }),
+    },
+    userLogs: agentUserLogs,
+  })
 
   return NextResponse.json({
     ok: true,

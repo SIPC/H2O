@@ -474,7 +474,8 @@ export default function AdminEventLogsPage() {
         <h1 className="text-2xl font-bold">事件日志</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           登录 / 注册 / 登出 / 轮换 Key
-          等业务事件；节点认证请求请查看「认证日志」。
+          等业务事件；节点认证请求请查看「认证日志」，Agent
+          批量流量上报请查看「上报日志」。
         </p>
       </div>
 

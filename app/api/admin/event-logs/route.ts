@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireAdmin } from "@/lib/auth"
-import { getLogsDb } from "@/lib/logs-db"
+import { cleanupExpiredLogsBySetting, getLogsDb } from "@/lib/logs-db"
 
 // 分页参数上限，防止一次拉太多
 const MAX_PAGE_SIZE = 200
@@ -34,6 +34,8 @@ const VALID_EVENTS = new Set([
 export async function GET(request: Request) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
+
+  cleanupExpiredLogsBySetting(true)
 
   const url = new URL(request.url)
   const successParam = url.searchParams.get("success")

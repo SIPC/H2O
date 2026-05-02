@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { requireAdmin } from "@/lib/auth"
-import { writeAdminEvent } from "@/lib/logs-db"
+import { cleanupExpiredLogsBySetting, writeAdminEvent } from "@/lib/logs-db"
 import {
   getAllSettings,
   SENSITIVE_SETTING_KEYS,
@@ -147,6 +147,7 @@ export async function PATCH(request: Request) {
     // 记录改了哪些 key；敏感 key 只记 [SET]/[CLEARED]，不落明文
     detail: { changes: maskChanges(body) },
   })
+  cleanupExpiredLogsBySetting(true)
 
   return NextResponse.json({ ok: true, data: getAllSettings() })
 }
