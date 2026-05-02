@@ -42,4 +42,24 @@ function TD({ className, ...props }: React.ComponentProps<"td">) {
   return <td className={cn("px-3 py-2 align-middle", className)} {...props} />
 }
 
-export { Table, THead, TBody, TR, TH, TD }
+// Alias exports matching shadcn data-table tutorial convention
+const TableHeader = THead
+const TableBody = TBody
+const TableRow = TR
+const TableHead = TH
+const TableCell = TD
+
+export {
+  Table,
+  THead,
+  TBody,
+  TR,
+  TH,
+  TD,
+  // Aliases for data-table usage
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+}

@@ -56,6 +56,8 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
+type DnsStatus = "match" | "mismatch" | "unresolved" | "skip"
+
 type NodeRow = {
   id: number
   name: string
@@ -85,7 +87,7 @@ type NodeRow = {
   masquerade_type: string | null
   masquerade_config: string | null
   agent_interval: number | null
-  dns_status: "match" | "mismatch" | "unresolved" | "skip"
+  dns_status: DnsStatus
 }
 
 type HourPoint = {
@@ -113,6 +115,44 @@ const CHART_CONFIG = {
 
 // 节点心跳判定：最近 3 分钟内上报视为"在线"
 const FRESH_THRESHOLD_MS = 3 * 60 * 1000
+
+const DNS_STATUS_META: Record<
+  Exclude<DnsStatus, "skip">,
+  {
+    label: string
+    shortLabel: string
+    dotClassName: string
+    badgeClassName: string
+    description: string
+  }
+> = {
+  match: {
+    label: "DNS 正常",
+    shortLabel: "正常",
+    dotClassName: "bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]",
+    badgeClassName: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+    description: "DNS 已指向正确 IP",
+  },
+  mismatch: {
+    label: "DNS 不匹配",
+    shortLabel: "不匹配",
+    dotClassName: "bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)]",
+    badgeClassName: "bg-red-500/15 text-red-700 dark:text-red-400",
+    description: "DNS 指向的 IP 与节点 IP 不一致",
+  },
+  unresolved: {
+    label: "DNS 未解析",
+    shortLabel: "未解析",
+    dotClassName: "bg-yellow-500 shadow-[0_0_4px_rgba(234,179,8,0.6)]",
+    badgeClassName: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
+    description: "域名无法解析",
+  },
+}
+
+function getDnsStatusMeta(status: DnsStatus) {
+  if (status === "skip") return null
+  return DNS_STATUS_META[status]
+}
 
 function parseSqliteUtc(value: string): Date {
   return new Date(value.endsWith("Z") ? value : `${value}Z`)
@@ -298,6 +338,7 @@ function NodeCard({
 }) {
   const fresh = isFresh(row.last_report_at)
   const onlineCount = row.online_count ?? 0
+  const dnsStatusMeta = getDnsStatusMeta(row.dns_status)
 
   // 计算今日上传/下载
   const todayTx = hourly.reduce((sum, h) => sum + h.txBytes, 0)
@@ -355,24 +396,13 @@ function NodeCard({
                   <DropdownMenuItem onClick={() => onDnsResolve(row)}>
                     <Globe className="h-4 w-4" />
                     DNS 解析
-                    {row.dns_status && row.dns_status !== "skip" && (
+                    {dnsStatusMeta && (
                       <span
                         className={cn(
                           "ml-auto h-2 w-2 rounded-full",
-                          row.dns_status === "match" &&
-                            "bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]",
-                          row.dns_status === "mismatch" &&
-                            "bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)]",
-                          row.dns_status === "unresolved" &&
-                            "bg-yellow-500 shadow-[0_0_4px_rgba(234,179,8,0.6)]"
+                          dnsStatusMeta.dotClassName
                         )}
-                        title={
-                          row.dns_status === "match"
-                            ? "DNS 已指向正确 IP"
-                            : row.dns_status === "mismatch"
-                              ? "DNS 指向的 IP 与节点 IP 不一致"
-                              : "域名无法解析"
-                        }
+                        title={dnsStatusMeta.description}
                       />
                     )}
                   </DropdownMenuItem>
@@ -427,6 +457,18 @@ function NodeCard({
             {!fresh && row.last_report_at && (
               <Badge className="bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
                 离线
+              </Badge>
+            )}
+            {dnsStatusMeta && (
+              <Badge
+                className={cn(
+                  "px-1.5 py-0 text-[10px]",
+                  dnsStatusMeta.badgeClassName
+                )}
+                title={dnsStatusMeta.description}
+              >
+                <Globe className="mr-0.5 h-2.5 w-2.5" />
+                {dnsStatusMeta.label}
               </Badge>
             )}
           </div>
@@ -950,9 +992,9 @@ export default function AdminNodesPage() {
 
   // 创建面板
   const [hideIp, setHideIp] = useState(false)
-  const [dnsStatusMap, setDnsStatusMap] = useState<
-    Record<number, "match" | "mismatch" | "unresolved" | "skip">
-  >({})
+  const [dnsStatusMap, setDnsStatusMap] = useState<Record<number, DnsStatus>>(
+    {}
+  )
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState("")
   const [ip, setIp] = useState("")
@@ -1016,6 +1058,24 @@ export default function AdminNodesPage() {
   const [editMasqFileDir, setEditMasqFileDir] = useState("/www/masq")
   const [editAgentInterval, setEditAgentInterval] = useState("")
 
+  async function refreshNodes() {
+    const response = await fetch("/api/admin/nodes")
+    const json = await response.json()
+
+    if (!json?.ok || !Array.isArray(json.data)) {
+      setRows([])
+      setHistoryByNode({})
+      return
+    }
+
+    const nextRows = json.data as NodeRow[]
+    setRows(nextRows)
+    await Promise.all([
+      loadDnsStatus(),
+      loadHistory(nextRows.map((row) => row.id)),
+    ])
+  }
+
   async function loadHistory(
     nodeIds: number[],
     isMounted: () => boolean = () => true
@@ -1068,19 +1128,7 @@ export default function AdminNodesPage() {
   }
 
   async function load() {
-    const response = await fetch("/api/admin/nodes")
-    const json = await response.json()
-
-    if (!json?.ok || !Array.isArray(json.data)) {
-      setRows([])
-      setHistoryByNode({})
-      return
-    }
-
-    const nextRows = json.data as NodeRow[]
-    setRows(nextRows)
-    void loadDnsStatus()
-    await loadHistory(nextRows.map((row) => row.id))
+    await refreshNodes()
   }
 
   async function loadDnsStatus() {
@@ -1088,12 +1136,7 @@ export default function AdminNodesPage() {
       const res = await fetch("/api/admin/nodes/dns-status")
       const json = await res.json()
       if (json?.ok && json.data && typeof json.data === "object") {
-        setDnsStatusMap(
-          json.data as Record<
-            number,
-            "match" | "mismatch" | "unresolved" | "skip"
-          >
-        )
+        setDnsStatusMap(json.data as Record<number, DnsStatus>)
       }
     } catch {
       // 静默失败，不影响主流程
@@ -1190,12 +1233,14 @@ export default function AdminNodesPage() {
         method: "POST",
       })
       const json = await res.json()
+      const refreshPromise = refreshNodes()
       if (!res.ok || !json.ok) {
         await alert({
           title: "DNS 解析失败",
           description: json?.error?.message ?? "请稍后重试",
           variant: "destructive",
         })
+        await refreshPromise.catch(() => undefined)
         return
       }
       const d = json.data
@@ -1209,14 +1254,14 @@ export default function AdminNodesPage() {
         title: "DNS 解析成功",
         description: `${d.domain} → ${d.ip}（${actionText}，Zone: ${d.zone}）`,
       })
-      // 刷新 DNS 解析状态指示
-      await loadDnsStatus()
+      await refreshPromise.catch(() => undefined)
     } catch {
       await alert({
         title: "DNS 解析失败",
         description: "网络错误，请稍后重试",
         variant: "destructive",
       })
+      await refreshNodes().catch(() => undefined)
     }
   }
 

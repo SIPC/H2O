@@ -1,12 +1,19 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
 import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableFacetedFilter,
+  DataTableViewOptions,
+} from "@/components/data-table"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,7 +31,6 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 
 type Role = "user" | "admin"
 
@@ -203,6 +209,127 @@ export default function AdminUsersPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<UserRow[]>([])
 
+  // 表格列定义
+  const columns = useMemo<ColumnDef<UserRow>[]>(
+    () => [
+      {
+        accessorKey: "id",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="ID" />
+        ),
+        meta: { label: "ID" },
+      },
+      {
+        accessorKey: "username",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="用户名" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium">{row.getValue("username")}</span>
+        ),
+        meta: { label: "用户名" },
+      },
+      {
+        accessorKey: "role",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="角色" />
+        ),
+        cell: ({ row }) => {
+          const role = row.getValue<Role>("role")
+          return (
+            <Badge
+              className={
+                role === "admin" ? "bg-primary/15 text-primary" : undefined
+              }
+            >
+              {role}
+            </Badge>
+          )
+        },
+        filterFn: "arrIncludesSome",
+        meta: { label: "角色" },
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="状态" />
+        ),
+        cell: ({ row }) => {
+          const status = row.getValue<UserRow["status"]>("status")
+          return (
+            <Badge
+              className={
+                status === "active"
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                  : "bg-muted text-muted-foreground"
+              }
+            >
+              {status === "active" ? "启用" : "禁用"}
+            </Badge>
+          )
+        },
+        filterFn: "arrIncludesSome",
+        meta: { label: "状态" },
+      },
+      {
+        accessorKey: "auth_token",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="节点登录 Key" />
+        ),
+        cell: ({ row }) => (
+          <span className="max-w-[260px] truncate font-mono text-xs">
+            {row.getValue("auth_token")}
+          </span>
+        ),
+        enableSorting: false,
+        meta: { label: "节点登录 Key" },
+      },
+      {
+        accessorKey: "created_at",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="创建时间" />
+        ),
+        cell: ({ row }) =>
+          new Date(row.getValue<string>("created_at")).toLocaleString(),
+        meta: { label: "创建时间" },
+      },
+      {
+        id: "actions",
+        header: () => <span className="sr-only">操作</span>,
+        enableHiding: false,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const r = row.original
+          return (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm">
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => startEdit(r)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  编辑
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onClick={() => void remove(r)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  删除
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )
+        },
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  )
+
   // 创建面板
   const [createOpen, setCreateOpen] = useState(false)
   const [username, setUsername] = useState("")
@@ -373,76 +500,44 @@ export default function AdminUsersPage() {
           <p className="mt-1 text-xs">点击右上角「添加用户」创建第一个用户</p>
         </Card>
       ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>ID</TH>
-              <TH>用户名</TH>
-              <TH>角色</TH>
-              <TH>状态</TH>
-              <TH>节点登录 Key</TH>
-              <TH>创建时间</TH>
-              <TH className="w-12"></TH>
-            </TR>
-          </THead>
-          <TBody>
-            {rows.map((row) => (
-              <TR key={row.id}>
-                <TD>{row.id}</TD>
-                <TD className="font-medium">{row.username}</TD>
-                <TD>
-                  <Badge
-                    className={
-                      row.role === "admin"
-                        ? "bg-primary/15 text-primary"
-                        : undefined
-                    }
-                  >
-                    {row.role}
-                  </Badge>
-                </TD>
-                <TD>
-                  <Badge
-                    className={
-                      row.status === "active"
-                        ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                        : "bg-muted text-muted-foreground"
-                    }
-                  >
-                    {row.status === "active" ? "启用" : "禁用"}
-                  </Badge>
-                </TD>
-                <TD className="max-w-[260px] truncate font-mono text-xs">
-                  {row.auth_token}
-                </TD>
-                <TD>{new Date(row.created_at).toLocaleString()}</TD>
-                <TD>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-sm">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => startEdit(row)}>
-                        <Pencil className="mr-2 h-4 w-4" />
-                        编辑
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        variant="destructive"
-                        onClick={() => void remove(row)}
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        删除
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TD>
-              </TR>
-            ))}
-          </TBody>
-        </Table>
+        <DataTable
+          columns={columns}
+          data={rows}
+          defaultPageSize={20}
+          pageSizeOptions={[10, 20, 50, 100]}
+          renderToolbar={(table) => (
+            <>
+              <Input
+                placeholder="搜索用户名…"
+                value={
+                  (table.getColumn("username")?.getFilterValue() as string) ??
+                  ""
+                }
+                onChange={(e) =>
+                  table.getColumn("username")?.setFilterValue(e.target.value)
+                }
+                className="h-8 max-w-[240px]"
+              />
+              <DataTableFacetedFilter
+                column={table.getColumn("role")}
+                title="角色"
+                options={[
+                  { label: "admin", value: "admin" },
+                  { label: "user", value: "user" },
+                ]}
+              />
+              <DataTableFacetedFilter
+                column={table.getColumn("status")}
+                title="状态"
+                options={[
+                  { label: "启用", value: "active" },
+                  { label: "禁用", value: "disabled" },
+                ]}
+              />
+              <DataTableViewOptions table={table} />
+            </>
+          )}
+        />
       )}
 
       {/* 创建用户 - 右侧滑出面板 */}

@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -25,7 +25,13 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
+import type { ColumnDef } from "@tanstack/react-table"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableFacetedFilter,
+  DataTableViewOptions,
+} from "@/components/data-table"
 
 type PlanRow = {
   id: number
@@ -98,7 +104,7 @@ function NodeCheckboxGroup({
   }
 
   return (
-    <div className="flex max-h-48 flex-col gap-2 overflow-auto rounded-md border p-3">
+    <div className="flex max-h-80 flex-col gap-2 overflow-auto rounded-md border p-3">
       {nodes.map((node) => {
         const checked = value.includes(node.id)
         const checkboxId = `node-${node.id}`
@@ -496,6 +502,118 @@ export default function AdminPlansPage() {
       .join("、")
   }
 
+  const columns = useMemo<ColumnDef<PlanRow>[]>(
+    () => [
+      {
+        accessorKey: "id",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="ID" />
+        ),
+        meta: { label: "ID" },
+      },
+      {
+        accessorKey: "name",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="名称" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-medium">{row.getValue("name")}</span>
+        ),
+        meta: { label: "名称" },
+      },
+      {
+        accessorKey: "traffic_limit_bytes",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="流量上限" />
+        ),
+        cell: ({ row }) => formatBytes(row.getValue("traffic_limit_bytes")),
+        meta: { label: "流量上限" },
+      },
+      {
+        accessorKey: "duration_days",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="时长 (天)" />
+        ),
+        cell: ({ row }) =>
+          row.getValue("duration_days") === 0
+            ? "永久"
+            : row.getValue("duration_days"),
+        meta: { label: "时长" },
+      },
+      {
+        id: "speed",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="上/下行限速" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-xs">
+            {formatSpeed(row.original.up_mbps ?? 0)} /{" "}
+            {formatSpeed(row.original.down_mbps ?? 0)}
+          </span>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: "auto_renew",
+        accessorFn: (row) => (row.auto_renew === 1 ? "1" : "0"),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="自动续订" />
+        ),
+        filterFn: "arrIncludesSome" as const,
+        meta: { label: "自动续订" },
+        cell: ({ row }) =>
+          row.original.auto_renew === 1 && row.original.renewal_period_days ? (
+            <Badge>每 {row.original.renewal_period_days} 天</Badge>
+          ) : (
+            <span className="text-muted-foreground">关闭</span>
+          ),
+      },
+      {
+        id: "node_ids",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="可用节点" />
+        ),
+        cell: ({ row }) => (
+          <span className="block max-w-[280px] truncate text-xs">
+            {renderNodeNames(parseNodeIds(row.original.node_ids))}
+          </span>
+        ),
+        enableSorting: false,
+      },
+      {
+        id: "actions",
+        header: "",
+        enableHiding: false,
+        enableSorting: false,
+        cell: ({ row }) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => startEdit(row.original)}>
+                <Pencil className="mr-2 h-4 w-4" />
+                编辑
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => void remove(row.original)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                删除
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nodes]
+  )
+
   return (
     <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
       {/* 页面标题 */}
@@ -519,72 +637,25 @@ export default function AdminPlansPage() {
           <p className="mt-1 text-xs">点击右上角「添加套餐」创建第一个套餐</p>
         </Card>
       ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>ID</TH>
-              <TH>名称</TH>
-              <TH>流量上限</TH>
-              <TH>时长 (天)</TH>
-              <TH>上/下行限速</TH>
-              <TH>自动续订</TH>
-              <TH>可用节点</TH>
-              <TH className="w-12"></TH>
-            </TR>
-          </THead>
-          <TBody>
-            {rows.map((row) => {
-              const ids = parseNodeIds(row.node_ids)
-              return (
-                <TR key={row.id}>
-                  <TD>{row.id}</TD>
-                  <TD className="font-medium">{row.name}</TD>
-                  <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
-                  <TD>
-                    {row.duration_days === 0 ? "永久" : row.duration_days}
-                  </TD>
-                  <TD className="text-xs">
-                    {formatSpeed(row.up_mbps ?? 0)} /{" "}
-                    {formatSpeed(row.down_mbps ?? 0)}
-                  </TD>
-                  <TD>
-                    {row.auto_renew === 1 && row.renewal_period_days ? (
-                      <Badge>每 {row.renewal_period_days} 天</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">关闭</span>
-                    )}
-                  </TD>
-                  <TD className="max-w-[280px] truncate text-xs">
-                    {renderNodeNames(ids)}
-                  </TD>
-                  <TD>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => startEdit(row)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          编辑
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => void remove(row)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          删除
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TD>
-                </TR>
-              )
-            })}
-          </TBody>
-        </Table>
+        <DataTable
+          columns={columns}
+          data={rows}
+          defaultPageSize={20}
+          pageSizeOptions={[10, 20, 50, 100]}
+          renderToolbar={(table) => (
+            <>
+              <DataTableFacetedFilter
+                column={table.getColumn("auto_renew")}
+                title="自动续订"
+                options={[
+                  { label: "开启", value: "1" },
+                  { label: "关闭", value: "0" },
+                ]}
+              />
+              <DataTableViewOptions table={table} />
+            </>
+          )}
+        />
       )}
 
       {/* 创建套餐 - 右侧滑出面板 */}

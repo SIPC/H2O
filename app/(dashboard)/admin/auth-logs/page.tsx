@@ -1,6 +1,7 @@
 "use client"
 
 import { FormEvent, useEffect, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
 import { ChevronsUpDown, X } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -13,13 +14,13 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { Label } from "@/components/ui/label"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 
 type LogRow = {
@@ -228,8 +229,61 @@ export default function AdminLogsPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1
-  const rangeEnd = Math.min(total, page * pageSize)
+
+  const columns: ColumnDef<LogRow>[] = [
+    {
+      accessorKey: "created_at",
+      header: "时间",
+      cell: ({ row }) => {
+        const v = row.original.created_at
+        return new Date(v.endsWith("Z") ? v : `${v}Z`).toLocaleString()
+      },
+    },
+    {
+      accessorKey: "node_name",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="节点" />
+      ),
+      cell: ({ row }) => row.original.node_name ?? "-",
+    },
+    {
+      accessorKey: "username",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="账号" />
+      ),
+      cell: ({ row }) => row.original.username ?? "-",
+    },
+    {
+      accessorKey: "ip",
+      header: "IP",
+      cell: ({ row }) => (
+        <span className="font-mono text-xs">{row.original.ip ?? "-"}</span>
+      ),
+    },
+    {
+      accessorKey: "success",
+      header: "结果",
+      cell: ({ row }) =>
+        row.original.success === 1 ? (
+          <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            成功
+          </Badge>
+        ) : (
+          <Badge className="bg-destructive/15 text-destructive">失败</Badge>
+        ),
+    },
+    {
+      accessorKey: "reason",
+      header: "原因",
+      cell: ({ row }) => (
+        <span className="text-xs">
+          {row.original.reason
+            ? (reasonLabel[row.original.reason] ?? row.original.reason)
+            : "-"}
+        </span>
+      ),
+    },
+  ]
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
@@ -322,112 +376,18 @@ export default function AdminLogsPage() {
       </form>
 
       {/* 日志列表 */}
-      <Table>
-        <THead>
-          <TR>
-            <TH>时间</TH>
-            <TH>节点</TH>
-            <TH>账号</TH>
-            <TH>IP</TH>
-            <TH>结果</TH>
-            <TH>原因</TH>
-          </TR>
-        </THead>
-        <TBody>
-          {rows.map((row) => (
-            <TR key={row.id}>
-              <TD>
-                {new Date(
-                  row.created_at.endsWith("Z")
-                    ? row.created_at
-                    : `${row.created_at}Z`
-                ).toLocaleString()}
-              </TD>
-              <TD>{row.node_name ?? "-"}</TD>
-              <TD>{row.username ?? "-"}</TD>
-              <TD className="font-mono text-xs">{row.ip ?? "-"}</TD>
-              <TD>
-                {row.success === 1 ? (
-                  <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                    成功
-                  </Badge>
-                ) : (
-                  <Badge className="bg-destructive/15 text-destructive">
-                    失败
-                  </Badge>
-                )}
-              </TD>
-              <TD className="text-xs">
-                {row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"}
-              </TD>
-            </TR>
-          ))}
-        </TBody>
-      </Table>
-
-      {/* 分页 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <span>
-            共 {total} 条{total > 0 ? `，当前 ${rangeStart}–${rangeEnd}` : ""}
-          </span>
-          <span className="flex items-center gap-1">
-            每页
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <Button
-                key={size}
-                type="button"
-                size="xs"
-                variant={pageSize === size ? "default" : "outline"}
-                onClick={() => void changePageSize(size)}
-              >
-                {size}
-              </Button>
-            ))}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page <= 1}
-            onClick={() => void changePage(1)}
-          >
-            首页
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page <= 1}
-            onClick={() => void changePage(page - 1)}
-          >
-            上一页
-          </Button>
-          <span className="text-muted-foreground">
-            第 {page} / {totalPages} 页
-          </span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page >= totalPages}
-            onClick={() => void changePage(page + 1)}
-          >
-            下一页
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={page >= totalPages}
-            onClick={() => void changePage(totalPages)}
-          >
-            末页
-          </Button>
-        </div>
-      </div>
+      <DataTable
+        columns={columns}
+        data={rows}
+        manualPagination
+        pageCount={totalPages}
+        page={page}
+        pageSize={pageSize}
+        totalRows={total}
+        onPageChange={changePage}
+        onPageSizeChange={changePageSize}
+        pageSizeOptions={PAGE_SIZE_OPTIONS}
+      />
     </div>
   )
 }

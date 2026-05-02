@@ -59,22 +59,20 @@ function ToggleRow({
   onChange: (next: boolean) => void
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-md border p-3">
+    <label htmlFor={id} className="flex cursor-pointer items-start gap-3">
       <Checkbox
         id={id}
         checked={checked}
         onCheckedChange={(value) => onChange(value === true)}
         className="mt-0.5"
       />
-      <div className="min-w-0 space-y-1">
-        <Label htmlFor={id} className="cursor-pointer text-sm font-medium">
-          {label}
-        </Label>
+      <div className="min-w-0 space-y-0.5">
+        <span className="text-sm font-medium">{label}</span>
         {description ? (
           <p className="text-xs text-muted-foreground">{description}</p>
         ) : null}
       </div>
-    </div>
+    </label>
   )
 }
 
@@ -146,256 +144,272 @@ export default function AdminSettingsPage() {
     setMessage({ kind: "ok", text: "已保存" })
   }
 
-  function reset() {
-    setDraft(saved)
-    setMessage(null)
+  if (!loaded) {
+    return (
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
+        <div>
+          <h1 className="text-2xl font-bold">站点设置</h1>
+          <p className="mt-1 text-sm text-muted-foreground">加载中...</p>
+        </div>
+      </div>
+    )
   }
 
+  const ts = turnstileStatus(
+    draft.turnstile_site_key,
+    draft.turnstile_secret_key
+  )
+
   return (
-    <div className="mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-4 p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>站点设置</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {!loaded ? (
-            <p className="text-sm text-muted-foreground">加载中...</p>
-          ) : (
-            <>
-              <ToggleRow
-                id="registration_enabled"
-                label="允许新用户注册"
-                description="关闭后注册页不可用，注册接口直接返回错误"
-                checked={draft.registration_enabled}
-                onChange={(next) =>
-                  setDraft((prev) => ({ ...prev, registration_enabled: next }))
-                }
-              />
-              <ToggleRow
-                id="login_enabled"
-                label="允许用户登录"
-                description="关闭后普通用户无法登录；管理员账号不受影响，可用于维护"
-                checked={draft.login_enabled}
-                onChange={(next) =>
-                  setDraft((prev) => ({ ...prev, login_enabled: next }))
-                }
-              />
-              <ToggleRow
-                id="new_user_default_active"
-                label="新注册用户自动启用"
-                description="关闭后新注册用户为 disabled 状态，需要管理员手动启用才能登录"
-                checked={draft.new_user_default_active}
-                onChange={(next) =>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
+      {/* 页面标题 */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">站点设置</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            全局配置项，修改后需点击保存生效。
+          </p>
+        </div>
+        <div className="flex items-center gap-2 pt-1">
+          <Button onClick={save} disabled={!dirty || saving}>
+            {saving ? "保存中..." : "保存"}
+          </Button>
+          {message ? (
+            <span
+              className={
+                message.kind === "ok"
+                  ? "text-sm text-green-600"
+                  : "text-sm text-destructive"
+              }
+            >
+              {message.text}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* === 基础设置 === */}
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-base leading-none font-semibold">
+              基础设置
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <ToggleRow
+              id="registration_enabled"
+              label="允许新用户注册"
+              description="关闭后注册页不可用，注册接口直接返回错误"
+              checked={draft.registration_enabled}
+              onChange={(next) =>
+                setDraft((prev) => ({ ...prev, registration_enabled: next }))
+              }
+            />
+            <ToggleRow
+              id="login_enabled"
+              label="允许用户登录"
+              description="关闭后普通用户无法登录；管理员账号不受影响，可用于维护"
+              checked={draft.login_enabled}
+              onChange={(next) =>
+                setDraft((prev) => ({ ...prev, login_enabled: next }))
+              }
+            />
+            <ToggleRow
+              id="new_user_default_active"
+              label="新注册用户自动启用"
+              description="关闭后新注册用户为 disabled 状态，需要管理员手动启用才能登录"
+              checked={draft.new_user_default_active}
+              onChange={(next) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  new_user_default_active: next,
+                }))
+              }
+            />
+          </CardContent>
+        </Card>
+
+        {/* === Cloudflare Turnstile === */}
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-base leading-none font-semibold">
+              <div className="flex items-center justify-between gap-2">
+                <span>Turnstile 人机验证</span>
+                <span
+                  className={
+                    ts.tone === "ok"
+                      ? "text-xs text-green-600"
+                      : ts.tone === "err"
+                        ? "text-xs text-destructive"
+                        : "text-xs text-muted-foreground"
+                  }
+                >
+                  {ts.label}
+                </span>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              两者都填=启用；都留空=关闭；只填一个视为配置错误。保存后立即生效。
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="turnstile_site_key">Site Key</Label>
+              <Input
+                id="turnstile_site_key"
+                autoComplete="off"
+                spellCheck={false}
+                value={draft.turnstile_site_key}
+                onChange={(e) =>
                   setDraft((prev) => ({
                     ...prev,
-                    new_user_default_active: next,
+                    turnstile_site_key: e.target.value,
                   }))
                 }
               />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="turnstile_secret_key">Secret Key</Label>
+              <Input
+                id="turnstile_secret_key"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={draft.turnstile_secret_key}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    turnstile_secret_key: e.target.value,
+                  }))
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-              <div className="space-y-3 rounded-md border p-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label className="text-sm font-medium">
-                      Cloudflare Turnstile 人机验证
-                    </Label>
-                    {(() => {
-                      const s = turnstileStatus(
-                        draft.turnstile_site_key,
-                        draft.turnstile_secret_key
-                      )
-                      const cls =
-                        s.tone === "ok"
-                          ? "text-xs text-green-600"
-                          : s.tone === "err"
-                            ? "text-xs text-destructive"
-                            : "text-xs text-muted-foreground"
-                      return <span className={cls}>{s.label}</span>
-                    })()}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    两者都填=启用；都留空=关闭；只填其中一个视为配置错误，登录/注册将被拒绝。保存后立即生效，刷新登录/注册页可见。
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="turnstile_site_key" className="text-xs">
-                    Site Key
-                  </Label>
-                  <Input
-                    id="turnstile_site_key"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={draft.turnstile_site_key}
-                    onChange={(e) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        turnstile_site_key: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="turnstile_secret_key" className="text-xs">
-                    Secret Key
-                  </Label>
-                  <Input
-                    id="turnstile_secret_key"
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={draft.turnstile_secret_key}
-                    onChange={(e) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        turnstile_secret_key: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
+        {/* === Agent 配置 === */}
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-base leading-none font-semibold">
+              Agent 配置
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="agent_bundle_url">安装包地址</Label>
+              <p className="text-xs text-muted-foreground">
+                用于节点「一键部署」下载 h2o-agent 安装包。留空时默认使用 GitHub
+                Releases 最新地址。
+              </p>
+              <Input
+                id="agent_bundle_url"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="默认使用 GitHub Releases"
+                value={draft.agent_bundle_url}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    agent_bundle_url: e.target.value,
+                  }))
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-              <div className="space-y-3 rounded-md border p-3">
-                <div className="space-y-1">
-                  <Label
-                    htmlFor="agent_bundle_url"
-                    className="text-sm font-medium"
-                  >
-                    Agent 安装包地址
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    用于节点「一键部署」下载 h2o-agent
-                    安装包（h2o-agent-bundle.tar.gz）。 留空时默认使用 GitHub
-                    Releases 最新地址。
-                  </p>
-                </div>
-                <Input
-                  id="agent_bundle_url"
-                  autoComplete="off"
-                  spellCheck={false}
-                  placeholder="https://github.com/SIPC/H2O/releases/latest/download/h2o-agent-bundle.tar.gz"
-                  value={draft.agent_bundle_url}
-                  onChange={(e) =>
-                    setDraft((prev) => ({
+        {/* === 证书与 DNS === */}
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-base leading-none font-semibold">
+              证书与 DNS
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              全局默认配置，节点未单独填写时使用这些值。
+            </p>
+            <div className="space-y-1">
+              <Label htmlFor="acme_email">ACME 邮箱</Label>
+              <Input
+                id="acme_email"
+                type="email"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="[email protected]"
+                value={draft.acme_email}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    acme_email: e.target.value,
+                  }))
+                }
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="cloudflare_api_token">Cloudflare API Token</Label>
+              <Input
+                id="cloudflare_api_token"
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="留空表示不使用"
+                value={draft.cloudflare_api_token}
+                onChange={(e) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    cloudflare_api_token: e.target.value,
+                  }))
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* === 数据统计 === */}
+        <Card className="md:col-span-2">
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-base leading-none font-semibold">
+              数据统计
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="stats_retention_days">统计保留天数</Label>
+              <p className="text-xs text-muted-foreground">
+                超过该天数的面板小时统计会自动清理（全局/节点/订阅趋势）。建议
+                30~90 天。
+              </p>
+              <Input
+                id="stats_retention_days"
+                type="number"
+                min={1}
+                max={365}
+                step={1}
+                value={draft.stats_retention_days}
+                onChange={(e) =>
+                  setDraft((prev) => {
+                    const next = Number(e.target.value)
+                    if (!Number.isInteger(next)) return prev
+                    return {
                       ...prev,
-                      agent_bundle_url: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="space-y-3 rounded-md border p-3">
-                <div className="space-y-1">
-                  <Label
-                    htmlFor="stats_retention_days"
-                    className="text-sm font-medium"
-                  >
-                    统计保留天数
-                  </Label>
-                  <p className="text-xs text-muted-foreground">
-                    超过该天数的面板小时统计会自动清理（全局/节点/订阅趋势）。建议
-                    30~90 天。
-                  </p>
-                </div>
-                <Input
-                  id="stats_retention_days"
-                  type="number"
-                  min={1}
-                  max={365}
-                  step={1}
-                  value={draft.stats_retention_days}
-                  onChange={(e) =>
-                    setDraft((prev) => {
-                      const next = Number(e.target.value)
-                      if (!Number.isInteger(next)) return prev
-                      return {
-                        ...prev,
-                        stats_retention_days: Math.min(365, Math.max(1, next)),
-                      }
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-3 rounded-md border p-3">
-                <div className="space-y-1">
-                  <Label className="text-sm font-medium">证书与 DNS</Label>
-                  <p className="text-xs text-muted-foreground">
-                    全局默认配置，节点未单独填写时使用这些值。用于 ACME
-                    自动证书签发与 Cloudflare DNS 解析管理。
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="acme_email" className="text-xs">
-                    ACME 邮箱
-                  </Label>
-                  <Input
-                    id="acme_email"
-                    type="email"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder="[email protected]"
-                    value={draft.acme_email}
-                    onChange={(e) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        acme_email: e.target.value,
-                      }))
+                      stats_retention_days: Math.min(365, Math.max(1, next)),
                     }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="cloudflare_api_token" className="text-xs">
-                    Cloudflare API Token
-                  </Label>
-                  <Input
-                    id="cloudflare_api_token"
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    placeholder="留空表示不使用"
-                    value={draft.cloudflare_api_token}
-                    onChange={(e) =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        cloudflare_api_token: e.target.value,
-                      }))
-                    }
-                  />
-                </div>
-              </div>
+                  })
+                }
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-              <div className="flex items-center gap-2 pt-2">
-                <Button onClick={save} disabled={!dirty || saving}>
-                  {saving ? "保存中..." : "保存"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={reset}
-                  disabled={!dirty || saving}
-                >
-                  撤销
-                </Button>
-                {message ? (
-                  <span
-                    className={
-                      message.kind === "ok"
-                        ? "text-sm text-green-600"
-                        : "text-sm text-destructive"
-                    }
-                  >
-                    {message.text}
-                  </span>
-                ) : null}
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
+      {/* 问题反馈 */}
       <Card>
-        <CardHeader>
-          <CardTitle>问题反馈</CardTitle>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            问题反馈
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">

@@ -1,6 +1,7 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { type ColumnDef } from "@tanstack/react-table"
 import {
   MoreVertical,
   Pencil,
@@ -45,7 +46,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
+import {
+  DataTable,
+  DataTableColumnHeader,
+  DataTableFacetedFilter,
+  DataTableViewOptions,
+} from "@/components/data-table"
 
 type SubscriptionStatus = "active" | "expired" | "blocked"
 
@@ -292,7 +298,7 @@ function SubscriptionForm({
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="选择用户" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper">
                     <SelectGroup>
                       {users.map((u) => (
                         <SelectItem key={u.id} value={String(u.id)}>
@@ -312,7 +318,7 @@ function SubscriptionForm({
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="选择套餐" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent position="popper">
                     <SelectGroup>
                       {plans.map((p) => (
                         <SelectItem key={p.id} value={String(p.id)}>
@@ -595,6 +601,164 @@ export default function AdminSubscriptionsPage() {
   const editIsPermanent =
     editingRow !== null && new Date(editExpire).getFullYear() >= 9999
 
+  const planOptions = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r.plan_name))].map((p) => ({
+        label: p,
+        value: p,
+      })),
+    [rows]
+  )
+
+  const columns: ColumnDef<Row>[] = [
+    {
+      accessorKey: "id",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="ID" />
+      ),
+      meta: { label: "ID" },
+    },
+    {
+      accessorKey: "username",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="用户" />
+      ),
+      cell: ({ row }) => (
+        <span className="font-medium">{row.original.username}</span>
+      ),
+      meta: { label: "用户" },
+    },
+    {
+      accessorKey: "plan_name",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="套餐" />
+      ),
+      filterFn: "arrIncludesSome" as const,
+      meta: { label: "套餐" },
+    },
+    {
+      accessorKey: "used_traffic_bytes",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="已用流量" />
+      ),
+      cell: ({ row }) => formatBytes(row.original.used_traffic_bytes),
+      meta: { label: "已用流量" },
+    },
+    {
+      accessorKey: "traffic_limit_bytes",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="流量上限" />
+      ),
+      cell: ({ row }) => formatBytes(row.original.traffic_limit_bytes),
+      meta: { label: "流量上限" },
+    },
+    {
+      id: "tx_history",
+      header: "总出历史",
+      enableSorting: false,
+      cell: ({ row }) => {
+        const hourly = historyBySub[row.original.id] ?? []
+        return (
+          <div className="min-w-[170px] py-1">
+            <SubscriptionHistorySpark hourly={hourly} dataKey="txBytes" />
+          </div>
+        )
+      },
+    },
+    {
+      id: "rx_history",
+      header: "总入历史",
+      enableSorting: false,
+      cell: ({ row }) => {
+        const hourly = historyBySub[row.original.id] ?? []
+        return (
+          <div className="min-w-[170px] py-1">
+            <SubscriptionHistorySpark hourly={hourly} dataKey="rxBytes" />
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: "status",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="状态" />
+      ),
+      cell: ({ row }) => (
+        <Badge
+          className={
+            row.original.status === "active"
+              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+              : row.original.status === "blocked"
+                ? "bg-destructive/15 text-destructive"
+                : "bg-muted text-muted-foreground"
+          }
+        >
+          {statusLabel[row.original.status] ?? row.original.status}
+        </Badge>
+      ),
+      filterFn: "arrIncludesSome" as const,
+      meta: { label: "状态" },
+    },
+    {
+      accessorKey: "expire_time",
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="到期时间" />
+      ),
+      cell: ({ row }) =>
+        new Date(row.original.expire_time).getFullYear() >= 9999
+          ? "—"
+          : new Date(row.original.expire_time).toLocaleString(),
+      meta: { label: "到期时间" },
+    },
+    {
+      id: "actions",
+      enableSorting: false,
+      enableHiding: false,
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => startEdit(row.original)}>
+              <Pencil className="mr-2 h-4 w-4" />
+              编辑
+            </DropdownMenuItem>
+            {row.original.status === "blocked" ? (
+              <DropdownMenuItem
+                onClick={() =>
+                  void patchSub(row.original.id, { status: "active" })
+                }
+              >
+                <ShieldCheck className="mr-2 h-4 w-4" />
+                解封
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                onClick={() =>
+                  void patchSub(row.original.id, { status: "blocked" })
+                }
+              >
+                <ShieldBan className="mr-2 h-4 w-4" />
+                封禁
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => void remove(row.original)}
+            >
+              <Trash2 className="mr-2 h-4 w-4" />
+              删除
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ]
+
   return (
     <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
       {/* 页面标题 */}
@@ -618,109 +782,42 @@ export default function AdminSubscriptionsPage() {
           <p className="mt-1 text-xs">点击右上角「添加订阅」创建第一个订阅</p>
         </Card>
       ) : (
-        <Table>
-          <THead>
-            <TR>
-              <TH>ID</TH>
-              <TH>用户</TH>
-              <TH>套餐</TH>
-              <TH>已用流量</TH>
-              <TH>流量上限</TH>
-              <TH>总出历史</TH>
-              <TH>总入历史</TH>
-              <TH>状态</TH>
-              <TH>到期时间</TH>
-              <TH className="w-12"></TH>
-            </TR>
-          </THead>
-          <TBody>
-            {rows.map((row) => {
-              const hourly = historyBySub[row.id] ?? []
-
-              return (
-                <TR key={row.id}>
-                  <TD>{row.id}</TD>
-                  <TD className="font-medium">{row.username}</TD>
-                  <TD>{row.plan_name}</TD>
-                  <TD>{formatBytes(row.used_traffic_bytes)}</TD>
-                  <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
-                  <TD className="min-w-[170px] py-1">
-                    <SubscriptionHistorySpark
-                      hourly={hourly}
-                      dataKey="txBytes"
-                    />
-                  </TD>
-                  <TD className="min-w-[170px] py-1">
-                    <SubscriptionHistorySpark
-                      hourly={hourly}
-                      dataKey="rxBytes"
-                    />
-                  </TD>
-                  <TD>
-                    <Badge
-                      className={
-                        row.status === "active"
-                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                          : row.status === "blocked"
-                            ? "bg-destructive/15 text-destructive"
-                            : "bg-muted text-muted-foreground"
-                      }
-                    >
-                      {statusLabel[row.status] ?? row.status}
-                    </Badge>
-                  </TD>
-                  <TD>
-                    {new Date(row.expire_time).getFullYear() >= 9999
-                      ? "—"
-                      : new Date(row.expire_time).toLocaleString()}
-                  </TD>
-                  <TD>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm">
-                          <MoreVertical className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => startEdit(row)}>
-                          <Pencil className="mr-2 h-4 w-4" />
-                          编辑
-                        </DropdownMenuItem>
-                        {row.status === "blocked" ? (
-                          <DropdownMenuItem
-                            onClick={() =>
-                              void patchSub(row.id, { status: "active" })
-                            }
-                          >
-                            <ShieldCheck className="mr-2 h-4 w-4" />
-                            解封
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem
-                            onClick={() =>
-                              void patchSub(row.id, { status: "blocked" })
-                            }
-                          >
-                            <ShieldBan className="mr-2 h-4 w-4" />
-                            封禁
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          variant="destructive"
-                          onClick={() => void remove(row)}
-                        >
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          删除
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TD>
-                </TR>
-              )
-            })}
-          </TBody>
-        </Table>
+        <DataTable
+          columns={columns}
+          data={rows}
+          defaultPageSize={20}
+          pageSizeOptions={[10, 20, 50, 100]}
+          renderToolbar={(table) => (
+            <>
+              <Input
+                placeholder="搜索用户名…"
+                value={
+                  (table.getColumn("username")?.getFilterValue() as string) ??
+                  ""
+                }
+                onChange={(e) =>
+                  table.getColumn("username")?.setFilterValue(e.target.value)
+                }
+                className="h-8 max-w-[200px]"
+              />
+              <DataTableFacetedFilter
+                column={table.getColumn("plan_name")}
+                title="套餐"
+                options={planOptions}
+              />
+              <DataTableFacetedFilter
+                column={table.getColumn("status")}
+                title="状态"
+                options={[
+                  { label: "启用", value: "active" },
+                  { label: "过期", value: "expired" },
+                  { label: "封禁", value: "blocked" },
+                ]}
+              />
+              <DataTableViewOptions table={table} />
+            </>
+          )}
+        />
       )}
 
       {/* 创建订阅 - 右侧滑出面板 */}

@@ -15,6 +15,7 @@ import {
 
 import { Input } from "@/components/ui/input"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
 import { cn, formatBytes } from "@/lib/utils"
 
 import { Eye, EyeOff } from "lucide-react"
@@ -296,6 +297,14 @@ export default function DashboardPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
+      {/* 页面标题 */}
+      <div>
+        <h1 className="text-2xl font-bold">我的订阅</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          流量概览、订阅管理与今日趋势
+        </p>
+      </div>
+
       {/* 第一行：剩余流量 + 今日流量 */}
       <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
         {/* 剩余流量卡 */}
@@ -427,13 +436,15 @@ export default function DashboardPage() {
 
       {/* 第二行：订阅链接 */}
       <Card>
-        <CardHeader className="p-4 pb-0">
-          <CardTitle className="text-base">订阅链接</CardTitle>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            订阅链接
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="relative space-y-2 p-4 pt-0">
           <p className="text-xs text-muted-foreground">
             Clash Verge / Nekobox / v2rayN 等主流客户端均可直接导入
           </p>
-        </CardHeader>
-        <CardContent className="relative p-4">
           <div
             aria-hidden={!hasValidSub}
             className={
@@ -495,8 +506,10 @@ export default function DashboardPage() {
 
       {/* 第三行：我的订阅表格 */}
       <Card>
-        <CardHeader>
-          <CardTitle>我的订阅</CardTitle>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            我的订阅
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
@@ -529,10 +542,26 @@ export default function DashboardPage() {
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TD>
-                    <TD>{row.status}</TD>
                     <TD>
-                      {row.duration_days === 0
-                        ? "永久"
+                      <Badge
+                        className={
+                          row.status === "active"
+                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                            : row.status === "blocked"
+                              ? "bg-destructive/15 text-destructive"
+                              : "bg-muted text-muted-foreground"
+                        }
+                      >
+                        {row.status === "active"
+                          ? "启用"
+                          : row.status === "blocked"
+                            ? "封禁"
+                            : "过期"}
+                      </Badge>
+                    </TD>
+                    <TD>
+                      {new Date(row.expire_time).getFullYear() >= 9999
+                        ? "—"
                         : new Date(row.expire_time).toLocaleString()}
                     </TD>
                   </TR>
