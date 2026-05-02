@@ -104,7 +104,7 @@ func main() {
 	)
 
 	// 启动时立即跑一轮，再按 ticker 运行
-	runOnce(cfg)
+	runOnce(ctx, cfg)
 
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
@@ -115,21 +115,81 @@ func main() {
 			log.Println("[h2o-agent] 退出")
 			return
 		case <-tick.C:
-			runOnce(cfg)
+			runOnce(ctx, cfg)
 		}
 	}
 }
 
-func runOnce(cfg *Config) {
-	snap, err := stats.Fetch(cfg.HysteriaStatsURL, cfg.HysteriaStatsSecret)
+func runOnce(ctx context.Context, cfg *Config) {
+	snap, err := fetchStatsWithRetry(ctx, cfg)
 	if err != nil {
 		log.Printf("抓取 Hy2 stats 失败: %v", err)
 		return
 	}
 	snap.AgentVersion = Version
-	if err := report.Send(cfg.H2OURL, cfg.AuthPath, snap); err != nil {
+	if err := sendReportWithRetry(ctx, cfg, snap); err != nil {
 		log.Printf("上报 h2o 失败: %v", err)
 		return
 	}
 	log.Printf("上报成功: users=%d online=%d", len(snap.Traffic), len(snap.Online))
+}
+
+func sendReportWithRetry(ctx context.Context, cfg *Config, snap *stats.Snapshot) error {
+	delays := []time.Duration{2 * time.Second, 4 * time.Second}
+	var lastErr error
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		err := report.Send(cfg.H2OURL, cfg.AuthPath, snap)
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("上报 h2o 重试成功: attempt=%d", attempt)
+			}
+			return nil
+		}
+
+		lastErr = err
+		if attempt == 3 {
+			break
+		}
+
+		delay := delays[attempt-1]
+		log.Printf("上报 h2o 失败: attempt=%d/3 err=%v，%s 后重试", attempt, err, delay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
+	return lastErr
+}
+
+func fetchStatsWithRetry(ctx context.Context, cfg *Config) (*stats.Snapshot, error) {
+	delays := []time.Duration{2 * time.Second, 4 * time.Second}
+	var lastErr error
+
+	for attempt := 1; attempt <= 3; attempt++ {
+		snap, err := stats.Fetch(cfg.HysteriaStatsURL, cfg.HysteriaStatsSecret)
+		if err == nil {
+			if attempt > 1 {
+				log.Printf("抓取 Hy2 stats 重试成功: attempt=%d", attempt)
+			}
+			return snap, nil
+		}
+
+		lastErr = err
+		if attempt == 3 {
+			break
+		}
+
+		delay := delays[attempt-1]
+		log.Printf("抓取 Hy2 stats 失败: attempt=%d/3 err=%v，%s 后重试", attempt, err, delay)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+
+	return nil, lastErr
 }
