@@ -16,6 +16,8 @@ bash build.sh
 # 产物：dist/h2o-agent-bundle.tar.gz（含 amd64、arm64 两种二进制 + install.sh + 示例配置）
 ```
 
+`build.sh` 会自动读取仓库根目录 `package.json` 的 `version`，通过 Go `ldflags` 注入 agent 二进制；agent 每次上报流量快照时会携带该版本号，面板节点页可看到最近一次上报的 agent 版本。
+
 节点侧 root 执行：
 
 ```bash
@@ -32,6 +34,7 @@ cd h2o-agent && bash install.sh
 - 首次：生成 `/etc/h2o-agent/config.json`（从示例模板），要求你手动编辑后再启动
 - 升级：保留已有配置并自动 `systemctl restart h2o-agent`
 - 写 systemd unit 并 `daemon-reload`
+- 写入 `h2o-agent-update.timer`，每天从 GitHub Release 检查并自动更新 agent，更新成功后重启 `h2o-agent`
 
 首次部署流程：
 1. 跑 `bash install.sh`（会提示下一步）
@@ -45,8 +48,8 @@ cd h2o-agent && bash install.sh
 
 ```bash
 cd agent
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o h2o-agent-linux-amd64 .
-GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o h2o-agent-linux-arm64 .
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=dev" -o h2o-agent-linux-amd64 .
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.Version=dev" -o h2o-agent-linux-arm64 .
 ```
 
 ## 节点侧 Hy2 配置
@@ -71,11 +74,31 @@ trafficStats:
   "auth_path": "<在 h2o 后台-节点页点击 Agent 配置按钮复制>",
   "hysteria_stats_url": "http://127.0.0.1:25300",
   "hysteria_stats_secret": "<与 Hy2 config 里的 trafficStats.secret 完全一致>",
-  "interval_seconds": 120
+  "interval_seconds": 120,
+  "auto_update_enabled": true
 }
 ```
 
+`auto_update_enabled` 由节点编辑页「Agent 配置 → 启用每日自动更新」控制，一键部署时会写入节点配置。关闭后，即使系统的每日任务仍存在，agent 也会读取配置并跳过自更新。
+
 `auth_path` 既是节点身份标识，也是 agent 与 h2o 之间的共享秘密——不要外泄。
+
+## 自动更新
+
+agent 支持自更新命令：
+
+```bash
+/usr/local/bin/h2o-agent -self-update
+```
+
+它会访问 `https://github.com/SIPC/H2O/releases/latest`，按当前架构下载对应资产：
+
+- `amd64` → `h2o-agent-linux-amd64`
+- `arm64` → `h2o-agent-linux-arm64`
+
+下载后会校验同名 `.sha256` 文件，校验通过才替换当前 `/usr/local/bin/h2o-agent`。如果发生更新，命令会以退出码 `2` 结束，安装脚本生成的 systemd timer / Alpine daily 脚本会据此自动重启 agent。
+
+`install.sh` 会安装并启用 `h2o-agent-update.timer`，默认每天凌晨检查一次更新；是否真正执行更新由 `/etc/h2o-agent/config.json` 中的 `auto_update_enabled` 控制。
 
 ## 运行（手动启动 / 不走 systemd）
 

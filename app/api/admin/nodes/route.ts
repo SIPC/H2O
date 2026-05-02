@@ -32,6 +32,7 @@ type CreateNodeBody = {
   masqueradeType?: string | null
   masqueradeConfig?: Record<string, unknown> | null
   agentInterval?: number | null
+  agentAutoUpdateEnabled?: boolean
 }
 
 export async function GET(request: Request) {
@@ -46,8 +47,8 @@ export async function GET(request: Request) {
               n.node_ip, n.node_port, n.node_port_hopping,
               n.cert_mode, n.cert_path, n.key_path,
               n.acme_domains, n.acme_email, n.acme_dns_provider, n.acme_dns_config,
-              n.masquerade_type, n.masquerade_config, n.agent_interval,
-              ns.last_report_at, ns.online_count
+              n.masquerade_type, n.masquerade_config, n.agent_interval, n.agent_auto_update_enabled,
+              ns.last_report_at, ns.online_count, ns.agent_version
        FROM nodes n
        LEFT JOIN node_stats ns ON ns.node_id = n.id
        ORDER BY n.id DESC`
@@ -165,6 +166,7 @@ export async function POST(request: Request) {
     body.agentInterval != null && body.agentInterval > 0
       ? body.agentInterval
       : null
+  const agentAutoUpdateEnabled = body.agentAutoUpdateEnabled === false ? 0 : 1
 
   try {
     const result = db
@@ -172,8 +174,8 @@ export async function POST(request: Request) {
         `INSERT INTO nodes(name, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256,
            node_ip, node_port, node_port_hopping, cert_mode, cert_path, key_path,
            acme_domains, acme_email, acme_dns_provider, acme_dns_config,
-           masquerade_type, masquerade_config, agent_interval)
-         VALUES (?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled)
+         VALUES (?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
@@ -198,7 +200,8 @@ export async function POST(request: Request) {
         acmeDnsConfig,
         masqueradeType,
         masqueradeConfig,
-        agentInterval
+        agentInterval,
+        agentAutoUpdateEnabled
       )
 
     const newNodeId = Number(result.lastInsertRowid)

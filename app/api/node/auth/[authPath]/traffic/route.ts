@@ -8,6 +8,7 @@ import { getSetting, SETTING_KEYS } from "@/lib/settings"
 type TrafficPayload = {
   traffic?: Record<string, { tx?: number; rx?: number }>
   online?: Record<string, number>
+  agent_version?: string
 }
 
 // 校验上报体里每个用户的 tx/rx 是否为合法非负数
@@ -50,6 +51,14 @@ function normalizeOnline(
   return out
 }
 
+function normalizeAgentVersion(input: unknown): string | null | false {
+  if (input === undefined || input === null || input === "") return null
+  if (typeof input !== "string") return false
+  const version = input.trim()
+  if (!version || version.length > 64 || /[\r\n]/.test(version)) return false
+  return version
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ authPath: string }> }
@@ -81,7 +90,8 @@ export async function POST(
 
   const traffic = normalizeTraffic(body.traffic)
   const online = normalizeOnline(body.online)
-  if (traffic === null || online === null) {
+  const agentVersion = normalizeAgentVersion(body.agent_version)
+  if (traffic === null || online === null || agentVersion === false) {
     writeAuthLog({
       node_id: null,
       node_name: authPath,
@@ -396,18 +406,20 @@ export async function POST(
     for (const [k, v] of traffic) trafficObj[k] = v
 
     db.prepare(
-      `INSERT INTO node_stats(node_id, last_report_at, online_count, online_snapshot, traffic_snapshot)
-       VALUES (?, datetime('now'), ?, ?, ?)
+      `INSERT INTO node_stats(node_id, last_report_at, online_count, online_snapshot, traffic_snapshot, agent_version)
+       VALUES (?, datetime('now'), ?, ?, ?, ?)
        ON CONFLICT(node_id) DO UPDATE SET
          last_report_at = datetime('now'),
          online_count = excluded.online_count,
          online_snapshot = excluded.online_snapshot,
-         traffic_snapshot = excluded.traffic_snapshot`
+         traffic_snapshot = excluded.traffic_snapshot,
+         agent_version = COALESCE(excluded.agent_version, node_stats.agent_version)`
     ).run(
       node.id,
       online.size,
       JSON.stringify(onlineObj),
-      JSON.stringify(trafficObj)
+      JSON.stringify(trafficObj),
+      agentVersion
     )
 
     // 清理超出保留期的小时趋势统计

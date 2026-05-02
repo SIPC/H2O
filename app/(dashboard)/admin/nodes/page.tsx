@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import {
   Activity,
+  Bot,
   Copy,
   Eye,
   EyeOff,
@@ -53,6 +54,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -73,6 +75,7 @@ type NodeRow = {
   pin_sha256: string | null
   last_report_at: string | null
   online_count: number | null
+  agent_version: string | null
   // 节点配置
   node_ip: string | null
   node_port: number | null
@@ -87,6 +90,7 @@ type NodeRow = {
   masquerade_type: string | null
   masquerade_config: string | null
   agent_interval: number | null
+  agent_auto_update_enabled: 0 | 1 | null
   dns_status: DnsStatus
 }
 
@@ -459,6 +463,15 @@ function NodeCard({
                 离线
               </Badge>
             )}
+            {row.agent_version && (
+              <Badge
+                className="bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
+                title={`Agent 版本：${row.agent_version}`}
+              >
+                <Bot className="mr-0.5 h-2.5 w-2.5" />
+                {row.agent_version}
+              </Badge>
+            )}
             {dnsStatusMeta && (
               <Badge
                 className={cn(
@@ -549,6 +562,8 @@ function NodeForm({
   // Agent 配置
   agentInterval,
   setAgentInterval,
+  agentAutoUpdateEnabled,
+  setAgentAutoUpdateEnabled,
   onSubmit,
   submitLabel,
   onCancel,
@@ -611,6 +626,8 @@ function NodeForm({
   // Agent 配置
   agentInterval: string
   setAgentInterval: (v: string) => void
+  agentAutoUpdateEnabled: boolean
+  setAgentAutoUpdateEnabled: (v: boolean) => void
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
   submitLabel: string
   onCancel?: () => void
@@ -966,6 +983,18 @@ function NodeForm({
               Agent 向面板上报流量与在线状态的时间间隔
             </p>
           </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label>每日自动更新</Label>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                每日从 GitHub 检查并更新对应架构的 agent。
+              </p>
+            </div>
+            <Switch
+              checked={agentAutoUpdateEnabled}
+              onCheckedChange={setAgentAutoUpdateEnabled}
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -1025,6 +1054,7 @@ export default function AdminNodesPage() {
   const [masqProxyXForwarded, setMasqProxyXForwarded] = useState(false)
   const [masqFileDir, setMasqFileDir] = useState("/www/masq")
   const [agentInterval, setAgentInterval] = useState("")
+  const [agentAutoUpdateEnabled, setAgentAutoUpdateEnabled] = useState(true)
 
   // 编辑面板
   const [editingRow, setEditingRow] = useState<NodeRow | null>(null)
@@ -1057,6 +1087,8 @@ export default function AdminNodesPage() {
   const [editMasqProxyXForwarded, setEditMasqProxyXForwarded] = useState(false)
   const [editMasqFileDir, setEditMasqFileDir] = useState("/www/masq")
   const [editAgentInterval, setEditAgentInterval] = useState("")
+  const [editAgentAutoUpdateEnabled, setEditAgentAutoUpdateEnabled] =
+    useState(true)
 
   async function refreshNodes() {
     const response = await fetch("/api/admin/nodes")
@@ -1295,6 +1327,7 @@ export default function AdminNodesPage() {
         masqueradeType,
         masqueradeConfig: buildMasqueradeConfigObj("create"),
         agentInterval: agentInterval ? Number(agentInterval) : null,
+        agentAutoUpdateEnabled,
       }),
     })
 
@@ -1328,6 +1361,7 @@ export default function AdminNodesPage() {
     setMasqProxyXForwarded(false)
     setMasqFileDir("/www/masq")
     setAgentInterval("")
+    setAgentAutoUpdateEnabled(true)
     setCreateOpen(false)
     await load()
   }
@@ -1456,6 +1490,7 @@ export default function AdminNodesPage() {
     setEditAgentInterval(
       row.agent_interval != null ? String(row.agent_interval) : ""
     )
+    setEditAgentAutoUpdateEnabled(row.agent_auto_update_enabled !== 0)
   }
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
@@ -1486,6 +1521,7 @@ export default function AdminNodesPage() {
       masqueradeType: editMasqueradeType,
       masqueradeConfig: buildMasqueradeConfigObj("edit"),
       agentInterval: editAgentInterval ? Number(editAgentInterval) : null,
+      agentAutoUpdateEnabled: editAgentAutoUpdateEnabled,
     })
 
     setEditingRow(null)
@@ -1780,6 +1816,8 @@ export default function AdminNodesPage() {
               setMasqFileDir={setMasqFileDir}
               agentInterval={agentInterval}
               setAgentInterval={setAgentInterval}
+              agentAutoUpdateEnabled={agentAutoUpdateEnabled}
+              setAgentAutoUpdateEnabled={setAgentAutoUpdateEnabled}
               onSubmit={create}
               submitLabel="创建节点"
             />
@@ -1855,6 +1893,8 @@ export default function AdminNodesPage() {
               setMasqFileDir={setEditMasqFileDir}
               agentInterval={editAgentInterval}
               setAgentInterval={setEditAgentInterval}
+              agentAutoUpdateEnabled={editAgentAutoUpdateEnabled}
+              setAgentAutoUpdateEnabled={setEditAgentAutoUpdateEnabled}
               onSubmit={submitEdit}
               submitLabel="保存修改"
               onCancel={() => setEditingRow(null)}

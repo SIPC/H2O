@@ -13,6 +13,9 @@ INSTALL_BIN=/usr/local/bin/h2o-agent
 CONFIG_DIR=/etc/h2o-agent
 CONFIG_FILE=$CONFIG_DIR/config.json
 UNIT_FILE=/etc/systemd/system/h2o-agent.service
+UPDATE_SCRIPT=/usr/local/libexec/h2o-agent-self-update
+UPDATE_UNIT=/etc/systemd/system/h2o-agent-update.service
+UPDATE_TIMER=/etc/systemd/system/h2o-agent-update.timer
 SERVICE_USER=h2o-agent
 
 if [[ $EUID -ne 0 ]]; then
@@ -87,7 +90,52 @@ EOF
 systemctl daemon-reload
 echo "已写入 $UNIT_FILE"
 
-# 6. 首次 vs 升级
+# 6. 写自动更新脚本和 systemd timer
+mkdir -p /usr/local/libexec
+cat > "$UPDATE_SCRIPT" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+set +e
+/usr/local/bin/h2o-agent -c /etc/h2o-agent/config.json -self-update
+code=$?
+set -e
+if [[ $code -eq 2 ]]; then
+  systemctl restart h2o-agent
+  exit 0
+fi
+exit $code
+EOF
+chmod 0755 "$UPDATE_SCRIPT"
+
+cat > "$UPDATE_UNIT" <<EOF
+[Unit]
+Description=H2O Agent self update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$UPDATE_SCRIPT
+EOF
+
+cat > "$UPDATE_TIMER" <<EOF
+[Unit]
+Description=Daily H2O Agent self update
+
+[Timer]
+OnCalendar=*-*-* 04:10:00
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now h2o-agent-update.timer >/dev/null 2>&1 || true
+echo "已写入 $UPDATE_TIMER"
+
+# 7. 首次 vs 升级
 if [[ $first_install -eq 1 ]]; then
   cat <<EOF
 

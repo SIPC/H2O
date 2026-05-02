@@ -3,16 +3,19 @@
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
+VERSION="${VERSION:-$(node -p "require('../package.json').version" 2>/dev/null || echo dev)}"
+LDFLAGS="-s -w -X main.Version=${VERSION}"
+
 rm -rf dist
 mkdir -p dist
 
-echo "[1/3] 编译 linux/amd64..."
+echo "[1/3] 编译 linux/amd64... version=${VERSION}"
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
-  go build -trimpath -ldflags="-s -w" -o dist/h2o-agent-linux-amd64 .
+  go build -trimpath -ldflags="$LDFLAGS" -o dist/h2o-agent-linux-amd64 .
 
-echo "[2/3] 编译 linux/arm64..."
+echo "[2/3] 编译 linux/arm64... version=${VERSION}"
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
-  go build -trimpath -ldflags="-s -w" -o dist/h2o-agent-linux-arm64 .
+  go build -trimpath -ldflags="$LDFLAGS" -o dist/h2o-agent-linux-arm64 .
 
 echo "[3/3] 打包..."
 cp install.sh config.example.json README.md dist/

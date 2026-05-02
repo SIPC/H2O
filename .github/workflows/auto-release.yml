@@ -90,7 +90,7 @@ jobs:
         shell: bash
         run: |
           chmod +x build.sh
-          ./build.sh
+          VERSION="${{ steps.version.outputs.current_version }}" ./build.sh
 
       - name: 生成 SHA256 校验文件
         if: steps.version.outputs.changed == 'true'

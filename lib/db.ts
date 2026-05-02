@@ -55,6 +55,7 @@ function migrate(database: DatabaseSync) {
       masquerade_type TEXT,
       masquerade_config TEXT,
       agent_interval INTEGER,
+      agent_auto_update_enabled INTEGER NOT NULL DEFAULT 1 CHECK(agent_auto_update_enabled IN (0,1)),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -114,6 +115,7 @@ function migrate(database: DatabaseSync) {
       online_count INTEGER NOT NULL DEFAULT 0,
       online_snapshot TEXT,
       traffic_snapshot TEXT,
+      agent_version TEXT,
       FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
     );
 
@@ -197,9 +199,11 @@ function migrate(database: DatabaseSync) {
     `ALTER TABLE nodes ADD COLUMN masquerade_type TEXT`,
     `ALTER TABLE nodes ADD COLUMN masquerade_config TEXT`,
     `ALTER TABLE nodes ADD COLUMN agent_interval INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN agent_auto_update_enabled INTEGER NOT NULL DEFAULT 1`,
     `ALTER TABLE plans ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN renewal_period_days INTEGER`,
     `ALTER TABLE subscriptions ADD COLUMN renewal_anchor TEXT`,
+    `ALTER TABLE node_stats ADD COLUMN agent_version TEXT`,
   ]) {
     try {
       database.exec(alter)

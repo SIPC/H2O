@@ -29,6 +29,7 @@ type NodeRow = {
   masquerade_type: string | null
   masquerade_config: string | null
   agent_interval: number | null
+  agent_auto_update_enabled: 0 | 1 | null
 }
 
 const DEFAULT_AGENT_BUNDLE_URL =
@@ -112,7 +113,7 @@ export async function GET(
               node_ip, node_port, node_port_hopping,
               cert_mode, cert_path, key_path,
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
-              masquerade_type, masquerade_config, agent_interval
+              masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -227,6 +228,10 @@ export async function GET(
   rawParams.set("interval_seconds", String(node.agent_interval ?? 120))
   rawParams.set("agent_bundle_url", agentBundleUrl)
   rawParams.set(
+    "agent_auto_update_enabled",
+    node.agent_auto_update_enabled !== 0 ? "true" : "false"
+  )
+  rawParams.set(
     "cert_mode",
     node.cert_mode === "acme" ? "acme-dns" : node.cert_mode || "self-signed"
   )
@@ -305,6 +310,7 @@ export async function GET(
         cert_path: certPath,
         key_path: keyPath,
         interval_seconds: node.agent_interval ?? 120,
+        agent_auto_update_enabled: node.agent_auto_update_enabled !== 0,
         stats_secret: statsSecret,
         deploy_port: deployPort,
         deploy_port_hopping: deployPortHopping,

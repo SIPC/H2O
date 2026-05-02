@@ -31,6 +31,7 @@ type UpdateNodeBody = {
   masqueradeType?: string | null
   masqueradeConfig?: Record<string, unknown> | null
   agentInterval?: number | null
+  agentAutoUpdateEnabled?: boolean
 }
 
 export async function PATCH(
@@ -269,6 +270,12 @@ export async function PATCH(
         : null
     )
     changedFields.push("agent_interval")
+  }
+
+  if (body.agentAutoUpdateEnabled !== undefined) {
+    updates.push("agent_auto_update_enabled = ?")
+    values.push(body.agentAutoUpdateEnabled ? 1 : 0)
+    changedFields.push("agent_auto_update_enabled")
   }
 
   if (updates.length === 0) {
