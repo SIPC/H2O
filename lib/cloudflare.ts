@@ -3,6 +3,9 @@
 
 const CF_API = "https://api.cloudflare.com/client/v4"
 
+// Cloudflare API 中 ttl=1 是“自动”，显式 60 才是一分钟
+export const PANEL_DNS_TTL_SECONDS = 60
+
 type CfResponse<T> = {
   success: boolean
   errors: Array<{ code: number; message: string }>
@@ -71,6 +74,7 @@ type DnsRecord = {
   name: string
   type: string
   content: string
+  ttl: number
   proxied: boolean
 }
 
@@ -102,7 +106,13 @@ export async function createDnsRecord(
     `/zones/${zoneId}/dns_records`,
     {
       method: "POST",
-      body: JSON.stringify({ type, name, content, ttl: 1, proxied }),
+      body: JSON.stringify({
+        type,
+        name,
+        content,
+        ttl: PANEL_DNS_TTL_SECONDS,
+        proxied,
+      }),
     }
   )
   return { recordId: result.id }
@@ -118,14 +128,16 @@ export async function updateDnsRecord(
   type: string = "A",
   proxied: boolean = false
 ): Promise<void> {
-  await cfFetch<unknown>(
-    apiToken,
-    `/zones/${zoneId}/dns_records/${recordId}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({ type, name, content, ttl: 1, proxied }),
-    }
-  )
+  await cfFetch<unknown>(apiToken, `/zones/${zoneId}/dns_records/${recordId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      type,
+      name,
+      content,
+      ttl: PANEL_DNS_TTL_SECONDS,
+      proxied,
+    }),
+  })
 }
 
 // 判断字符串是否为域名（非纯 IP）

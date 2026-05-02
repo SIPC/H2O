@@ -7,6 +7,7 @@ import {
   findDnsRecord,
   findZone,
   isDomain,
+  PANEL_DNS_TTL_SECONDS,
   updateDnsRecord,
 } from "@/lib/cloudflare"
 import { getDb } from "@/lib/db"
@@ -141,8 +142,10 @@ export async function POST(
     const existing = await findDnsRecord(cfToken, zone.zoneId, domain, dnsType)
 
     if (existing) {
-      // 已存在且 IP 相同，跳过
-      if (existing.content === node.node_ip) {
+      const needsTtlUpdate = existing.ttl !== PANEL_DNS_TTL_SECONDS
+
+      // 已存在且 IP / TTL 都相同，跳过
+      if (existing.content === node.node_ip && !needsTtlUpdate) {
         return NextResponse.json({
           ok: true,
           data: {
@@ -150,18 +153,20 @@ export async function POST(
             domain,
             dnsType,
             ip: node.node_ip,
+            ttl: PANEL_DNS_TTL_SECONDS,
             zone: zone.zoneName,
           },
         })
       }
-      // IP 不同，更新
+      // IP 或 TTL 不同，统一更新为面板标准配置
       await updateDnsRecord(
         cfToken,
         zone.zoneId,
         existing.id,
         domain,
         node.node_ip,
-        dnsType
+        dnsType,
+        existing.proxied
       )
       writeAdminEvent({
         event: "NODE_UPDATE",
@@ -177,6 +182,9 @@ export async function POST(
           domain,
           oldIp: existing.content,
           newIp: node.node_ip,
+          oldTtl: existing.ttl,
+          ttl: PANEL_DNS_TTL_SECONDS,
+          proxied: existing.proxied,
         },
       })
       return NextResponse.json({
@@ -187,6 +195,9 @@ export async function POST(
           dnsType,
           ip: node.node_ip,
           oldIp: existing.content,
+          oldTtl: existing.ttl,
+          ttl: PANEL_DNS_TTL_SECONDS,
+          proxied: existing.proxied,
           zone: zone.zoneName,
         },
       })
@@ -213,6 +224,8 @@ export async function POST(
         dnsType,
         domain,
         ip: node.node_ip,
+        ttl: PANEL_DNS_TTL_SECONDS,
+        proxied: false,
         recordId: created.recordId,
       },
     })
@@ -223,6 +236,8 @@ export async function POST(
         domain,
         dnsType,
         ip: node.node_ip,
+        ttl: PANEL_DNS_TTL_SECONDS,
+        proxied: false,
         zone: zone.zoneName,
         recordId: created.recordId,
       },
