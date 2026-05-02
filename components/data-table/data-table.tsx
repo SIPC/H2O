@@ -109,6 +109,8 @@ export function DataTable<TData, TValue>({
       }
     : setInternalPagination
 
+  // TanStack Table 官方 hook 返回不可安全 memoize 的函数，React Compiler 会跳过该组件。
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data,
     columns,

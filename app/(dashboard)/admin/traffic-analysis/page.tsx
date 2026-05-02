@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useState } from "react"
 import {
   Bar,
   BarChart,
@@ -24,7 +24,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
-import { cn, formatBytes } from "@/lib/utils"
+import { formatBytes } from "@/lib/utils"
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                                */
@@ -324,11 +324,11 @@ export default function TrafficAnalysisPage() {
   const [fromDate, setFromDate] = useState(defaultRange.from)
   const [toDate, setToDate] = useState(defaultRange.to)
   const [data, setData] = useState<AnalysisData | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
 
   // 动画仅首次加载时播放，后续查询不再重播
-  const hasAnimatedRef = useRef(false)
+  const [shouldAnimate, setShouldAnimate] = useState(true)
 
   const fetchAnalysis = useCallback(async () => {
     if (!fromDate || !toDate) return
@@ -357,9 +357,28 @@ export default function TrafficAnalysisPage() {
 
   // 首次加载
   useEffect(() => {
-    void fetchAnalysis().then(() => {
-      hasAnimatedRef.current = true
-    })
+    if (!fromDate || !toDate) return
+
+    const params = new URLSearchParams({ from: fromDate, to: toDate })
+    void fetch(`/api/admin/traffic/analysis?${params}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (!json.ok) {
+          setError(json.error?.message ?? "请求失败")
+          setData(null)
+          return
+        }
+
+        setData(json.data as AnalysisData)
+      })
+      .catch(() => {
+        setError("网络错误")
+        setData(null)
+      })
+      .finally(() => {
+        setLoading(false)
+        setShouldAnimate(false)
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -534,7 +553,7 @@ export default function TrafficAnalysisPage() {
             dataKey="txBytes"
             config={TX_SPARK_CONFIG}
             subtitle={`${data.from} ~ ${data.to}`}
-            animate={!hasAnimatedRef.current}
+            animate={shouldAnimate}
           />
           <TrafficSparkCard
             title="总入站流量"
@@ -543,7 +562,7 @@ export default function TrafficAnalysisPage() {
             dataKey="rxBytes"
             config={RX_SPARK_CONFIG}
             subtitle={`${data.from} ~ ${data.to}`}
-            animate={!hasAnimatedRef.current}
+            animate={shouldAnimate}
           />
           <TrafficSparkCard
             title="总流量"
@@ -552,7 +571,7 @@ export default function TrafficAnalysisPage() {
             dataKey="totalBytes"
             config={TOTAL_SPARK_CONFIG}
             subtitle={`${data.daily.length} 天`}
-            animate={!hasAnimatedRef.current}
+            animate={shouldAnimate}
           />
         </div>
       )}
@@ -570,14 +589,14 @@ export default function TrafficAnalysisPage() {
               data={txPivot.rows}
               nodeNames={txPivot.nodeNames}
               config={txNodeConfig}
-              animate={!hasAnimatedRef.current}
+              animate={shouldAnimate}
             />
             <NodeSparklineCard
               title="各节点每日入站"
               data={rxPivot.rows}
               nodeNames={rxPivot.nodeNames}
               config={rxNodeConfig}
-              animate={!hasAnimatedRef.current}
+              animate={shouldAnimate}
             />
           </div>
         )}
