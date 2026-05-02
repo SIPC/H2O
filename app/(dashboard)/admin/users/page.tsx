@@ -6,7 +6,7 @@ import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useConfirm } from "@/components/confirm-provider"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -74,94 +74,117 @@ function UserForm({
   onCancel?: () => void
 }) {
   return (
-    <form className="flex flex-col gap-4" onSubmit={onSubmit}>
-      <div className="space-y-1">
-        <Label>用户名</Label>
-        <Input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          disabled={isEdit}
-          required={!isEdit}
-        />
-      </div>
-      {!isEdit && (
-        <div className="space-y-1">
-          <Label>密码</Label>
-          <Input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
-        </div>
-      )}
-      <div className="space-y-1">
-        <Label>角色</Label>
-        <div className="flex gap-2">
-          {(["user", "admin"] as Role[]).map((r) => (
-            <Button
-              key={r}
-              type="button"
-              variant={role === r ? "default" : "outline"}
-              size="sm"
-              onClick={() => setRole(r)}
-            >
-              {r}
-            </Button>
-          ))}
-        </div>
-      </div>
-
-      {isEdit && setStatus && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between">
-            <Label>状态</Label>
-            <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
-              <Switch
-                checked={status === "active"}
-                onCheckedChange={(next) =>
-                  setStatus(next ? "active" : "disabled")
-                }
-                size="sm"
-              />
-              {status === "active" ? "启用" : "禁用"}
-            </label>
+    <form
+      className="space-y-4 **:data-[slot=label]:text-xs"
+      onSubmit={onSubmit}
+    >
+      {/* === 基础信息 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            基础信息
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-1">
+            <Label>用户名</Label>
+            <Input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={isEdit}
+              required={!isEdit}
+            />
           </div>
-        </div>
-      )}
+          {!isEdit && (
+            <div className="space-y-1">
+              <Label>密码</Label>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+          )}
+          <div className="space-y-1">
+            <Label>角色</Label>
+            <div className="flex gap-2">
+              {(["user", "admin"] as Role[]).map((r) => (
+                <Button
+                  key={r}
+                  type="button"
+                  variant={role === r ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setRole(r)}
+                >
+                  {r}
+                </Button>
+              ))}
+            </div>
+          </div>
+          {isEdit && setStatus && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label>状态</Label>
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
+                  <Switch
+                    checked={status === "active"}
+                    onCheckedChange={(next) =>
+                      setStatus(next ? "active" : "disabled")
+                    }
+                    size="sm"
+                  />
+                  {status === "active" ? "启用" : "禁用"}
+                </label>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {isEdit && (
-        <div className="space-y-3 rounded-md border p-3">
-          <div className="space-y-1">
-            <Label>修改密码</Label>
-            <p className="text-xs text-muted-foreground">留空则不修改密码</p>
-          </div>
-          <Input
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="输入新密码（至少 6 位）"
-          />
-        </div>
-      )}
-
-      {isEdit && showResetToken && onResetToken && (
-        <div className="space-y-3 rounded-md border border-destructive/30 p-3">
-          <div className="space-y-1">
-            <Label>重置节点登录 Key</Label>
-            <p className="text-xs text-muted-foreground">
-              会使当前订阅链接立刻失效，已连接的节点需要重新导入
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="destructive"
-            size="sm"
-            onClick={onResetToken}
-          >
-            重置 Key
-          </Button>
-        </div>
+        <>
+          {/* === 安全设置 === */}
+          <Card>
+            <CardHeader className="p-4 pb-1">
+              <CardTitle className="text-base leading-none font-semibold">
+                安全设置
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="space-y-1">
+                <Label>修改密码</Label>
+                <p className="text-xs text-muted-foreground">
+                  留空则不修改密码
+                </p>
+                <Input
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  placeholder="输入新密码（至少 6 位）"
+                />
+              </div>
+              {showResetToken && onResetToken && (
+                <div className="space-y-3 rounded-md border border-destructive/30 p-3">
+                  <div className="space-y-1">
+                    <Label>重置节点登录 Key</Label>
+                    <p className="text-xs text-muted-foreground">
+                      会使当前订阅链接立刻失效，已连接的节点需要重新导入
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    onClick={onResetToken}
+                  >
+                    重置 Key
+                  </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
 
       <div className="flex gap-2 pt-2">

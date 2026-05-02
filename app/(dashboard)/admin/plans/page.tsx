@@ -277,11 +277,11 @@ function PlanForm({
         </CardContent>
       </Card>
 
-      {/* === 自动续订 === */}
+      {/* === 其他设置 === */}
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            自动续订
+            其他设置
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -289,7 +289,7 @@ function PlanForm({
             <div>
               <Label>自动续订</Label>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                开启后流量按周期自动重置，被封的订阅也会自动解封
+                开启后流量按周期自动重置
               </p>
             </div>
             <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />

@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const rows = db
     .prepare(
       `SELECT s.id, s.user_id, s.plan_id, s.start_time, s.expire_time, s.used_traffic_bytes, s.status,
-              u.username, p.name AS plan_name, p.traffic_limit_bytes
+              u.username, p.name AS plan_name, p.traffic_limit_bytes, p.duration_days
        FROM subscriptions s
        JOIN users u ON u.id = s.user_id
        JOIN plans p ON p.id = s.plan_id
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
   // 到期时间由开始时间 + 套餐天数计算，duration_days=0 表示永久
   const expire =
     plan.duration_days === 0
-      ? new Date("9999-12-31T23:59:59.000Z")
+      ? new Date("9999-12-31T00:00:00.000Z")
       : (() => {
           const d = new Date(startTime)
           d.setDate(d.getDate() + plan.duration_days)
