@@ -452,6 +452,18 @@ function NodeCard({
             >
               {row.status === "enabled" ? "启用" : "禁用"}
             </Badge>
+            {dnsStatusMeta && (
+              <Badge
+                className={cn(
+                  "px-1.5 py-0 text-[10px]",
+                  dnsStatusMeta.badgeClassName
+                )}
+                title={dnsStatusMeta.description}
+              >
+                <Globe className="mr-0.5 h-2.5 w-2.5" />
+                {dnsStatusMeta.label}
+              </Badge>
+            )}
             {fresh && (
               <Badge className="bg-blue-500/15 px-1.5 py-0 text-[10px] text-blue-700 dark:text-blue-400">
                 <Activity className="mr-0.5 h-2.5 w-2.5" />
@@ -470,18 +482,6 @@ function NodeCard({
               >
                 <Bot className="mr-0.5 h-2.5 w-2.5" />
                 {row.agent_version}
-              </Badge>
-            )}
-            {dnsStatusMeta && (
-              <Badge
-                className={cn(
-                  "px-1.5 py-0 text-[10px]",
-                  dnsStatusMeta.badgeClassName
-                )}
-                title={dnsStatusMeta.description}
-              >
-                <Globe className="mr-0.5 h-2.5 w-2.5" />
-                {dnsStatusMeta.label}
               </Badge>
             )}
           </div>
