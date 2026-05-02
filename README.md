@@ -1,7 +1,7 @@
 # H2O
-Hysteria 2 Ops
+Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 
-[安装教程](docs/0-pre-list.md) | [LinuxDO](https://linux.do/)
+[安装教程](docs/0-pre-list.md) | [交流群](https://t.me/h2o_msg) | [LinuxDO](https://linux.do/)
 
 ---
 
