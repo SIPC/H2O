@@ -303,8 +303,10 @@ export default function DashboardPage() {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
         <div>
-          <Skeleton className="h-8 w-32" />
-          <Skeleton className="mt-2 h-4 w-48" />
+          <h1 className="text-2xl font-bold">我的订阅</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            流量概览、订阅管理与今日趋势
+          </p>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">

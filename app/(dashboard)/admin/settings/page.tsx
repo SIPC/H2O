@@ -150,10 +150,12 @@ export default function AdminSettingsPage() {
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <Skeleton className="h-8 w-32" />
-            <Skeleton className="mt-2 h-4 w-64" />
+            <h1 className="text-2xl font-bold">站点设置</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              全局配置项，修改后需点击保存生效。
+            </p>
           </div>
-          <Skeleton className="h-8 w-16" />
+          <Button disabled>保存</Button>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">

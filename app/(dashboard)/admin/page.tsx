@@ -46,8 +46,10 @@ type TrafficOverview = {
   hourly: TrafficHour[]
 }
 
-type VersionCheckData = {
+type AdminOverviewData = {
+  user: SessionUser
   currentVersion: string
+  overview: AdminOverview
 }
 
 type TrendResult = {
@@ -160,6 +162,12 @@ function normalizeHourly(input: unknown): TrafficHour[] {
   }
 
   return out.length > 0 ? out : buildEmptyHourly()
+}
+
+function normalizeCount(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : 0
 }
 
 // 趋势：今日累计 vs 昨日累计，基线为 0 则不显示百分比
@@ -313,52 +321,32 @@ export default function AdminPage() {
 
     void (async () => {
       try {
-        const [
-          sessionRes,
-          usersRes,
-          nodesRes,
-          plansRes,
-          subsRes,
-          trafficRes,
-          versionRes,
-        ] = await Promise.all([
-          fetch("/api/auth/session"),
-          fetch("/api/admin/users"),
-          fetch("/api/admin/nodes"),
-          fetch("/api/admin/plans"),
-          fetch("/api/admin/subscriptions"),
+        const [overviewRes, trafficRes] = await Promise.all([
+          fetch("/api/admin/overview"),
           fetch("/api/admin/traffic/overview"),
-          fetch("/api/admin/version-check"),
         ])
 
-        const sessionJson = await sessionRes.json()
-        const usersJson = await usersRes.json()
-        const nodesJson = await nodesRes.json()
-        const plansJson = await plansRes.json()
-        const subsJson = await subsRes.json()
+        const overviewJson = await overviewRes.json()
         const trafficJson = await trafficRes.json()
-        const versionJson = await versionRes.json()
 
         if (!mounted) return
 
-        if (sessionJson?.ok) setUser(sessionJson.data.user)
-
-        if (versionJson?.ok) {
-          const data = versionJson.data as VersionCheckData
+        if (overviewJson?.ok) {
+          const data = overviewJson.data as AdminOverviewData
+          setUser(data.user)
           if (
             typeof data.currentVersion === "string" &&
             data.currentVersion.trim()
           ) {
             setPanelVersion(data.currentVersion)
           }
+          setOverview({
+            users: normalizeCount(data.overview.users),
+            nodes: normalizeCount(data.overview.nodes),
+            plans: normalizeCount(data.overview.plans),
+            subscriptions: normalizeCount(data.overview.subscriptions),
+          })
         }
-
-        setOverview({
-          users: usersJson?.ok ? usersJson.data.length : 0,
-          nodes: nodesJson?.ok ? nodesJson.data.length : 0,
-          plans: plansJson?.ok ? plansJson.data.length : 0,
-          subscriptions: subsJson?.ok ? subsJson.data.length : 0,
-        })
 
         if (trafficJson?.ok) {
           setTraffic({

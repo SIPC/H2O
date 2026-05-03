@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useMemo, useState } from "react"
+import { FormEvent, memo, useEffect, useMemo, useState } from "react"
 import { type ColumnDef } from "@tanstack/react-table"
 import {
   MoreVertical,
@@ -90,6 +90,7 @@ const statusLabel: Record<SubscriptionStatus, string> = {
 }
 
 const HISTORY_CHUNK_SIZE = 200
+const EMPTY_HISTORY: HourPoint[] = []
 
 const TX_SPARK_CONFIG = {
   txBytes: {
@@ -189,7 +190,7 @@ function normalizeHourly(input: unknown): HourPoint[] {
   return out.length > 0 ? out : buildEmptyHourly()
 }
 
-function SubscriptionHistorySpark({
+const SubscriptionHistorySpark = memo(function SubscriptionHistorySpark({
   hourly,
   dataKey,
 }: {
@@ -197,7 +198,6 @@ function SubscriptionHistorySpark({
   dataKey: "txBytes" | "rxBytes"
 }) {
   const data = hourly
-  const shouldAnimate = data.length > 0
   const config = dataKey === "txBytes" ? TX_SPARK_CONFIG : RX_SPARK_CONFIG
 
   return (
@@ -226,7 +226,7 @@ function SubscriptionHistorySpark({
           strokeWidth={1.6}
           dot={false}
           activeDot={{ r: 2 }}
-          isAnimationActive={shouldAnimate}
+          isAnimationActive={false}
           animationBegin={0}
           animationDuration={700}
           animationEasing="linear"
@@ -234,7 +234,7 @@ function SubscriptionHistorySpark({
       </LineChart>
     </ChartContainer>
   )
-}
+})
 
 // 订阅表单（创建 / 编辑共用）
 function SubscriptionForm({
@@ -667,7 +667,7 @@ export default function AdminSubscriptionsPage() {
       header: "总出历史",
       enableSorting: false,
       cell: ({ row }) => {
-        const hourly = historyBySub[row.original.id] ?? []
+        const hourly = historyBySub[row.original.id] ?? EMPTY_HISTORY
         return (
           <div className="min-w-[170px] py-1">
             <SubscriptionHistorySpark hourly={hourly} dataKey="txBytes" />
@@ -680,7 +680,7 @@ export default function AdminSubscriptionsPage() {
       header: "总入历史",
       enableSorting: false,
       cell: ({ row }) => {
-        const hourly = historyBySub[row.original.id] ?? []
+        const hourly = historyBySub[row.original.id] ?? EMPTY_HISTORY
         return (
           <div className="min-w-[170px] py-1">
             <SubscriptionHistorySpark hourly={hourly} dataKey="rxBytes" />
