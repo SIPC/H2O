@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react"
 import { Line, LineChart, XAxis } from "recharts"
 
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChartContainer,
@@ -13,12 +12,6 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { cn, formatBytes } from "@/lib/utils"
-
-type SessionUser = {
-  id: number
-  username: string
-  role: "user" | "admin"
-}
 
 type AdminOverview = {
   users: number
@@ -47,7 +40,6 @@ type TrafficOverview = {
 }
 
 type AdminOverviewData = {
-  user: SessionUser
   currentVersion: string
   overview: AdminOverview
 }
@@ -297,7 +289,6 @@ function TrafficSparkCard({
 }
 
 export default function AdminPage() {
-  const [user, setUser] = useState<SessionUser | null>(null)
   const [overview, setOverview] = useState<AdminOverview>({
     users: 0,
     nodes: 0,
@@ -313,6 +304,7 @@ export default function AdminPage() {
     yesterdayRxBytes: 0,
     hourly: [],
   })
+
   const [panelVersion, setPanelVersion] = useState("-")
   const [loading, setLoading] = useState(true)
 
@@ -333,7 +325,6 @@ export default function AdminPage() {
 
         if (overviewJson?.ok) {
           const data = overviewJson.data as AdminOverviewData
-          setUser(data.user)
           if (
             typeof data.currentVersion === "string" &&
             data.currentVersion.trim()
@@ -388,35 +379,43 @@ export default function AdminPage() {
   }, [])
 
   const tooltipDate = traffic.date || getLocalDateString()
+  const overviewItems = [
+    { label: "用户数", value: overview.users, description: "已创建账号" },
+    { label: "节点数", value: overview.nodes, description: "可用接入节点" },
+    { label: "套餐数", value: overview.plans, description: "已配置套餐" },
+    {
+      label: "订阅数",
+      value: overview.subscriptions,
+      description: "当前订阅记录",
+    },
+  ]
+  const todayTotalBytes = traffic.todayTxBytes + traffic.todayRxBytes
+  const yesterdayTotalBytes =
+    traffic.yesterdayTxBytes + traffic.yesterdayRxBytes
 
   if (loading) {
     return (
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-5 w-24" />
-          </CardHeader>
-          <CardContent className="flex items-center gap-2">
-            <Skeleton className="h-4 w-32" />
-            <Skeleton className="h-5 w-12" />
-            <Skeleton className="ml-auto h-4 w-16" />
-          </CardContent>
-        </Card>
+        <div>
+          <h1 className="text-2xl font-bold">管理概览</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            系统资源与今日流量趋势
+          </p>
+        </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
-            <Card key={index}>
-              <CardHeader>
-                <Skeleton className="h-5 w-20" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-8 w-16" />
+            <Card key={index} className="overflow-hidden border-border/70">
+              <CardContent className="p-4">
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="mt-3 h-10 w-20" />
+                <Skeleton className="mt-3 h-4 w-24" />
               </CardContent>
             </Card>
           ))}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-3">
           {Array.from({ length: 3 }).map((_, index) => (
             <Card key={index} className="overflow-hidden border-border/70">
               <CardContent className="p-4">
@@ -433,53 +432,47 @@ export default function AdminPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>管理概览</CardTitle>
-        </CardHeader>
-        <CardContent className="flex items-center gap-2 text-sm">
-          <span>当前用户：{user?.username ?? "-"}</span>
-          <Badge>{user?.role ?? "admin"}</Badge>
-          <span className="ml-auto text-muted-foreground">v{panelVersion}</span>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">用户数</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {overview.users}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">节点数</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {overview.nodes}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">套餐数</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {overview.plans}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">订阅数</CardTitle>
-          </CardHeader>
-          <CardContent className="text-2xl font-semibold">
-            {overview.subscriptions}
-          </CardContent>
-        </Card>
+      {/* 页面标题 */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">管理概览</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            系统资源与今日流量趋势
+          </p>
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          v{panelVersion}
+        </span>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* 资源概览 */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {overviewItems.map((item) => (
+          <Card key={item.label} className="overflow-hidden border-border/70">
+            <CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">{item.label}</p>
+              <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
+                {item.value}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {item.description}
+              </p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* 今日流量趋势 */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <TrafficSparkCard
+          title="今日总量"
+          totalBytes={todayTotalBytes}
+          previousDayBytes={yesterdayTotalBytes}
+          data={traffic.hourly}
+          dataKey="totalBytes"
+          config={TOTAL_CHART_CONFIG}
+          date={tooltipDate}
+        />
         <TrafficSparkCard
           title="今日总出"
           totalBytes={traffic.todayTxBytes}
@@ -496,15 +489,6 @@ export default function AdminPage() {
           data={traffic.hourly}
           dataKey="rxBytes"
           config={RX_CHART_CONFIG}
-          date={tooltipDate}
-        />
-        <TrafficSparkCard
-          title="今日总量"
-          totalBytes={traffic.todayTxBytes + traffic.todayRxBytes}
-          previousDayBytes={traffic.yesterdayTxBytes + traffic.yesterdayRxBytes}
-          data={traffic.hourly}
-          dataKey="totalBytes"
-          config={TOTAL_CHART_CONFIG}
           date={tooltipDate}
         />
       </div>

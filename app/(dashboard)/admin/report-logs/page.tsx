@@ -450,7 +450,7 @@ export default function AdminReportLogsPage() {
       <div>
         <h1 className="text-2xl font-bold">上报日志</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Agent 批量流量上报记录；单用户认证回调请查看「认证日志」。
+          Agent 流量上报记录。
         </p>
       </div>
 
