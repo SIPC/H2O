@@ -333,6 +333,7 @@ export default function AdminPlansPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<PlanRow[]>([])
   const [nodes, setNodes] = useState<NodeRow[]>([])
+  const [loading, setLoading] = useState(true)
 
   // 创建面板
   const [createOpen, setCreateOpen] = useState(false)
@@ -359,28 +360,37 @@ export default function AdminPlansPage() {
   const [editNodeIds, setEditNodeIds] = useState<number[]>([])
 
   async function load() {
-    const [planRes, nodeRes] = await Promise.all([
-      fetch("/api/admin/plans"),
-      fetch("/api/admin/nodes"),
-    ])
-    const planJson = await planRes.json()
-    const nodeJson = await nodeRes.json()
-    if (planJson?.ok) setRows(planJson.data)
-    if (nodeJson?.ok) setNodes(nodeJson.data)
-  }
-
-  useEffect(() => {
-    let mounted = true
-
-    void (async () => {
+    setLoading(true)
+    try {
       const [planRes, nodeRes] = await Promise.all([
         fetch("/api/admin/plans"),
         fetch("/api/admin/nodes"),
       ])
       const planJson = await planRes.json()
       const nodeJson = await nodeRes.json()
-      if (mounted && planJson?.ok) setRows(planJson.data)
-      if (mounted && nodeJson?.ok) setNodes(nodeJson.data)
+      if (planJson?.ok) setRows(planJson.data)
+      if (nodeJson?.ok) setNodes(nodeJson.data)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let mounted = true
+
+    void (async () => {
+      try {
+        const [planRes, nodeRes] = await Promise.all([
+          fetch("/api/admin/plans"),
+          fetch("/api/admin/nodes"),
+        ])
+        const planJson = await planRes.json()
+        const nodeJson = await nodeRes.json()
+        if (mounted && planJson?.ok) setRows(planJson.data)
+        if (mounted && nodeJson?.ok) setNodes(nodeJson.data)
+      } finally {
+        if (mounted) setLoading(false)
+      }
     })()
 
     return () => {
@@ -631,7 +641,7 @@ export default function AdminPlansPage() {
       </div>
 
       {/* 套餐列表 */}
-      {rows.length === 0 ? (
+      {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <p className="text-sm">暂无套餐</p>
           <p className="mt-1 text-xs">点击右上角「添加套餐」创建第一个套餐</p>
@@ -642,6 +652,8 @@ export default function AdminPlansPage() {
           data={rows}
           defaultPageSize={20}
           pageSizeOptions={[10, 20, 50, 100]}
+          loading={loading}
+          loadingRowCount={8}
           renderToolbar={(table) => (
             <>
               <DataTableFacetedFilter

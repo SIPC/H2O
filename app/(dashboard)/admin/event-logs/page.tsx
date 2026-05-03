@@ -305,6 +305,7 @@ export default function AdminEventLogsPage() {
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>("all")
   const [eventFilter, setEventFilter] = useState<EventFilter>("all")
   const [users, setUsers] = useState<UserRow[]>([])
+  const [loading, setLoading] = useState(true)
   // 当前在弹窗里查看的行；null 表示未打开
   const [activeRow, setActiveRow] = useState<EventRow | null>(null)
 
@@ -330,35 +331,44 @@ export default function AdminEventLogsPage() {
     params.set("page", String(nextPage))
     params.set("pageSize", String(nextPageSize))
 
-    const response = await fetch(`/api/admin/event-logs?${params.toString()}`)
-    const json = await response.json()
-    if (!json?.ok) return
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/admin/event-logs?${params.toString()}`)
+      const json = await response.json()
+      if (!json?.ok) return
 
-    setRows(json.data.rows)
-    setTotal(json.data.total)
-    setPage(json.data.page)
-    setPageSize(json.data.pageSize)
+      setRows(json.data.rows)
+      setTotal(json.data.total)
+      setPage(json.data.page)
+      setPageSize(json.data.pageSize)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const params = new URLSearchParams({ page: "1", pageSize: "50" })
-      const [logRes, userRes] = await Promise.all([
-        fetch(`/api/admin/event-logs?${params.toString()}`),
-        fetch("/api/admin/users"),
-      ])
-      const logJson = await logRes.json()
-      const userJson = await userRes.json()
-      if (!mounted) return
-      if (logJson?.ok) {
-        setRows(logJson.data.rows)
-        setTotal(logJson.data.total)
-        setPage(logJson.data.page)
-        setPageSize(logJson.data.pageSize)
+      try {
+        const params = new URLSearchParams({ page: "1", pageSize: "50" })
+        const [logRes, userRes] = await Promise.all([
+          fetch(`/api/admin/event-logs?${params.toString()}`),
+          fetch("/api/admin/users"),
+        ])
+        const logJson = await logRes.json()
+        const userJson = await userRes.json()
+        if (!mounted) return
+        if (logJson?.ok) {
+          setRows(logJson.data.rows)
+          setTotal(logJson.data.total)
+          setPage(logJson.data.page)
+          setPageSize(logJson.data.pageSize)
+        }
+        if (userJson?.ok) setUsers(userJson.data)
+      } finally {
+        if (mounted) setLoading(false)
       }
-      if (userJson?.ok) setUsers(userJson.data)
     })()
 
     return () => {
@@ -473,8 +483,7 @@ export default function AdminEventLogsPage() {
       <div>
         <h1 className="text-2xl font-bold">事件日志</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          登录 / 注册 / 登出 / 轮换 Key
-          等业务事件。
+          登录 / 注册 / 登出 / 轮换 Key 等业务事件。
         </p>
       </div>
 
@@ -560,6 +569,8 @@ export default function AdminEventLogsPage() {
         onPageChange={changePage}
         onPageSizeChange={changePageSize}
         pageSizeOptions={PAGE_SIZE_OPTIONS}
+        loading={loading}
+        loadingRowCount={10}
       />
 
       <EventLogDetailSheet row={activeRow} onClose={() => setActiveRow(null)} />

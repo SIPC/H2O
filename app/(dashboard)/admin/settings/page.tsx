@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 
 type Settings = {
   registration_enabled: boolean
@@ -147,9 +148,27 @@ export default function AdminSettingsPage() {
   if (!loaded) {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
-        <div>
-          <h1 className="text-2xl font-bold">站点设置</h1>
-          <p className="mt-1 text-sm text-muted-foreground">加载中...</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <Skeleton className="h-8 w-32" />
+            <Skeleton className="mt-2 h-4 w-64" />
+          </div>
+          <Skeleton className="h-8 w-16" />
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Card key={index}>
+              <CardHeader className="p-4 pb-1">
+                <Skeleton className="h-5 w-32" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Skeleton className="h-5 w-full" />
+                <Skeleton className="h-5 w-5/6" />
+                <Skeleton className="h-8 w-full" />
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </div>
     )
@@ -337,7 +356,7 @@ export default function AdminSettingsPage() {
                 type="email"
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="[email protected]"
+                placeholder="邮箱"
                 value={draft.acme_email}
                 onChange={(e) =>
                   setDraft((prev) => ({

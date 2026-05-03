@@ -208,6 +208,7 @@ function UserForm({
 export default function AdminUsersPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<UserRow[]>([])
+  const [loading, setLoading] = useState(true)
 
   // 表格列定义
   const columns = useMemo<ColumnDef<UserRow>[]>(
@@ -343,18 +344,27 @@ export default function AdminUsersPage() {
   const [editNewPassword, setEditNewPassword] = useState("")
 
   async function load() {
-    const response = await fetch("/api/admin/users")
-    const json = await response.json()
-    if (json?.ok) setRows(json.data)
+    setLoading(true)
+    try {
+      const response = await fetch("/api/admin/users")
+      const json = await response.json()
+      if (json?.ok) setRows(json.data)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const response = await fetch("/api/admin/users")
-      const json = await response.json()
-      if (mounted && json?.ok) setRows(json.data)
+      try {
+        const response = await fetch("/api/admin/users")
+        const json = await response.json()
+        if (mounted && json?.ok) setRows(json.data)
+      } finally {
+        if (mounted) setLoading(false)
+      }
     })()
 
     return () => {
@@ -494,7 +504,7 @@ export default function AdminUsersPage() {
       </div>
 
       {/* 用户列表 */}
-      {rows.length === 0 ? (
+      {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <p className="text-sm">暂无用户</p>
           <p className="mt-1 text-xs">点击右上角「添加用户」创建第一个用户</p>
@@ -505,6 +515,8 @@ export default function AdminUsersPage() {
           data={rows}
           defaultPageSize={20}
           pageSizeOptions={[10, 20, 50, 100]}
+          loading={loading}
+          loadingRowCount={8}
           renderToolbar={(table) => (
             <>
               <Input

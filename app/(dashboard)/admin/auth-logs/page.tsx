@@ -136,6 +136,7 @@ export default function AdminLogsPage() {
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>("all")
   const [users, setUsers] = useState<UserRow[]>([])
   const [nodes, setNodes] = useState<NodeRow[]>([])
+  const [loading, setLoading] = useState(true)
 
   // 统一的加载函数：筛选 + 分页都走这个入口
   async function load(
@@ -160,38 +161,47 @@ export default function AdminLogsPage() {
     params.set("page", String(nextPage))
     params.set("pageSize", String(nextPageSize))
 
-    const response = await fetch(`/api/admin/auth-logs?${params.toString()}`)
-    const json = await response.json()
-    if (!json?.ok) return
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/admin/auth-logs?${params.toString()}`)
+      const json = await response.json()
+      if (!json?.ok) return
 
-    setRows(json.data.rows)
-    setTotal(json.data.total)
-    setPage(json.data.page)
-    setPageSize(json.data.pageSize)
+      setRows(json.data.rows)
+      setTotal(json.data.total)
+      setPage(json.data.page)
+      setPageSize(json.data.pageSize)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const params = new URLSearchParams({ page: "1", pageSize: "50" })
-      const [logRes, userRes, nodeRes] = await Promise.all([
-        fetch(`/api/admin/auth-logs?${params.toString()}`),
-        fetch("/api/admin/users"),
-        fetch("/api/admin/nodes"),
-      ])
-      const logJson = await logRes.json()
-      const userJson = await userRes.json()
-      const nodeJson = await nodeRes.json()
-      if (!mounted) return
-      if (logJson?.ok) {
-        setRows(logJson.data.rows)
-        setTotal(logJson.data.total)
-        setPage(logJson.data.page)
-        setPageSize(logJson.data.pageSize)
+      try {
+        const params = new URLSearchParams({ page: "1", pageSize: "50" })
+        const [logRes, userRes, nodeRes] = await Promise.all([
+          fetch(`/api/admin/auth-logs?${params.toString()}`),
+          fetch("/api/admin/users"),
+          fetch("/api/admin/nodes"),
+        ])
+        const logJson = await logRes.json()
+        const userJson = await userRes.json()
+        const nodeJson = await nodeRes.json()
+        if (!mounted) return
+        if (logJson?.ok) {
+          setRows(logJson.data.rows)
+          setTotal(logJson.data.total)
+          setPage(logJson.data.page)
+          setPageSize(logJson.data.pageSize)
+        }
+        if (userJson?.ok) setUsers(userJson.data)
+        if (nodeJson?.ok) setNodes(nodeJson.data)
+      } finally {
+        if (mounted) setLoading(false)
       }
-      if (userJson?.ok) setUsers(userJson.data)
-      if (nodeJson?.ok) setNodes(nodeJson.data)
     })()
 
     return () => {
@@ -386,6 +396,8 @@ export default function AdminLogsPage() {
         onPageChange={changePage}
         onPageSizeChange={changePageSize}
         pageSizeOptions={PAGE_SIZE_OPTIONS}
+        loading={loading}
+        loadingRowCount={10}
       />
     </div>
   )

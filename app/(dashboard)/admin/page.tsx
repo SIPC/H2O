@@ -5,6 +5,7 @@ import { Line, LineChart, XAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChartContainer,
   ChartTooltip,
@@ -305,86 +306,91 @@ export default function AdminPage() {
     hourly: [],
   })
   const [panelVersion, setPanelVersion] = useState("-")
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const [
-        sessionRes,
-        usersRes,
-        nodesRes,
-        plansRes,
-        subsRes,
-        trafficRes,
-        versionRes,
-      ] = await Promise.all([
-        fetch("/api/auth/session"),
-        fetch("/api/admin/users"),
-        fetch("/api/admin/nodes"),
-        fetch("/api/admin/plans"),
-        fetch("/api/admin/subscriptions"),
-        fetch("/api/admin/traffic/overview"),
-        fetch("/api/admin/version-check"),
-      ])
+      try {
+        const [
+          sessionRes,
+          usersRes,
+          nodesRes,
+          plansRes,
+          subsRes,
+          trafficRes,
+          versionRes,
+        ] = await Promise.all([
+          fetch("/api/auth/session"),
+          fetch("/api/admin/users"),
+          fetch("/api/admin/nodes"),
+          fetch("/api/admin/plans"),
+          fetch("/api/admin/subscriptions"),
+          fetch("/api/admin/traffic/overview"),
+          fetch("/api/admin/version-check"),
+        ])
 
-      const sessionJson = await sessionRes.json()
-      const usersJson = await usersRes.json()
-      const nodesJson = await nodesRes.json()
-      const plansJson = await plansRes.json()
-      const subsJson = await subsRes.json()
-      const trafficJson = await trafficRes.json()
-      const versionJson = await versionRes.json()
+        const sessionJson = await sessionRes.json()
+        const usersJson = await usersRes.json()
+        const nodesJson = await nodesRes.json()
+        const plansJson = await plansRes.json()
+        const subsJson = await subsRes.json()
+        const trafficJson = await trafficRes.json()
+        const versionJson = await versionRes.json()
 
-      if (!mounted) return
+        if (!mounted) return
 
-      if (sessionJson?.ok) setUser(sessionJson.data.user)
+        if (sessionJson?.ok) setUser(sessionJson.data.user)
 
-      if (versionJson?.ok) {
-        const data = versionJson.data as VersionCheckData
-        if (
-          typeof data.currentVersion === "string" &&
-          data.currentVersion.trim()
-        ) {
-          setPanelVersion(data.currentVersion)
+        if (versionJson?.ok) {
+          const data = versionJson.data as VersionCheckData
+          if (
+            typeof data.currentVersion === "string" &&
+            data.currentVersion.trim()
+          ) {
+            setPanelVersion(data.currentVersion)
+          }
         }
-      }
 
-      setOverview({
-        users: usersJson?.ok ? usersJson.data.length : 0,
-        nodes: nodesJson?.ok ? nodesJson.data.length : 0,
-        plans: plansJson?.ok ? plansJson.data.length : 0,
-        subscriptions: subsJson?.ok ? subsJson.data.length : 0,
-      })
-
-      if (trafficJson?.ok) {
-        setTraffic({
-          date:
-            typeof trafficJson.data.date === "string"
-              ? trafficJson.data.date
-              : "",
-          currentLocalHour:
-            typeof trafficJson.data.currentLocalHour === "number"
-              ? clampHour(trafficJson.data.currentLocalHour)
-              : 0,
-          todayTxBytes:
-            typeof trafficJson.data.todayTxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.todayTxBytes))
-              : 0,
-          todayRxBytes:
-            typeof trafficJson.data.todayRxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.todayRxBytes))
-              : 0,
-          yesterdayTxBytes:
-            typeof trafficJson.data.yesterdayTxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.yesterdayTxBytes))
-              : 0,
-          yesterdayRxBytes:
-            typeof trafficJson.data.yesterdayRxBytes === "number"
-              ? Math.max(0, Math.floor(trafficJson.data.yesterdayRxBytes))
-              : 0,
-          hourly: normalizeHourly(trafficJson.data.hourly),
+        setOverview({
+          users: usersJson?.ok ? usersJson.data.length : 0,
+          nodes: nodesJson?.ok ? nodesJson.data.length : 0,
+          plans: plansJson?.ok ? plansJson.data.length : 0,
+          subscriptions: subsJson?.ok ? subsJson.data.length : 0,
         })
+
+        if (trafficJson?.ok) {
+          setTraffic({
+            date:
+              typeof trafficJson.data.date === "string"
+                ? trafficJson.data.date
+                : "",
+            currentLocalHour:
+              typeof trafficJson.data.currentLocalHour === "number"
+                ? clampHour(trafficJson.data.currentLocalHour)
+                : 0,
+            todayTxBytes:
+              typeof trafficJson.data.todayTxBytes === "number"
+                ? Math.max(0, Math.floor(trafficJson.data.todayTxBytes))
+                : 0,
+            todayRxBytes:
+              typeof trafficJson.data.todayRxBytes === "number"
+                ? Math.max(0, Math.floor(trafficJson.data.todayRxBytes))
+                : 0,
+            yesterdayTxBytes:
+              typeof trafficJson.data.yesterdayTxBytes === "number"
+                ? Math.max(0, Math.floor(trafficJson.data.yesterdayTxBytes))
+                : 0,
+            yesterdayRxBytes:
+              typeof trafficJson.data.yesterdayRxBytes === "number"
+                ? Math.max(0, Math.floor(trafficJson.data.yesterdayRxBytes))
+                : 0,
+            hourly: normalizeHourly(trafficJson.data.hourly),
+          })
+        }
+      } finally {
+        if (mounted) setLoading(false)
       }
     })()
 
@@ -394,6 +400,48 @@ export default function AdminPage() {
   }, [])
 
   const tooltipDate = traffic.date || getLocalDateString()
+
+  if (loading) {
+    return (
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-24" />
+          </CardHeader>
+          <CardContent className="flex items-center gap-2">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-5 w-12" />
+            <Skeleton className="ml-auto h-4 w-16" />
+          </CardContent>
+        </Card>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Card key={index}>
+              <CardHeader>
+                <Skeleton className="h-5 w-20" />
+              </CardHeader>
+              <CardContent>
+                <Skeleton className="h-8 w-16" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Card key={index} className="overflow-hidden border-border/70">
+              <CardContent className="p-4">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="mt-3 h-10 w-36" />
+                <Skeleton className="mt-4 h-14 w-full" />
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">

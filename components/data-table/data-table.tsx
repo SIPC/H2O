@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { DataTablePagination } from "./pagination"
+import { Skeleton } from "@/components/ui/skeleton"
 
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[]
@@ -56,6 +57,10 @@ interface DataTableProps<TData, TValue> {
   onPageChange?: (page: number) => void
   /** 每页行数变更回调 */
   onPageSizeChange?: (pageSize: number) => void
+  /** 加载中时显示骨架行 */
+  loading?: boolean
+  /** 骨架行数量，默认 8 */
+  loadingRowCount?: number
 }
 
 export function DataTable<TData, TValue>({
@@ -73,6 +78,8 @@ export function DataTable<TData, TValue>({
   totalRows,
   onPageChange,
   onPageSizeChange,
+  loading = false,
+  loadingRowCount = 8,
 }: DataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
@@ -161,7 +168,27 @@ export function DataTable<TData, TValue>({
             ))}
           </TableHeader>
           <TableBody>
-            {table.getRowModel().rows?.length ? (
+            {loading ? (
+              Array.from({ length: loadingRowCount }).map((_, rowIndex) => (
+                <TableRow key={`loading-${rowIndex}`}>
+                  {table.getVisibleLeafColumns().map((column, columnIndex) => (
+                    <TableCell key={column.id}>
+                      <Skeleton
+                        className={
+                          columnIndex === 0
+                            ? "h-4 w-12"
+                            : columnIndex % 3 === 0
+                              ? "h-4 w-24"
+                              : columnIndex % 3 === 1
+                                ? "h-4 w-32"
+                                : "h-4 w-20"
+                        }
+                      />
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}

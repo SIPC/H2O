@@ -246,6 +246,7 @@ export default function AdminReportLogsPage() {
   const [nodes, setNodes] = useState<NodeRow[]>([])
   const [activeReport, setActiveReport] = useState<ReportRow | null>(null)
   const [activeUserLogs, setActiveUserLogs] = useState<UserLogRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [detailLoading, setDetailLoading] = useState(false)
 
   async function load(
@@ -270,38 +271,49 @@ export default function AdminReportLogsPage() {
     params.set("page", String(nextPage))
     params.set("pageSize", String(nextPageSize))
 
-    const response = await fetch(`/api/admin/report-logs?${params.toString()}`)
-    const json = await response.json()
-    if (!json?.ok) return
+    setLoading(true)
+    try {
+      const response = await fetch(
+        `/api/admin/report-logs?${params.toString()}`
+      )
+      const json = await response.json()
+      if (!json?.ok) return
 
-    setRows(json.data.rows)
-    setTotal(json.data.total)
-    setPage(json.data.page)
-    setPageSize(json.data.pageSize)
+      setRows(json.data.rows)
+      setTotal(json.data.total)
+      setPage(json.data.page)
+      setPageSize(json.data.pageSize)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const params = new URLSearchParams({ page: "1", pageSize: "50" })
-      const [logRes, userRes, nodeRes] = await Promise.all([
-        fetch(`/api/admin/report-logs?${params.toString()}`),
-        fetch("/api/admin/users"),
-        fetch("/api/admin/nodes"),
-      ])
-      const logJson = await logRes.json()
-      const userJson = await userRes.json()
-      const nodeJson = await nodeRes.json()
-      if (!mounted) return
-      if (logJson?.ok) {
-        setRows(logJson.data.rows)
-        setTotal(logJson.data.total)
-        setPage(logJson.data.page)
-        setPageSize(logJson.data.pageSize)
+      try {
+        const params = new URLSearchParams({ page: "1", pageSize: "50" })
+        const [logRes, userRes, nodeRes] = await Promise.all([
+          fetch(`/api/admin/report-logs?${params.toString()}`),
+          fetch("/api/admin/users"),
+          fetch("/api/admin/nodes"),
+        ])
+        const logJson = await logRes.json()
+        const userJson = await userRes.json()
+        const nodeJson = await nodeRes.json()
+        if (!mounted) return
+        if (logJson?.ok) {
+          setRows(logJson.data.rows)
+          setTotal(logJson.data.total)
+          setPage(logJson.data.page)
+          setPageSize(logJson.data.pageSize)
+        }
+        if (userJson?.ok) setUsers(userJson.data)
+        if (nodeJson?.ok) setNodes(nodeJson.data)
+      } finally {
+        if (mounted) setLoading(false)
       }
-      if (userJson?.ok) setUsers(userJson.data)
-      if (nodeJson?.ok) setNodes(nodeJson.data)
     })()
 
     return () => {
@@ -533,6 +545,8 @@ export default function AdminReportLogsPage() {
         onPageChange={changePage}
         onPageSizeChange={changePageSize}
         pageSizeOptions={PAGE_SIZE_OPTIONS}
+        loading={loading}
+        loadingRowCount={10}
       />
 
       <ReportLogDetailSheet
@@ -584,11 +598,7 @@ function ReportLogDetailSheet({
                   value={formatDate(report.created_at)}
                 />
                 <DetailField label="节点" value={report.node_name ?? "-"} />
-                <DetailField
-                  label="auth_path"
-                  value={report.auth_path}
-                  mono
-                />
+                <DetailField label="auth_path" value={report.auth_path} mono />
                 <DetailField label="来源 IP" value={report.ip ?? "-"} mono />
                 <DetailField
                   label="Agent"

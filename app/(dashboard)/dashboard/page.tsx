@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/chart"
 
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { cn, formatBytes } from "@/lib/utils"
@@ -162,6 +163,7 @@ export default function DashboardPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<SubscriptionRow[]>([])
   const [sub, setSub] = useState<SubUrls | null>(null)
+  const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
   const [urlMasked, setUrlMasked] = useState(true)
   // 数据到达时一起记录"参考当前时间"，避免在 render 里调 Date.now（React 19 purity 规则）
@@ -233,7 +235,9 @@ export default function DashboardPage() {
   }
 
   useEffect(() => {
-    void fetchDashboardData().then(applyDashboardData)
+    void fetchDashboardData()
+      .then(applyDashboardData)
+      .finally(() => setLoading(false))
   }, [])
 
   async function copy(value: string) {
@@ -293,6 +297,55 @@ export default function DashboardPage() {
       trendText = `↓ ${Math.abs(diff).toFixed(1)}%`
       trendClass = "text-red-500"
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
+        <div>
+          <Skeleton className="h-8 w-32" />
+          <Skeleton className="mt-2 h-4 w-48" />
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_2fr]">
+          <Card className="overflow-hidden border-border/70">
+            <CardContent className="p-4">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="mt-3 h-10 w-40" />
+              <Skeleton className="mt-4 h-2 w-full" />
+            </CardContent>
+          </Card>
+          <Card className="overflow-hidden border-border/70">
+            <CardContent className="p-4">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="mt-3 h-10 w-40" />
+              <Skeleton className="mt-4 h-14 w-full" />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <Skeleton className="h-5 w-24" />
+          </CardHeader>
+          <CardContent className="space-y-3 p-4 pt-0">
+            <Skeleton className="h-4 w-72 max-w-full" />
+            <Skeleton className="h-8 w-full" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <Skeleton className="h-5 w-24" />
+          </CardHeader>
+          <CardContent className="space-y-3 p-4">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <Skeleton key={index} className="h-5 w-full" />
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

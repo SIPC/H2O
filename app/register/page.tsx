@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -81,7 +82,14 @@ export default function RegisterPage() {
         </CardHeader>
         <CardContent>
           {registrationEnabled === null ? (
-            <p className="text-sm text-muted-foreground">加载中...</p>
+            <div className="space-y-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <div className="flex gap-2">
+                <Skeleton className="h-8 w-16" />
+                <Skeleton className="h-8 w-16" />
+              </div>
+            </div>
           ) : registrationEnabled === false ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">

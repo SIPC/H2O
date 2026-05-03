@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 
 type PublicSettings = {
   registration_enabled: boolean
@@ -17,15 +18,20 @@ const DEFAULTS: PublicSettings = {
 
 export default function Page() {
   const [settings, setSettings] = useState<PublicSettings>(DEFAULTS)
+  const [loaded, setLoaded] = useState(false)
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const response = await fetch("/api/settings/public")
-      const json = await response.json()
-      if (mounted && json?.ok) {
-        setSettings({ ...DEFAULTS, ...json.data })
+      try {
+        const response = await fetch("/api/settings/public")
+        const json = await response.json()
+        if (mounted && json?.ok) {
+          setSettings({ ...DEFAULTS, ...json.data })
+        }
+      } finally {
+        if (mounted) setLoaded(true)
       }
     })()
 
@@ -43,16 +49,25 @@ export default function Page() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {settings.login_enabled ? (
-            <Button asChild>
-              <Link href="/login">登录</Link>
-            </Button>
-          ) : null}
-          {settings.registration_enabled ? (
-            <Button asChild variant="outline">
-              <Link href="/register">注册</Link>
-            </Button>
-          ) : null}
+          {!loaded ? (
+            <>
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-8 w-16" />
+            </>
+          ) : (
+            <>
+              {settings.login_enabled ? (
+                <Button asChild>
+                  <Link href="/login">登录</Link>
+                </Button>
+              ) : null}
+              {settings.registration_enabled ? (
+                <Button asChild variant="outline">
+                  <Link href="/register">注册</Link>
+                </Button>
+              ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>

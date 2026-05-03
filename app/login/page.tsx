@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 
 export default function LoginPage() {
   const router = useRouter()
@@ -17,6 +18,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   // site key 从 /api/settings/public 读，空串表示未配置
   const [turnstileSiteKey, setTurnstileSiteKey] = useState("")
 
@@ -26,13 +28,17 @@ export default function LoginPage() {
     let mounted = true
 
     void (async () => {
-      const response = await fetch("/api/settings/public")
-      const json = await response.json()
-      if (mounted && json?.ok) {
-        setRegistrationEnabled(json.data.registration_enabled !== false)
-        if (typeof json.data.turnstile_site_key === "string") {
-          setTurnstileSiteKey(json.data.turnstile_site_key)
+      try {
+        const response = await fetch("/api/settings/public")
+        const json = await response.json()
+        if (mounted && json?.ok) {
+          setRegistrationEnabled(json.data.registration_enabled !== false)
+          if (typeof json.data.turnstile_site_key === "string") {
+            setTurnstileSiteKey(json.data.turnstile_site_key)
+          }
         }
+      } finally {
+        if (mounted) setSettingsLoaded(true)
       }
     })()
 
@@ -74,6 +80,26 @@ export default function LoginPage() {
     }
 
     router.push("/dashboard")
+  }
+
+  if (!settingsLoaded) {
+    return (
+      <div className="mx-auto flex min-h-svh max-w-md items-center p-6">
+        <Card className="w-full">
+          <CardHeader>
+            <Skeleton className="h-6 w-16" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <div className="flex gap-2">
+              <Skeleton className="h-8 w-16" />
+              <Skeleton className="h-8 w-16" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

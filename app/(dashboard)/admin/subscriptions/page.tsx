@@ -389,6 +389,7 @@ export default function AdminSubscriptionsPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [users, setUsers] = useState<UserRow[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [historyBySub, setHistoryBySub] = useState<Record<number, HourPoint[]>>(
     {}
@@ -459,48 +460,57 @@ export default function AdminSubscriptionsPage() {
   }
 
   async function load() {
-    const response = await fetch("/api/admin/subscriptions")
-    const json = await response.json()
+    setLoading(true)
+    try {
+      const response = await fetch("/api/admin/subscriptions")
+      const json = await response.json()
 
-    if (!json?.ok || !Array.isArray(json.data)) {
-      setRows([])
-      setHistoryBySub({})
-      return
+      if (!json?.ok || !Array.isArray(json.data)) {
+        setRows([])
+        setHistoryBySub({})
+        return
+      }
+
+      const nextRows = json.data as Row[]
+      setRows(nextRows)
+      await loadHistory(nextRows.map((row) => row.id))
+    } finally {
+      setLoading(false)
     }
-
-    const nextRows = json.data as Row[]
-    setRows(nextRows)
-    await loadHistory(nextRows.map((row) => row.id))
   }
 
   useEffect(() => {
     let mounted = true
 
     void (async () => {
-      const [subRes, userRes, planRes] = await Promise.all([
-        fetch("/api/admin/subscriptions"),
-        fetch("/api/admin/users"),
-        fetch("/api/admin/plans"),
-      ])
-      const subJson = await subRes.json()
-      const userJson = await userRes.json()
-      const planJson = await planRes.json()
+      try {
+        const [subRes, userRes, planRes] = await Promise.all([
+          fetch("/api/admin/subscriptions"),
+          fetch("/api/admin/users"),
+          fetch("/api/admin/plans"),
+        ])
+        const subJson = await subRes.json()
+        const userJson = await userRes.json()
+        const planJson = await planRes.json()
 
-      if (!mounted) return
+        if (!mounted) return
 
-      const nextRows =
-        subJson?.ok && Array.isArray(subJson.data)
-          ? (subJson.data as Row[])
-          : []
+        const nextRows =
+          subJson?.ok && Array.isArray(subJson.data)
+            ? (subJson.data as Row[])
+            : []
 
-      setRows(nextRows)
-      if (userJson?.ok) setUsers(userJson.data)
-      if (planJson?.ok) setPlans(planJson.data)
+        setRows(nextRows)
+        if (userJson?.ok) setUsers(userJson.data)
+        if (planJson?.ok) setPlans(planJson.data)
 
-      await loadHistory(
-        nextRows.map((row) => row.id),
-        () => mounted
-      )
+        await loadHistory(
+          nextRows.map((row) => row.id),
+          () => mounted
+        )
+      } finally {
+        if (mounted) setLoading(false)
+      }
     })()
 
     return () => {
@@ -776,7 +786,7 @@ export default function AdminSubscriptionsPage() {
       </div>
 
       {/* 订阅列表 */}
-      {rows.length === 0 ? (
+      {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <p className="text-sm">暂无订阅</p>
           <p className="mt-1 text-xs">点击右上角「添加订阅」创建第一个订阅</p>
@@ -787,6 +797,8 @@ export default function AdminSubscriptionsPage() {
           data={rows}
           defaultPageSize={20}
           pageSizeOptions={[10, 20, 50, 100]}
+          loading={loading}
+          loadingRowCount={8}
           renderToolbar={(table) => (
             <>
               <Input

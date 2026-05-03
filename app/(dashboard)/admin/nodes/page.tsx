@@ -55,6 +55,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
@@ -1015,6 +1016,7 @@ function NodeForm({
 export default function AdminNodesPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<NodeRow[]>([])
+  const [loading, setLoading] = useState(true)
   const [historyByNode, setHistoryByNode] = useState<
     Record<number, HourPoint[]>
   >({})
@@ -1181,19 +1183,23 @@ export default function AdminNodesPage() {
     // 首次加载 + 定时轮询，保持节点在线状态实时更新
     const refresh = async () => {
       if (!mounted) return
-      const response = await fetch("/api/admin/nodes")
-      const json = await response.json()
-      if (!mounted) return
+      try {
+        const response = await fetch("/api/admin/nodes")
+        const json = await response.json()
+        if (!mounted) return
 
-      const nextRows =
-        json?.ok && Array.isArray(json.data) ? (json.data as NodeRow[]) : []
+        const nextRows =
+          json?.ok && Array.isArray(json.data) ? (json.data as NodeRow[]) : []
 
-      setRows(nextRows)
-      void loadDnsStatus()
-      await loadHistory(
-        nextRows.map((row) => row.id),
-        () => mounted
-      )
+        setRows(nextRows)
+        void loadDnsStatus()
+        await loadHistory(
+          nextRows.map((row) => row.id),
+          () => mounted
+        )
+      } finally {
+        if (mounted) setLoading(false)
+      }
     }
 
     void refresh()
@@ -1722,7 +1728,30 @@ export default function AdminNodesPage() {
       </div>
 
       {/* 节点卡片网格 */}
-      {rows.length === 0 ? (
+      {loading ? (
+        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <Card key={index} className="h-40 overflow-hidden">
+              <CardContent className="flex h-full flex-col justify-between p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-3 w-36" />
+                  </div>
+                  <Skeleton className="size-6 rounded-md" />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex gap-1">
+                    <Skeleton className="h-4 w-12" />
+                    <Skeleton className="h-4 w-14" />
+                  </div>
+                  <Skeleton className="h-3 w-40" />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <Server className="mb-3 h-10 w-10 opacity-40" />
           <p className="text-sm">暂无节点</p>
