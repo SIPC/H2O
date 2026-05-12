@@ -2,6 +2,14 @@ import { randomBytes } from "node:crypto"
 
 import { NextResponse } from "next/server"
 
+import {
+  buildHysteriaServerConfig,
+  buildHy2ListenValue,
+  getPortHoppingFallbackWarning,
+  normalizeCertMode,
+  yamlString,
+} from "@/lib/hysteria-server-config"
+
 type InstallParams = {
   panelUrl: string
   authPath: string
@@ -10,6 +18,7 @@ type InstallParams = {
   certPath: string
   keyPath: string
   statsSecret: string
+  agentSecret: string
   obfs: "" | "salamander"
   obfsPassword: string | null
   intervalSeconds: number
@@ -26,10 +35,6 @@ type InstallParams = {
 
 function errorJson(code: string, message: string, status = 400) {
   return NextResponse.json({ ok: false, error: { code, message } }, { status })
-}
-
-function yamlString(value: string) {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
 }
 
 function shellSingleQuote(value: string) {
@@ -67,179 +72,34 @@ function parsePayloadQuery(payload: string): URLSearchParams | null {
   }
 }
 
-// 根据 certMode 构建 Hy2 config 中的 TLS/ACME 段
-function buildTlsOrAcmeBlock(params: InstallParams): string {
-  const domainsYaml = params.acmeDomains
-    .map((d) => `    - ${yamlString(d)}`)
-    .join("\n")
-
-  if (params.certMode === "acme-http") {
-    return [
-      "acme:",
-      `  domains:`,
-      domainsYaml ||
-        `    - ${yamlString(params.acmeDomains[0] || "example.com")}`,
-      params.acmeEmail ? `  email: ${yamlString(params.acmeEmail)}` : null,
-      "  type: http",
-    ]
-      .filter(Boolean)
-      .join("\n")
-  }
-
-  if (params.certMode === "acme-dns") {
-    let dnsBlock = ""
-    if (
-      params.acmeDnsProvider === "cloudflare" &&
-      params.acmeDnsConfig.cloudflare_api_token
-    ) {
-      dnsBlock = [
-        "  dns:",
-        "    name: cloudflare",
-        "    config:",
-        `      cloudflare_api_token: ${yamlString(params.acmeDnsConfig.cloudflare_api_token)}`,
-      ].join("\n")
-    }
-
-    return [
-      "acme:",
-      `  domains:`,
-      domainsYaml ||
-        `    - ${yamlString(`*.${params.acmeDomains[0] || "example.com"}`)}`,
-      params.acmeEmail ? `  email: ${yamlString(params.acmeEmail)}` : null,
-      "  type: dns",
-      dnsBlock || null,
-    ]
-      .filter(Boolean)
-      .join("\n")
-  }
-
-  // self-signed 或 custom：使用 TLS 证书路径
-  return [
-    "tls:",
-    `  cert: ${yamlString(params.certPath)}`,
-    `  key: ${yamlString(params.keyPath)}`,
-  ].join("\n")
-}
-
-// 根据 masqueradeType 和 masqueradeConfig 构建伪装配置段
-function buildMasqueradeBlock(params: InstallParams): string | null {
-  // none: 不生成 masquerade 段
-  if (params.masqueradeType === "none") return null
-
-  const cfg = params.masqueradeConfig
-  const mType = params.masqueradeType || "string"
-
-  // string 模式（默认）
-  if (mType === "string") {
-    const content = typeof cfg.content === "string" ? cfg.content : "ok"
-    const statusCode = typeof cfg.statusCode === "number" ? cfg.statusCode : 200
-    const headers =
-      cfg.headers && typeof cfg.headers === "object"
-        ? (cfg.headers as Record<string, string>)
-        : { "content-type": "text/plain; charset=utf-8" }
-
-    const headerLines = Object.entries(headers)
-      .map(([k, v]) => `      ${yamlString(k)}: ${yamlString(v)}`)
-      .join("\n")
-
-    const lines = [
-      "masquerade:",
-      "  type: string",
-      "  string:",
-      `    content: ${yamlString(content)}`,
-      headerLines ? `    headers:\n${headerLines}` : null,
-      `    statusCode: ${statusCode}`,
-    ]
-    return lines.filter(Boolean).join("\n")
-  }
-
-  // proxy 模式
-  if (mType === "proxy") {
-    const url = typeof cfg.url === "string" ? cfg.url : ""
-    if (!url) return null
-    const lines = [
-      "masquerade:",
-      "  type: proxy",
-      "  proxy:",
-      `    url: ${yamlString(url)}`,
-      cfg.rewriteHost ? "    rewriteHost: true" : null,
-      cfg.insecure ? "    insecure: true" : null,
-      cfg.xForwarded ? "    xForwarded: true" : null,
-    ]
-    return lines.filter(Boolean).join("\n")
-  }
-
-  // file 模式
-  if (mType === "file") {
-    const dir = typeof cfg.dir === "string" ? cfg.dir : "/www/masq"
-    const lines = [
-      "masquerade:",
-      "  type: file",
-      "  file:",
-      `    dir: ${yamlString(dir)}`,
-    ]
-    return lines.filter(Boolean).join("\n")
-  }
-
-  // 未知类型，回退到默认 string
-  return buildMasqueradeBlock({
-    ...params,
-    masqueradeType: "string",
-    masqueradeConfig: {},
-  })
-}
-
 function buildScript(params: InstallParams) {
-  const authUrl = `${params.panelUrl}/api/node/auth/${encodeURIComponent(params.authPath)}`
-  const listenValue = (() => {
-    if (!params.portHopping) return `:${params.port}`
-    if (/^\d+-\d+$/.test(params.portHopping)) return `:${params.portHopping}`
-    return `:${params.port}`
-  })()
+  const listenValue = buildHy2ListenValue({
+    port: params.port,
+    portHopping: params.portHopping,
+  })
+  const portHoppingWarn = getPortHoppingFallbackWarning({
+    port: params.port,
+    portHopping: params.portHopping,
+  })
 
-  const portHoppingWarn =
-    params.portHopping && !/^\d+-\d+$/.test(params.portHopping)
-      ? `检测到端口跳跃为 "${params.portHopping}"。当前脚本仅自动支持连续端口范围（如 20000-50000）；已回退为单端口 ${params.port}。`
-      : null
-
-  const tlsOrAcme = buildTlsOrAcmeBlock(params)
-
-  const hy2Yaml = [
-    "listen: __H2O_LISTEN__",
-    "",
-    tlsOrAcme,
-    "",
-    "auth:",
-    "  type: http",
-    "  http:",
-    `    url: ${yamlString(authUrl)}`,
-    "    insecure: false",
-    "",
-    "trafficStats:",
-    "  listen: :9999",
-    `  secret: ${yamlString(params.statsSecret)}`,
-    buildMasqueradeBlock(params),
-    params.obfs === "salamander" && params.obfsPassword
-      ? [
-          "",
-          "obfs:",
-          "  type: salamander",
-          "  salamander:",
-          `    password: ${yamlString(params.obfsPassword)}`,
-        ].join("\n")
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n")
+  const hy2Yaml = buildHysteriaServerConfig(params).replace(
+    `listen: ${yamlString(listenValue)}`,
+    "listen: __H2O_LISTEN__"
+  )
 
   const agentConfig = JSON.stringify(
     {
       h2o_url: params.panelUrl,
       auth_path: params.authPath,
+      agent_secret: params.agentSecret,
+      control_enabled: true,
       hysteria_stats_url: "http://127.0.0.1:9999",
       hysteria_stats_secret: params.statsSecret,
       interval_seconds: params.intervalSeconds,
       auto_update_enabled: params.agentAutoUpdateEnabled,
+      hysteria_config_path: "/etc/hysteria/config.yaml",
+      hysteria_service_name: "hysteria-server",
+      agent_config_path: "/etc/h2o-agent/config.json",
     },
     null,
     2
@@ -247,6 +107,25 @@ function buildScript(params: InstallParams) {
 
   // self-signed 模式需要 openssl 生成证书；acme/custom 模式不需要
   const needsSelfSignedCert = params.certMode === "self-signed"
+
+  const systemdAgentService = [
+    "[Unit]",
+    "Description=H2O Agent (Hysteria2 traffic reporter)",
+    "After=network-online.target hysteria-server.service",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "ExecStart=/usr/local/bin/h2o-agent -c /etc/h2o-agent/config.json",
+    "Restart=always",
+    "RestartSec=10",
+    "NoNewPrivileges=yes",
+    "ProtectHome=yes",
+    "PrivateTmp=yes",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n")
 
   const lines: string[] = [
     "#!/usr/bin/env bash",
@@ -370,13 +249,12 @@ function buildScript(params: InstallParams) {
     'description="H2O Agent (Hysteria2 traffic reporter)"',
     'command="/usr/local/bin/h2o-agent"',
     'command_args="-c /etc/h2o-agent/config.json"',
-    'command_user="h2o-agent:h2o-agent"',
     'command_background="yes"',
     'pidfile="/run/h2o-agent.pid"',
     'output_log="/var/log/h2o-agent.log"',
     'error_log="/var/log/h2o-agent.log"',
     "start_pre() {",
-    "  checkpath -f -m 0640 -o h2o-agent:h2o-agent /var/log/h2o-agent.log",
+    "  checkpath -f -m 0640 -o root:root /var/log/h2o-agent.log",
     "}",
     "depend() {",
     "  need net",
@@ -414,9 +292,29 @@ function buildScript(params: InstallParams) {
     '  log_ok "已写入每日自更新任务: /etc/periodic/daily/h2o-agent-self-update"',
     "}",
     "",
+    "cleanup_hysteria_firewall_chains() {",
+    "  local bin rule delete_rule chain",
+    "  for bin in iptables ip6tables; do",
+    '    if ! command -v "$bin" >/dev/null 2>&1; then',
+    "      continue",
+    "    fi",
+    "    while IFS= read -r rule; do",
+    '      delete_rule="${rule/-A /-D }"',
+    "      $bin -w -t nat $delete_rule >/dev/null 2>&1 || true",
+    '    done < <($bin -w -t nat -S 2>/dev/null | grep "^-A .*HYSTERIA-" || true)',
+    "    while IFS= read -r chain; do",
+    '      $bin -w -t nat -F "$chain" >/dev/null 2>&1 || true',
+    '      $bin -w -t nat -X "$chain" >/dev/null 2>&1 || true',
+    "    done < <($bin -w -t nat -S 2>/dev/null | awk '/^-N HYSTERIA-/ {print $2}' || true)",
+    "  done",
+    "}",
+    "",
     "enable_and_restart_service() {",
     '  local service="$1"',
     '  log_info "启用并重启服务: $service"',
+    '  if [[ "$service" == hysteria* ]]; then',
+    "    cleanup_hysteria_firewall_chains",
+    "  fi",
     "  if has_systemd; then",
     '    systemctl enable "$service" >/dev/null 2>&1 || true',
     '    if systemctl restart "$service"; then',
@@ -561,6 +459,9 @@ function buildScript(params: InstallParams) {
     hy2Yaml,
     "H2O_HY2_CONFIG",
     'sed -i "s|__H2O_LISTEN__|$HY2_LISTEN|g" /etc/hysteria/config.yaml',
+    "chown root:root /etc/hysteria /etc/hysteria/config.yaml || true",
+    "chmod 0755 /etc/hysteria || true",
+    "chmod 0644 /etc/hysteria/config.yaml || true",
     "",
     'log_step "重启 hysteria-server"',
     "enable_and_restart_service hysteria-server",
@@ -589,10 +490,18 @@ function buildScript(params: InstallParams) {
     "cat > /etc/h2o-agent/config.json <<'H2O_AGENT_CONFIG'",
     agentConfig,
     "H2O_AGENT_CONFIG",
+    "if has_systemd; then",
+    "  cat > /etc/systemd/system/h2o-agent.service <<'H2O_SYSTEMD_AGENT'",
+    systemdAgentService,
+    "H2O_SYSTEMD_AGENT",
+    "  systemctl daemon-reload",
+    "fi",
     "if id h2o-agent >/dev/null 2>&1; then",
     "  chown root:h2o-agent /etc/h2o-agent/config.json || true",
-    "  chmod 0640 /etc/h2o-agent/config.json || true",
+    "else",
+    "  chown root:root /etc/h2o-agent/config.json || true",
     "fi",
+    "chmod 0600 /etc/h2o-agent/config.json || true",
     "",
     'log_step "重启 h2o-agent"',
     "enable_and_restart_service h2o-agent",
@@ -718,6 +627,19 @@ export async function GET(request: Request) {
     )
   }
 
+  const agentSecret =
+    query.get("agent_secret")?.trim() || randomBytes(32).toString("hex")
+  if (
+    agentSecret.length < 32 ||
+    agentSecret.length > 256 ||
+    /[\r\n]/.test(agentSecret)
+  ) {
+    return errorJson(
+      "INVALID_AGENT_SECRET",
+      "agent_secret 不合法（长度 32~256，且不能包含换行）"
+    )
+  }
+
   const obfsRaw = query.get("obfs")?.trim() ?? ""
   if (obfsRaw !== "" && obfsRaw !== "salamander") {
     return errorJson("UNSUPPORTED_OBFS", "当前仅支持 obfs=salamander")
@@ -733,7 +655,14 @@ export async function GET(request: Request) {
     )
   }
 
-  const intervalSeconds = 120
+  const intervalSeconds = parsePositiveInt(
+    query.get("interval_seconds")?.trim() ?? "120",
+    10,
+    86400
+  )
+  if (intervalSeconds == null) {
+    return errorJson("INVALID_INTERVAL", "interval_seconds 不合法")
+  }
 
   const agentAutoUpdateRaw =
     query.get("agent_auto_update_enabled")?.trim().toLowerCase() ?? "true"
@@ -755,15 +684,11 @@ export async function GET(request: Request) {
 
   // 证书模式解析（兼容旧值 acme → acme-dns）
   const certModeRaw = query.get("cert_mode")?.trim() ?? "self-signed"
-  const certMode = (
-    ["self-signed", "acme-http", "acme-dns", "acme", "custom"].includes(
-      certModeRaw
-    )
-      ? certModeRaw === "acme"
-        ? "acme-dns"
-        : certModeRaw
-      : "self-signed"
-  ) as "self-signed" | "acme-http" | "acme-dns" | "custom"
+  const certMode = normalizeCertMode(certModeRaw) as
+    | "self-signed"
+    | "acme-http"
+    | "acme-dns"
+    | "custom"
 
   // ACME 配置解析
   let acmeDomains: string[] = []
@@ -813,6 +738,7 @@ export async function GET(request: Request) {
     certPath,
     keyPath,
     statsSecret,
+    agentSecret,
     obfs,
     obfsPassword,
     intervalSeconds,

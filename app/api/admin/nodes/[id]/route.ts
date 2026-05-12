@@ -32,6 +32,7 @@ type UpdateNodeBody = {
   masqueradeConfig?: Record<string, unknown> | null
   agentInterval?: number | null
   agentAutoUpdateEnabled?: boolean
+  agentControlEnabled?: boolean
 }
 
 export async function PATCH(
@@ -262,6 +263,34 @@ export async function PATCH(
     changedFields.push("masquerade_config")
   }
 
+  const db = getDb()
+  const currentNode = db
+    .prepare(
+      `SELECT port, port_hopping, obfs, obfs_password, node_port, node_port_hopping,
+              cert_mode, cert_path, key_path, acme_domains, acme_email,
+              acme_dns_provider, acme_dns_config, masquerade_type,
+              masquerade_config, agent_interval, agent_auto_update_enabled
+       FROM nodes
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(nodeId) as Record<string, string | number | null> | undefined
+
+  if (!currentNode) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "NOT_FOUND",
+      detail: { nodeId },
+    })
+    return NextResponse.json(
+      { ok: false, error: { code: "NOT_FOUND", message: "节点不存在" } },
+      { status: 404 }
+    )
+  }
+
   if (body.agentInterval !== undefined) {
     updates.push("agent_interval = ?")
     values.push(
@@ -276,6 +305,12 @@ export async function PATCH(
     updates.push("agent_auto_update_enabled = ?")
     values.push(body.agentAutoUpdateEnabled ? 1 : 0)
     changedFields.push("agent_auto_update_enabled")
+  }
+
+  if (body.agentControlEnabled !== undefined) {
+    updates.push("agent_control_enabled = ?")
+    values.push(body.agentControlEnabled ? 1 : 0)
+    changedFields.push("agent_control_enabled")
   }
 
   if (updates.length === 0) {
@@ -296,8 +331,45 @@ export async function PATCH(
     )
   }
 
+  const runtimeConfigFields = new Set([
+    "port",
+    "port_hopping",
+    "obfs",
+    "obfs_password",
+    "node_port",
+    "node_port_hopping",
+    "cert_mode",
+    "cert_path",
+    "key_path",
+    "acme_domains",
+    "acme_email",
+    "acme_dns_provider",
+    "acme_dns_config",
+    "masquerade_type",
+    "masquerade_config",
+    "agent_interval",
+    "agent_auto_update_enabled",
+  ])
+  const valueByField = new Map<string, string | number | null>()
+  updates.forEach((update, index) => {
+    const match = update.match(/^([a-z_]+) = \?$/)
+    if (match) valueByField.set(match[1], values[index])
+  })
+  const shouldBumpRevision = changedFields.some((field) => {
+    if (!runtimeConfigFields.has(field)) return false
+    if (!valueByField.has(field)) return true
+    return currentNode[field] !== valueByField.get(field)
+  })
+  if (shouldBumpRevision) {
+    updates.push(
+      "agent_config_revision = COALESCE(agent_config_revision, 1) + 1",
+      "agent_desired_config_hash = NULL",
+      "agent_last_config_built_at = NULL"
+    )
+    changedFields.push("agent_config_revision")
+  }
+
   values.push(nodeId)
-  const db = getDb()
   const result = db
     .prepare(`UPDATE nodes SET ${updates.join(", ")} WHERE id = ?`)
     .run(...values)

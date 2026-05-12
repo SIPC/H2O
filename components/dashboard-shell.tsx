@@ -85,6 +85,7 @@ const adminSubMenus: AdminSubMenu[] = [
       { title: "事件日志", href: "/admin/event-logs" },
       { title: "认证日志", href: "/admin/auth-logs" },
       { title: "上报日志", href: "/admin/report-logs" },
+      { title: "Agent 队列", href: "/admin/agent-tasks" },
     ],
   },
   { title: "站点设置", href: "/admin/settings" },

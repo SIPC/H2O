@@ -56,6 +56,12 @@ function migrate(database: DatabaseSync) {
       masquerade_config TEXT,
       agent_interval INTEGER,
       agent_auto_update_enabled INTEGER NOT NULL DEFAULT 1 CHECK(agent_auto_update_enabled IN (0,1)),
+      hy2_stats_secret TEXT,
+      agent_secret TEXT,
+      agent_control_enabled INTEGER NOT NULL DEFAULT 1 CHECK(agent_control_enabled IN (0,1)),
+      agent_config_revision INTEGER NOT NULL DEFAULT 1,
+      agent_desired_config_hash TEXT,
+      agent_last_config_built_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -178,6 +184,66 @@ function migrate(database: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
     CREATE INDEX IF NOT EXISTS idx_node_stats_last_report ON node_stats(last_report_at);
+
+    -- Agent 控制面状态：由 /api/node/agent/[authPath]/sync 定时刷新
+    CREATE TABLE IF NOT EXISTS node_agent_state (
+      node_id INTEGER PRIMARY KEY,
+      last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+      agent_version TEXT,
+      hostname TEXT,
+      os TEXT,
+      arch TEXT,
+      service_manager TEXT,
+      hy2_status TEXT,
+      hy2_version TEXT,
+      hysteria_config_path TEXT,
+      hysteria_config_hash TEXT,
+      applied_config_revision INTEGER,
+      last_config_apply_at TEXT,
+      last_error TEXT,
+      capabilities TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_node_agent_state_last_seen
+      ON node_agent_state(last_seen_at);
+
+    -- Agent 任务队列：只允许固定白名单任务，禁止任意命令执行
+    CREATE TABLE IF NOT EXISTS node_agent_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      node_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      payload TEXT,
+      status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','claimed','succeeded','failed','cancelled')),
+      result TEXT,
+      error TEXT,
+      created_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      claimed_at TEXT,
+      lease_expires_at TEXT,
+      finished_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_node_agent_tasks_node_status
+      ON node_agent_tasks(node_id, status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_node_agent_tasks_lease
+      ON node_agent_tasks(status, lease_expires_at);
+
+    -- Agent HMAC 请求 nonce，用于防重放
+    CREATE TABLE IF NOT EXISTS agent_request_nonces (
+      node_id INTEGER NOT NULL,
+      nonce TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      PRIMARY KEY (node_id, nonce),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_agent_request_nonces_expires
+      ON agent_request_nonces(expires_at);
   `)
 
   // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）
@@ -200,6 +266,12 @@ function migrate(database: DatabaseSync) {
     `ALTER TABLE nodes ADD COLUMN masquerade_config TEXT`,
     `ALTER TABLE nodes ADD COLUMN agent_interval INTEGER`,
     `ALTER TABLE nodes ADD COLUMN agent_auto_update_enabled INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE nodes ADD COLUMN hy2_stats_secret TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_secret TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_control_enabled INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE nodes ADD COLUMN agent_config_revision INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE nodes ADD COLUMN agent_desired_config_hash TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_last_config_built_at TEXT`,
     `ALTER TABLE plans ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN renewal_period_days INTEGER`,
     `ALTER TABLE subscriptions ADD COLUMN renewal_anchor TEXT`,

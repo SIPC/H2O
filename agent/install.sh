@@ -2,7 +2,7 @@
 # h2o-agent 节点侧一键部署脚本：
 #   - 按架构选对应二进制拷到 /usr/local/bin/h2o-agent
 #   - /etc/h2o-agent/config.json 不存在时从示例生成（首次运行要求手动编辑）
-#   - 创建 h2o-agent 系统用户
+#   - 创建 h2o-agent 系统用户（控制面管理 Hy2 时 systemd 下以 root 运行）
 #   - 写入 systemd unit 并 daemon-reload
 #   - 已有配置 → 自动 enable+restart；首次安装 → 提示用户编辑 config 后启动
 set -euo pipefail
@@ -54,13 +54,13 @@ chown root:"$SERVICE_USER" "$CONFIG_DIR"
 
 first_install=0
 if [[ ! -f "$CONFIG_FILE" ]]; then
-  install -m 0640 -o root -g "$SERVICE_USER" \
+  install -m 0600 -o root -g "$SERVICE_USER" \
     "$SCRIPT_DIR/config.example.json" "$CONFIG_FILE"
   first_install=1
   echo "已生成示例配置 $CONFIG_FILE"
 else
   chown root:"$SERVICE_USER" "$CONFIG_FILE"
-  chmod 0640 "$CONFIG_FILE"
+  chmod 0600 "$CONFIG_FILE"
   echo "保留已有配置 $CONFIG_FILE"
 fi
 
@@ -76,10 +76,7 @@ Type=simple
 ExecStart=$INSTALL_BIN -c $CONFIG_FILE
 Restart=always
 RestartSec=10
-User=$SERVICE_USER
-Group=$SERVICE_USER
 NoNewPrivileges=yes
-ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 

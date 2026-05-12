@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"h2o-agent/control"
 	"h2o-agent/report"
 	"h2o-agent/selfupdate"
 	"h2o-agent/stats"
@@ -23,10 +24,15 @@ var Version = "dev"
 type Config struct {
 	H2OURL              string `json:"h2o_url"`
 	AuthPath            string `json:"auth_path"`
+	AgentSecret         string `json:"agent_secret"`
+	ControlEnabled      *bool  `json:"control_enabled"`
 	HysteriaStatsURL    string `json:"hysteria_stats_url"`
 	HysteriaStatsSecret string `json:"hysteria_stats_secret"`
 	IntervalSeconds     int    `json:"interval_seconds"`
 	AutoUpdateEnabled   *bool  `json:"auto_update_enabled"`
+	HysteriaConfigPath  string `json:"hysteria_config_path"`
+	HysteriaServiceName string `json:"hysteria_service_name"`
+	AgentConfigPath     string `json:"agent_config_path"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -44,6 +50,19 @@ func loadConfig(path string) (*Config, error) {
 	if c.AutoUpdateEnabled == nil {
 		defaultAutoUpdate := true
 		c.AutoUpdateEnabled = &defaultAutoUpdate
+	}
+	if c.ControlEnabled == nil {
+		defaultControl := c.AgentSecret != ""
+		c.ControlEnabled = &defaultControl
+	}
+	if c.HysteriaConfigPath == "" {
+		c.HysteriaConfigPath = "/etc/hysteria/config.yaml"
+	}
+	if c.HysteriaServiceName == "" {
+		c.HysteriaServiceName = "hysteria-server"
+	}
+	if c.AgentConfigPath == "" {
+		c.AgentConfigPath = path
 	}
 	return &c, nil
 }
@@ -103,8 +122,10 @@ func main() {
 		cfg.AutoUpdateEnabled != nil && *cfg.AutoUpdateEnabled,
 	)
 
+	var pendingControlResults []control.TaskResult
+
 	// 启动时立即跑一轮，再按 ticker 运行
-	runOnce(ctx, cfg)
+	pendingControlResults = runOnce(ctx, cfg, pendingControlResults)
 
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
@@ -115,23 +136,49 @@ func main() {
 			log.Println("[h2o-agent] 退出")
 			return
 		case <-tick.C:
-			runOnce(ctx, cfg)
+			pendingControlResults = runOnce(ctx, cfg, pendingControlResults)
 		}
 	}
 }
 
-func runOnce(ctx context.Context, cfg *Config) {
+func runOnce(ctx context.Context, cfg *Config, pending []control.TaskResult) []control.TaskResult {
+	if cfg.ControlEnabled != nil && *cfg.ControlEnabled {
+		_, results, err := control.Sync(ctx, control.Config{
+			H2OURL:              cfg.H2OURL,
+			AuthPath:            cfg.AuthPath,
+			AgentSecret:         cfg.AgentSecret,
+			HysteriaConfigPath:  cfg.HysteriaConfigPath,
+			HysteriaServiceName: cfg.HysteriaServiceName,
+			AgentConfigPath:     cfg.AgentConfigPath,
+			AutoUpdateEnabled:   cfg.AutoUpdateEnabled != nil && *cfg.AutoUpdateEnabled,
+			IntervalSeconds:     cfg.IntervalSeconds,
+			HysteriaStatsURL:    cfg.HysteriaStatsURL,
+			HysteriaStatsSecret: cfg.HysteriaStatsSecret,
+		}, Version, pending)
+		if err != nil {
+			log.Printf("同步控制面失败: %v", err)
+		} else {
+			pending = results
+			if len(results) > 0 {
+				log.Printf("控制面同步成功，待回传任务结果: %d", len(results))
+			} else {
+				log.Printf("控制面同步成功")
+			}
+		}
+	}
+
 	snap, err := fetchStatsWithRetry(ctx, cfg)
 	if err != nil {
 		log.Printf("抓取 Hy2 stats 失败: %v", err)
-		return
+		return pending
 	}
 	snap.AgentVersion = Version
 	if err := sendReportWithRetry(ctx, cfg, snap); err != nil {
 		log.Printf("上报 h2o 失败: %v", err)
-		return
+		return pending
 	}
 	log.Printf("上报成功: users=%d online=%d", len(snap.Traffic), len(snap.Online))
+	return pending
 }
 
 func sendReportWithRetry(ctx context.Context, cfg *Config, snap *stats.Snapshot) error {

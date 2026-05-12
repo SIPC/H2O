@@ -1,7 +1,6 @@
-import { randomBytes } from "node:crypto"
-
 import { NextResponse } from "next/server"
 
+import { ensureNodeAgentSecrets } from "@/lib/agent-control"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
@@ -30,6 +29,9 @@ type NodeRow = {
   masquerade_config: string | null
   agent_interval: number | null
   agent_auto_update_enabled: 0 | 1 | null
+  hy2_stats_secret: string | null
+  agent_secret: string | null
+  agent_control_enabled: 0 | 1 | null
 }
 
 const DEFAULT_AGENT_BUNDLE_URL =
@@ -113,7 +115,8 @@ export async function GET(
               node_ip, node_port, node_port_hopping,
               cert_mode, cert_path, key_path,
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
-              masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled
+              masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
+              hy2_stats_secret, agent_secret, agent_control_enabled
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -136,7 +139,14 @@ export async function GET(
   const certPath = node.cert_path?.trim() || "/etc/hysteria/server.crt"
   const keyPath = node.key_path?.trim() || "/etc/hysteria/server.key"
 
-  const statsSecret = randomBytes(24).toString("hex")
+  const { hy2StatsSecret: statsSecret, agentSecret } = ensureNodeAgentSecrets(
+    {
+      id: node.id,
+      hy2_stats_secret: node.hy2_stats_secret,
+      agent_secret: node.agent_secret,
+    },
+    db
+  )
 
   const settingsAgentBundleUrl = getSetting<string>(
     SETTING_KEYS.agentBundleUrl,
@@ -225,6 +235,7 @@ export async function GET(
   rawParams.set("cert_path", certPath)
   rawParams.set("key_path", keyPath)
   rawParams.set("stats_secret", statsSecret)
+  rawParams.set("agent_secret", agentSecret)
   rawParams.set("interval_seconds", String(node.agent_interval ?? 120))
   rawParams.set("agent_bundle_url", agentBundleUrl)
   rawParams.set(
@@ -311,7 +322,6 @@ export async function GET(
         key_path: keyPath,
         interval_seconds: node.agent_interval ?? 120,
         agent_auto_update_enabled: node.agent_auto_update_enabled !== 0,
-        stats_secret: statsSecret,
         deploy_port: deployPort,
         deploy_port_hopping: deployPortHopping,
         obfs: node.obfs || null,

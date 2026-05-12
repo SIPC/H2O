@@ -44,6 +44,9 @@ type EventName =
   | "NODE_CREATE"
   | "NODE_UPDATE"
   | "NODE_DELETE"
+  | "AGENT_TASK_CREATE"
+  | "AGENT_SECRET_ROTATE"
+  | "AGENT_CONFIG_VIEW"
   | "PLAN_CREATE"
   | "PLAN_UPDATE"
   | "PLAN_DELETE"
@@ -84,6 +87,9 @@ const eventLabel: Record<EventName, string> = {
   NODE_CREATE: "创建节点",
   NODE_UPDATE: "更新节点",
   NODE_DELETE: "删除节点",
+  AGENT_TASK_CREATE: "创建 Agent 任务",
+  AGENT_SECRET_ROTATE: "轮换 Agent 密钥",
+  AGENT_CONFIG_VIEW: "查看 Agent 配置",
   PLAN_CREATE: "创建套餐",
   PLAN_UPDATE: "更新套餐",
   PLAN_DELETE: "删除套餐",
@@ -140,6 +146,9 @@ const eventOptions: Array<{ label: string; value: EventFilter }> = [
   { label: "创建节点", value: "NODE_CREATE" },
   { label: "更新节点", value: "NODE_UPDATE" },
   { label: "删除节点", value: "NODE_DELETE" },
+  { label: "创建 Agent 任务", value: "AGENT_TASK_CREATE" },
+  { label: "轮换 Agent 密钥", value: "AGENT_SECRET_ROTATE" },
+  { label: "查看 Agent 配置", value: "AGENT_CONFIG_VIEW" },
   { label: "创建套餐", value: "PLAN_CREATE" },
   { label: "更新套餐", value: "PLAN_UPDATE" },
   { label: "删除套餐", value: "PLAN_DELETE" },

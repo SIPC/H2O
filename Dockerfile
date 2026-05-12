@@ -4,6 +4,8 @@
 FROM node:24-alpine AS deps
 WORKDIR /app
 
+ENV CI=true
+
 RUN corepack enable
 
 COPY package.json pnpm-lock.yaml ./
@@ -20,7 +22,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
+ENV CI=true
+# builder 阶段不要设置 NODE_ENV=production，否则 pnpm 可能按生产依赖状态重装 node_modules
 
 RUN pnpm build
 

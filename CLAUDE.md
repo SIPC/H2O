@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后端提供用户/套餐/订阅/节点 CRUD、Hysteria2 节点 HTTP 认证回调、Hysteria 订阅链接生成；前端提供管理员后台与普通用户自助面板。Next.js 16 App Router + React 19 + TypeScript + Tailwind v4 + shadcn/ui。
+H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后端提供用户/套餐/订阅/节点 CRUD、Hysteria2 节点 HTTP 认证回调、Agent 拉取式配置下发与 Hy2 管理、Hysteria 订阅链接生成；前端提供管理员后台与普通用户自助面板。Next.js 16 App Router + React 19 + TypeScript + Tailwind v4 + shadcn/ui。
 
 ## 常用命令
 
@@ -17,7 +17,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 - `pnpm format` — Prettier + tailwind 插件（`no-semi`、双引号、2 空格、LF、`tailwindFunctions: ["cn","cva"]`）
 - 新增 shadcn 组件：`npx shadcn@latest add <name>`（`components.json` 里 style 是 `radix-nova`，基色 `neutral`，图标库 `lucide`）
 
-目前仓库没有测试脚手架。
+目前前端/后端没有测试脚手架。Agent 可用 `go -C agent test ./...` 做 Go 包编译校验。
 
 ## 环境变量
 
@@ -42,8 +42,8 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 使用 Node.js 内建 `node:sqlite` 的 `DatabaseSync`，**没有** `better-sqlite3`/`sqlite3` 依赖。需要 Node 版本支持 `node:sqlite`（Node 22+ 实验性 / Node 23+ 稳定）。
 
-- `lib/db.ts` → 业务库 `data/h2o.sqlite`（可用 `H2O_DB_PATH` 覆盖）：`users`, `nodes`, `plans`, `plan_nodes`, `subscriptions`, `sessions`, `settings`, `node_stats`, `node_user_traffic`, `traffic_hourly_stats`, `node_hourly_traffic`, `subscription_hourly_traffic`
-- `lib/logs-db.ts` → 日志库 `data/h2o-logs.sqlite`（可用 `H2O_LOGS_DB_PATH` 覆盖）：`auth_logs`（节点认证日志）、`event_logs`（业务事件日志）
+- `lib/db.ts` → 业务库 `data/h2o.sqlite`（可用 `H2O_DB_PATH` 覆盖）：`users`, `nodes`, `plans`, `plan_nodes`, `subscriptions`, `sessions`, `settings`, `node_stats`, `node_user_traffic`, `traffic_hourly_stats`, `node_hourly_traffic`, `subscription_hourly_traffic`, `node_agent_state`, `node_agent_tasks`, `agent_request_nonces`
+- `lib/logs-db.ts` → 日志库 `data/h2o-logs.sqlite`（可用 `H2O_LOGS_DB_PATH` 覆盖）：`auth_logs`（节点认证日志）、`event_logs`（业务事件日志）、`agent_traffic_reports` / `agent_traffic_user_logs`（Agent 上报日志）
 
 两库分离的设计目的是让日志可单独归档/清理，不影响业务库。两者都采用单例 + 懒加载，首次取用时 `migrate()` 建表并打开 `PRAGMA foreign_keys = ON`。`migrate()` 只维护当前 schema，**不做旧版本迁移兼容**。
 
@@ -93,7 +93,14 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `acme_dns_config` | `TEXT` | nullable |
 | `masquerade_type` | `TEXT` | nullable |
 | `masquerade_config` | `TEXT` | nullable |
-| `agent_interval` | `INTEGER` | nullable（agent 上报间隔秒数） |
+| `agent_interval` | `INTEGER` | nullable（agent 上报/同步间隔秒数） |
+| `agent_auto_update_enabled` | `INTEGER` | `NOT NULL DEFAULT 1`, `CHECK(agent_auto_update_enabled IN (0,1))` |
+| `hy2_stats_secret` | `TEXT` | nullable（Hy2 `trafficStats.secret`，首次部署/取配置时持久化） |
+| `agent_secret` | `TEXT` | nullable（Agent 控制面 HMAC 共享密钥，32 字节随机 hex） |
+| `agent_control_enabled` | `INTEGER` | `NOT NULL DEFAULT 1`, `CHECK(agent_control_enabled IN (0,1))` |
+| `agent_config_revision` | `INTEGER` | `NOT NULL DEFAULT 1`（期望 Hy2 配置版本） |
+| `agent_desired_config_hash` | `TEXT` | nullable（面板生成的期望 Hy2 配置 SHA-256） |
+| `agent_last_config_built_at` | `TEXT` | nullable |
 | `created_at` | `TEXT` | `NOT NULL DEFAULT (datetime('now'))` |
 
 `plans`
@@ -106,6 +113,8 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `duration_days` | `INTEGER` | `NOT NULL` |
 | `up_mbps` | `INTEGER` | `NOT NULL DEFAULT 0`（0 = 不限速） |
 | `down_mbps` | `INTEGER` | `NOT NULL DEFAULT 0`（0 = 不限速） |
+| `auto_renew` | `INTEGER` | `NOT NULL DEFAULT 0`, `CHECK(auto_renew IN (0,1))` |
+| `renewal_period_days` | `INTEGER` | nullable |
 
 `plan_nodes`（多对多关联表）
 
@@ -126,6 +135,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `expire_time` | `TEXT` | `NOT NULL` |
 | `used_traffic_bytes` | `INTEGER` | `NOT NULL DEFAULT 0` |
 | `status` | `TEXT` | `NOT NULL DEFAULT 'active'`, `CHECK(status IN ('active','expired','blocked'))` |
+| `renewal_anchor` | `TEXT` | nullable（自动续订周期锚点） |
 
 `sessions`
 
@@ -156,6 +166,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `online_count` | `INTEGER` | `NOT NULL DEFAULT 0` |
 | `online_snapshot` | `TEXT` | nullable（JSON，每个用户名 → 在线数） |
 | `traffic_snapshot` | `TEXT` | nullable（JSON，每个用户名 → {tx, rx}） |
+| `agent_version` | `TEXT` | nullable |
 
 `node_user_traffic`（差值法基准：每节点每用户上次上报的累计 tx/rx）
 
@@ -203,7 +214,55 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `updated_at` | `TEXT` | `NOT NULL DEFAULT (datetime('now'))` |
 | | | `PRIMARY KEY (subscription_id, bucket_date, bucket_hour)` |
 
-**索引**：`idx_node_hourly_traffic_bucket`, `idx_subscription_hourly_traffic_bucket`, `idx_sub_user_status_expire`, `idx_sessions_user_id`, `idx_sessions_expires_at`, `idx_node_stats_last_report`
+`node_agent_state`（Agent 控制面状态，由 sync 定时刷新）
+
+| 列 | 类型 | 约束 |
+|----|------|------|
+| `node_id` | `INTEGER` | `PRIMARY KEY`, `FK → nodes(id) ON DELETE CASCADE` |
+| `last_seen_at` | `TEXT` | `NOT NULL DEFAULT (datetime('now'))` |
+| `agent_version` | `TEXT` | nullable |
+| `hostname` | `TEXT` | nullable |
+| `os` | `TEXT` | nullable |
+| `arch` | `TEXT` | nullable |
+| `service_manager` | `TEXT` | nullable |
+| `hy2_status` | `TEXT` | nullable（`running` / `stopped` / `failed` / `unknown` 等） |
+| `hy2_version` | `TEXT` | nullable |
+| `hysteria_config_path` | `TEXT` | nullable |
+| `hysteria_config_hash` | `TEXT` | nullable（Agent 本地配置 SHA-256） |
+| `applied_config_revision` | `INTEGER` | nullable |
+| `last_config_apply_at` | `TEXT` | nullable |
+| `last_error` | `TEXT` | nullable |
+| `capabilities` | `TEXT` | nullable（JSON 数组） |
+| `updated_at` | `TEXT` | `NOT NULL DEFAULT (datetime('now'))` |
+
+`node_agent_tasks`（Agent 任务队列）
+
+| 列 | 类型 | 约束 |
+|----|------|------|
+| `id` | `INTEGER` | `PRIMARY KEY AUTOINCREMENT` |
+| `node_id` | `INTEGER` | `NOT NULL`, `FK → nodes(id) ON DELETE CASCADE` |
+| `type` | `TEXT` | `NOT NULL`（白名单任务类型） |
+| `payload` | `TEXT` | nullable（JSON 字符串） |
+| `status` | `TEXT` | `NOT NULL DEFAULT 'queued'`, `CHECK(status IN ('queued','claimed','succeeded','failed','cancelled'))` |
+| `result` | `TEXT` | nullable（JSON 字符串或文本） |
+| `error` | `TEXT` | nullable |
+| `created_by` | `INTEGER` | nullable, `FK → users(id) ON DELETE SET NULL` |
+| `created_at` | `TEXT` | `NOT NULL DEFAULT (datetime('now'))` |
+| `claimed_at` | `TEXT` | nullable |
+| `lease_expires_at` | `TEXT` | nullable |
+| `finished_at` | `TEXT` | nullable |
+| `updated_at` | `TEXT` | `NOT NULL DEFAULT (datetime('now'))` |
+
+`agent_request_nonces`（Agent HMAC 请求 nonce 防重放）
+
+| 列 | 类型 | 约束 |
+|----|------|------|
+| `node_id` | `INTEGER` | `NOT NULL`, `FK → nodes(id) ON DELETE CASCADE` |
+| `nonce` | `TEXT` | `NOT NULL` |
+| `expires_at` | `TEXT` | `NOT NULL` |
+| | | `PRIMARY KEY (node_id, nonce)` |
+
+**索引**：`idx_node_hourly_traffic_bucket`, `idx_subscription_hourly_traffic_bucket`, `idx_sub_user_status_expire`, `idx_sessions_user_id`, `idx_sessions_expires_at`, `idx_node_stats_last_report`, `idx_node_agent_state_last_seen`, `idx_node_agent_tasks_node_status`, `idx_node_agent_tasks_lease`, `idx_agent_request_nonces_expires`
 
 **日志库 `h2o-logs.sqlite`**
 
@@ -235,9 +294,11 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `reason` | `TEXT` | nullable |
 | `detail` | `TEXT` | nullable（JSON 字符串） |
 
-`EventName` 类型（20 种事件）：`LOGIN` | `REGISTER` | `LOGOUT` | `RESET_TOKEN_SELF` | `RESET_TOKEN_ADMIN` | `BOOTSTRAP_ADMIN` | `USER_CREATE` | `USER_UPDATE` | `USER_DELETE` | `NODE_CREATE` | `NODE_UPDATE` | `NODE_DELETE` | `PLAN_CREATE` | `PLAN_UPDATE` | `PLAN_DELETE` | `SUBSCRIPTION_CREATE` | `SUBSCRIPTION_UPDATE` | `SUBSCRIPTION_DELETE` | `SUBSCRIPTION_FETCH` | `SETTINGS_UPDATE`
+`agent_traffic_reports` / `agent_traffic_user_logs`：Agent 批量流量上报的请求级汇总与用户级明细，记录上报用户数、在线数、原始累计 tx/rx、差值 delta、处理结果、Agent 版本与错误原因。`auth_path` 落库前会用 `maskAuthPath()` 脱敏。
 
-**日志索引**：`idx_auth_logs_created`, `idx_event_logs_created`, `idx_event_logs_event`
+`EventName` 类型（23 种事件）：`LOGIN` | `REGISTER` | `LOGOUT` | `RESET_TOKEN_SELF` | `RESET_TOKEN_ADMIN` | `BOOTSTRAP_ADMIN` | `USER_CREATE` | `USER_UPDATE` | `USER_DELETE` | `NODE_CREATE` | `NODE_UPDATE` | `NODE_DELETE` | `AGENT_TASK_CREATE` | `AGENT_SECRET_ROTATE` | `AGENT_CONFIG_VIEW` | `PLAN_CREATE` | `PLAN_UPDATE` | `PLAN_DELETE` | `SUBSCRIPTION_CREATE` | `SUBSCRIPTION_UPDATE` | `SUBSCRIPTION_DELETE` | `SUBSCRIPTION_FETCH` | `SETTINGS_UPDATE`
+
+**日志索引**：`idx_auth_logs_created`, `idx_event_logs_created`, `idx_event_logs_event`, `idx_agent_traffic_reports_created`, `idx_agent_traffic_reports_node_created`, `idx_agent_traffic_reports_reason_created`, `idx_agent_traffic_user_logs_report`, `idx_agent_traffic_user_logs_created`, `idx_agent_traffic_user_logs_username_created`, `idx_agent_traffic_user_logs_node_created`
 
 ### 双 token 认证模型
 
@@ -282,9 +343,11 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 `agent/` 目录是独立 Go 程序，部署在每个 Hysteria2 节点上，负责采集 Hy2 Traffic Stats API 并上报给面板。
 
-**架构**：三个包——`main`（CLI、配置、信号处理、ticker 循环）、`stats`（并发获取 `/traffic` + `/online`）、`report`（POST 到面板）
+**架构**：四个包——`main`（CLI、配置、信号处理、ticker 循环）、`stats`（并发获取 `/traffic` + `/online`）、`report`（POST 流量快照到面板）、`control`（拉取式控制面同步、Hy2 服务管理、配置应用、日志读取）。
 
-**通信**：`POST {h2o_url}/api/node/auth/{authPath}/traffic`，`auth_path` 既是节点标识也是共享密钥。Hy2 本地 API 通过 `Authorization: <secret>` 头认证（对应 Hy2 配置的 `trafficStats.secret`）。
+**通信**：
+- 流量上报：`POST {h2o_url}/api/node/auth/{authPath}/traffic`，复用 `auth_path` 标识节点。Hy2 本地 API 通过 `Authorization: <secret>` 头认证（对应 Hy2 配置的 `trafficStats.secret`）。
+- 控制面同步：`POST {h2o_url}/api/node/agent/{authPath}/sync`，使用 `agent_secret` 做 HMAC-SHA256 签名，携带 timestamp + nonce 防重放。Agent 不监听任何入站端口。
 
 **配置**（`agent/config.json`）：
 
@@ -292,13 +355,19 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 |------|------|
 | `h2o_url` | 面板地址 |
 | `auth_path` | 从面板节点页面复制 |
-| `hysteria_stats_url` | 本地 Hy2 Stats API，默认 `http://127.0.0.1:25300` |
-| `hysteria_stats_secret` | Hy2 配置的 trafficStats.secret |
-| `interval_seconds` | 上报间隔，默认 120 |
+| `agent_secret` | Agent 控制面 HMAC 密钥，从面板节点「Agent 配置」复制 |
+| `control_enabled` | 是否启用控制面同步，默认按是否存在 `agent_secret` 自动开启 |
+| `hysteria_stats_url` | 本地 Hy2 Stats API，默认 `http://127.0.0.1:9999` |
+| `hysteria_stats_secret` | Hy2 配置的 `trafficStats.secret`，由面板持久化生成 |
+| `interval_seconds` | 上报/同步间隔，默认 120 |
+| `auto_update_enabled` | 是否允许 Agent 自更新 |
+| `hysteria_config_path` | Hy2 配置路径，默认 `/etc/hysteria/config.yaml` |
+| `hysteria_service_name` | Hy2 服务名，默认 `hysteria-server` |
+| `agent_config_path` | Agent 自身配置路径，默认当前 `-c` 参数 |
 
 **构建**：`build.sh` 交叉编译 `linux/amd64` + `linux/arm64`（CGO_ENABLED=0，静态，strip），打包为 `dist/h2o-agent-bundle.tar.gz`
 
-**安装**：`install.sh` 自动检测架构、创建系统用户 `h2o-agent`、安装 systemd 服务（`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=yes`）。首次安装生成配置模板要求手动编辑，升级保留现有配置并自动重启。
+**安装**：`install.sh` 自动检测架构、创建系统用户 `h2o-agent`、安装 systemd 服务。控制面需要管理 Hy2 服务和写入 `/etc/hysteria/config.yaml`，当前 systemd/OpenRC 安装会让 agent 以 root 运行；Agent 不开放入站端口，且只执行白名单任务。首次安装生成配置模板要求手动编辑，升级保留现有配置并自动重启。
 
 **Go 依赖**：零外部依赖，仅 stdlib，`go 1.22`
 
@@ -337,9 +406,22 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 - 出站：proxy(selector)、auto(url-test)、ai、media、telegram、apple、microsoft、direct、block、dns-out
 - 13 个远程规则集（SagerNet GitHub .srs 文件）
 
+### Agent 配置下发与 Hy2 管理
+
+控制面采用 **Agent 拉取式**：面板只保存期望状态和任务队列，Agent 周期性向面板发起 sync；面板不主动连接节点，Agent 不开放任何入站管理端口。
+
+- Sync 入口：`POST /api/node/agent/[authPath]/sync`
+- 认证：请求头 `X-H2O-Agent-Timestamp`、`X-H2O-Agent-Nonce`、`X-H2O-Agent-Signature`，签名消息为 `timestamp\nnonce\nMETHOD\npathname\nsha256(body)`，密钥是 `nodes.agent_secret`
+- 防重放：`agent_request_nonces` 记录 nonce，有效期 10 分钟；timestamp 允许约 5 分钟时钟偏差
+- 状态：Agent 上报 `agent_version`、主机信息、service manager、Hy2 状态/版本、本地配置 path/hash/revision、last error、capabilities，写入 `node_agent_state`
+- 配置：面板用 `lib/hysteria-server-config.ts` 生成规范 Hy2 YAML，并用 `agent_config_revision` + `agent_desired_config_hash` 管理期望版本；需要下发时 sync 返回 `APPLY_CONFIG` 任务 payload
+- 任务队列：`node_agent_tasks`，允许任务类型为 `HY2_STATUS` / `HY2_START` / `HY2_STOP` / `HY2_RESTART` / `HY2_LOGS` / `AGENT_LOGS` / `APPLY_CONFIG` / `AGENT_SELF_UPDATE`
+- 任务安全：禁止 `RUN_COMMAND` / `EXEC` 等任意命令；Agent 只执行固定白名单操作
+- 管理 API：`GET /api/admin/nodes/[id]/agent`、`GET|POST /api/admin/nodes/[id]/tasks`、`GET /api/admin/nodes/[id]/agent-config`、`POST /api/admin/nodes/[id]/agent-secret`、`GET /api/admin/agent-tasks`
+
 ### 一键部署
 
-`GET /api/admin/nodes/[id]/deploy-command` 生成 `curl | bash` 部署命令，将所有节点配置（证书、ACME、obfs、masquerade、agent）编码为 base64url payload。`GET /api/deploy/node-install` 负责解析 payload 并输出自包含的 bash 安装脚本。
+`GET /api/admin/nodes/[id]/deploy-command` 生成 `curl | bash` 部署命令，将所有节点配置（证书、ACME、obfs、masquerade、agent）编码为 base64url payload。`GET /api/deploy/node-install` 负责解析 payload 并输出自包含的 bash 安装脚本。部署命令会复用并持久化 `hy2_stats_secret` 与 `agent_secret`，生成的 Hy2 配置将 `trafficStats.listen` 绑定到 `127.0.0.1:9999`。
 
 ### Cloudflare DNS 管理
 

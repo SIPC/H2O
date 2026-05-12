@@ -8,11 +8,14 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FileText,
   Globe,
   MoreVertical,
   Pencil,
   Play,
   Plus,
+  RefreshCw,
+  RotateCw,
   Server,
   Square,
   Terminal,
@@ -35,6 +38,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
@@ -61,6 +67,58 @@ import { cn } from "@/lib/utils"
 
 type DnsStatus = "match" | "mismatch" | "unresolved" | "skip"
 
+type AgentTaskType =
+  | "HY2_STATUS"
+  | "HY2_START"
+  | "HY2_STOP"
+  | "HY2_RESTART"
+  | "HY2_LOGS"
+  | "AGENT_LOGS"
+  | "APPLY_CONFIG"
+  | "AGENT_SELF_UPDATE"
+
+type AgentTaskStatus =
+  | "queued"
+  | "claimed"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+
+type AgentTaskRow = {
+  id: number
+  node_id: number
+  type: AgentTaskType
+  payload: string | null
+  status: AgentTaskStatus
+  result: string | null
+  error: string | null
+  created_at: string
+  claimed_at: string | null
+  lease_expires_at: string | null
+  finished_at: string | null
+  updated_at: string
+}
+
+type AgentDetail = {
+  node: {
+    id: number
+    name: string
+    agent_control_enabled: boolean
+    agent_config_revision: number
+    agent_desired_config_hash: string | null
+    agent_interval: number
+    agent_auto_update_enabled: boolean
+  }
+  desired_config: {
+    revision: number
+    hash: string
+    config_path: string
+    service_name: string
+  } | null
+  state: Record<string, unknown> | null
+  recent_tasks: AgentTaskRow[]
+}
+
 type NodeRow = {
   id: number
   name: string
@@ -77,6 +135,24 @@ type NodeRow = {
   last_report_at: string | null
   online_count: number | null
   agent_version: string | null
+  agent_control_enabled: 0 | 1 | null
+  agent_config_revision: number | null
+  agent_desired_config_hash: string | null
+  agent_last_config_built_at: string | null
+  agent_last_seen_at: string | null
+  control_agent_version: string | null
+  hostname: string | null
+  os: string | null
+  arch: string | null
+  service_manager: string | null
+  hy2_status: string | null
+  hy2_version: string | null
+  hysteria_config_path: string | null
+  hysteria_config_hash: string | null
+  applied_config_revision: number | null
+  last_config_apply_at: string | null
+  last_error: string | null
+  capabilities: string | null
   // 节点配置
   node_ip: string | null
   node_port: number | null
@@ -120,6 +196,28 @@ const CHART_CONFIG = {
 
 // 节点心跳判定：最近 3 分钟内上报视为"在线"
 const FRESH_THRESHOLD_MS = 3 * 60 * 1000
+
+// 控制面心跳判定：最近 3 分钟内同步视为在线
+const AGENT_FRESH_THRESHOLD_MS = 3 * 60 * 1000
+
+const TASK_LABEL: Record<AgentTaskType, string> = {
+  HY2_STATUS: "检查 Hy2 状态",
+  HY2_START: "启动 Hy2",
+  HY2_STOP: "停止 Hy2",
+  HY2_RESTART: "重启 Hy2",
+  HY2_LOGS: "查看 Hy2 日志",
+  AGENT_LOGS: "查看 Agent 日志",
+  APPLY_CONFIG: "应用配置",
+  AGENT_SELF_UPDATE: "Agent 自更新",
+}
+
+const TASK_STATUS_LABEL: Record<AgentTaskStatus, string> = {
+  queued: "排队中",
+  claimed: "执行中",
+  succeeded: "成功",
+  failed: "失败",
+  cancelled: "已取消",
+}
 
 const DNS_STATUS_META: Record<
   Exclude<DnsStatus, "skip">,
@@ -167,6 +265,41 @@ function isFresh(lastReportAt: string | null): boolean {
   if (!lastReportAt) return false
   return (
     Date.now() - parseSqliteUtc(lastReportAt).getTime() < FRESH_THRESHOLD_MS
+  )
+}
+
+function isAgentFresh(lastSeenAt: string | null): boolean {
+  if (!lastSeenAt) return false
+  return (
+    Date.now() - parseSqliteUtc(lastSeenAt).getTime() < AGENT_FRESH_THRESHOLD_MS
+  )
+}
+
+function getHy2StatusLabel(status: string | null) {
+  if (status === "running") return "Hy2 运行中"
+  if (status === "stopped") return "Hy2 已停止"
+  if (status === "failed") return "Hy2 异常"
+  if (status === "unknown") return "Hy2 未知"
+  return status || "Hy2 未知"
+}
+
+function getHy2StatusClass(status: string | null) {
+  if (status === "running") {
+    return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+  }
+  if (status === "stopped") return "bg-muted text-muted-foreground"
+  if (status === "failed") return "bg-red-500/15 text-red-700 dark:text-red-400"
+  return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+}
+
+function isConfigSynced(row: NodeRow) {
+  return (
+    row.applied_config_revision != null &&
+    (row.agent_config_revision == null ||
+      row.agent_config_revision === row.applied_config_revision) &&
+    (!row.agent_desired_config_hash ||
+      !row.hysteria_config_hash ||
+      row.agent_desired_config_hash === row.hysteria_config_hash)
   )
 }
 
@@ -330,6 +463,8 @@ function NodeCard({
   onShowAgentConfig,
   onShowDeployCommand,
   onDnsResolve,
+  onQueueAgentTask,
+  onShowAgentDetail,
 }: {
   row: NodeRow
   hourly: HourPoint[]
@@ -340,8 +475,13 @@ function NodeCard({
   onShowAgentConfig: (row: NodeRow) => void
   onShowDeployCommand: (row: NodeRow) => void
   onDnsResolve: (row: NodeRow) => void
+  onQueueAgentTask: (row: NodeRow, type: AgentTaskType) => void
+  onShowAgentDetail: (row: NodeRow) => void
 }) {
   const fresh = isFresh(row.last_report_at)
+  const agentFresh = isAgentFresh(row.agent_last_seen_at)
+  const configSynced = isConfigSynced(row)
+  const displayAgentVersion = row.control_agent_version ?? row.agent_version
   const onlineCount = row.online_count ?? 0
   const dnsStatusMeta = getDnsStatusMeta(row.dns_status)
 
@@ -350,7 +490,7 @@ function NodeCard({
   const todayRx = hourly.reduce((sum, h) => sum + h.rxBytes, 0)
 
   return (
-    <Card className="relative h-40 overflow-hidden">
+    <Card className="relative h-48 overflow-hidden">
       {/* 流量图 - 作为卡片背景 */}
       <NodeTrafficChart hourly={hourly} />
 
@@ -369,13 +509,15 @@ function NodeCard({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {/* 在线状态指示灯 */}
+            {/* 控制面状态指示灯 */}
             <span
-              className={`inline-block h-2 w-2 rounded-full ${
-                fresh
+              className={cn(
+                "inline-block h-2 w-2 rounded-full",
+                agentFresh
                   ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]"
                   : "bg-muted-foreground/40"
-              }`}
+              )}
+              title={agentFresh ? "Agent 控制面在线" : "Agent 控制面离线"}
             />
             {/* 更多操作菜单 */}
             <DropdownMenu>
@@ -384,7 +526,7 @@ function NodeCard({
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={() => onEdit(row)}>
                   <Pencil className="h-4 w-4" />
                   编辑节点
@@ -397,21 +539,76 @@ function NodeCard({
                   <Terminal className="h-4 w-4" />
                   一键部署
                 </DropdownMenuItem>
-                {row.node_ip && row.ip !== row.node_ip && (
-                  <DropdownMenuItem onClick={() => onDnsResolve(row)}>
-                    <Globe className="h-4 w-4" />
-                    DNS 解析
-                    {dnsStatusMeta && (
-                      <span
-                        className={cn(
-                          "ml-auto h-2 w-2 rounded-full",
-                          dnsStatusMeta.dotClassName
+                <DropdownMenuItem onClick={() => onShowAgentDetail(row)}>
+                  <Bot className="h-4 w-4" />
+                  Agent 状态
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <Server className="h-4 w-4" />
+                    节点操作
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-44">
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "APPLY_CONFIG")}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      下发配置
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "HY2_RESTART")}
+                    >
+                      <RotateCw className="h-4 w-4" />
+                      重启 Hy2
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "HY2_START")}
+                    >
+                      <Play className="h-4 w-4" />
+                      启动 Hy2
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "HY2_STOP")}
+                    >
+                      <Square className="h-4 w-4" />
+                      停止 Hy2
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "HY2_LOGS")}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Hy2 日志
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "AGENT_LOGS")}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Agent 日志
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "AGENT_SELF_UPDATE")}
+                    >
+                      <Bot className="h-4 w-4" />
+                      Agent 自更新
+                    </DropdownMenuItem>
+                    {row.node_ip && row.ip !== row.node_ip && (
+                      <DropdownMenuItem onClick={() => onDnsResolve(row)}>
+                        <Globe className="h-4 w-4" />
+                        DNS 解析
+                        {dnsStatusMeta && (
+                          <span
+                            className={cn(
+                              "ml-auto h-2 w-2 rounded-full",
+                              dnsStatusMeta.dotClassName
+                            )}
+                            title={dnsStatusMeta.description}
+                          />
                         )}
-                        title={dnsStatusMeta.description}
-                      />
+                      </DropdownMenuItem>
                     )}
-                  </DropdownMenuItem>
-                )}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => onToggleStatus(row)}>
                   {row.status === "enabled" ? (
@@ -473,16 +670,55 @@ function NodeCard({
             )}
             {!fresh && row.last_report_at && (
               <Badge className="bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
-                离线
+                流量离线
               </Badge>
             )}
-            {row.agent_version && (
+            <Badge
+              className={cn(
+                "px-1.5 py-0 text-[10px]",
+                agentFresh
+                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                  : "bg-muted text-muted-foreground"
+              )}
+              title={
+                row.agent_last_seen_at
+                  ? `最后同步：${row.agent_last_seen_at}`
+                  : "尚未同步"
+              }
+            >
+              <Bot className="mr-0.5 h-2.5 w-2.5" />
+              {agentFresh ? "控制在线" : "控制离线"}
+            </Badge>
+            {row.hy2_status && (
+              <Badge
+                className={cn(
+                  "px-1.5 py-0 text-[10px]",
+                  getHy2StatusClass(row.hy2_status)
+                )}
+              >
+                {getHy2StatusLabel(row.hy2_status)}
+              </Badge>
+            )}
+            {row.applied_config_revision != null && (
+              <Badge
+                className={cn(
+                  "px-1.5 py-0 text-[10px]",
+                  configSynced
+                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                    : "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+                )}
+                title={`目标 r${row.agent_config_revision ?? 1} / 已应用 r${row.applied_config_revision}`}
+              >
+                {configSynced ? "配置已同步" : "配置待同步"}
+              </Badge>
+            )}
+            {displayAgentVersion && (
               <Badge
                 className="bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
-                title={`Agent 版本：${row.agent_version}`}
+                title={`Agent 版本：${displayAgentVersion}`}
               >
                 <Bot className="mr-0.5 h-2.5 w-2.5" />
-                {row.agent_version}
+                {displayAgentVersion}
               </Badge>
             )}
           </div>
@@ -565,6 +801,8 @@ function NodeForm({
   setAgentInterval,
   agentAutoUpdateEnabled,
   setAgentAutoUpdateEnabled,
+  agentControlEnabled,
+  setAgentControlEnabled,
   onSubmit,
   submitLabel,
   onCancel,
@@ -629,6 +867,8 @@ function NodeForm({
   setAgentInterval: (v: string) => void
   agentAutoUpdateEnabled: boolean
   setAgentAutoUpdateEnabled: (v: boolean) => void
+  agentControlEnabled: boolean
+  setAgentControlEnabled: (v: boolean) => void
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
   submitLabel: string
   onCancel?: () => void
@@ -986,6 +1226,18 @@ function NodeForm({
           </div>
           <div className="flex items-center justify-between gap-3">
             <div>
+              <Label>控制面同步</Label>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                允许 Agent 拉取配置和执行 Hy2 管理任务。
+              </p>
+            </div>
+            <Switch
+              checked={agentControlEnabled}
+              onCheckedChange={setAgentControlEnabled}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
               <Label>每日自动更新</Label>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 每日从 GitHub 检查并更新对应架构的 agent。
@@ -1017,6 +1269,7 @@ export default function AdminNodesPage() {
   const { confirm, alert } = useConfirm()
   const [rows, setRows] = useState<NodeRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [historyByNode, setHistoryByNode] = useState<
     Record<number, HourPoint[]>
   >({})
@@ -1057,6 +1310,7 @@ export default function AdminNodesPage() {
   const [masqFileDir, setMasqFileDir] = useState("/www/masq")
   const [agentInterval, setAgentInterval] = useState("")
   const [agentAutoUpdateEnabled, setAgentAutoUpdateEnabled] = useState(true)
+  const [agentControlEnabled, setAgentControlEnabled] = useState(true)
 
   // 编辑面板
   const [editingRow, setEditingRow] = useState<NodeRow | null>(null)
@@ -1091,6 +1345,10 @@ export default function AdminNodesPage() {
   const [editAgentInterval, setEditAgentInterval] = useState("")
   const [editAgentAutoUpdateEnabled, setEditAgentAutoUpdateEnabled] =
     useState(true)
+  const [editAgentControlEnabled, setEditAgentControlEnabled] = useState(true)
+  const [agentDetailRow, setAgentDetailRow] = useState<NodeRow | null>(null)
+  const [agentDetail, setAgentDetail] = useState<AgentDetail | null>(null)
+  const [agentDetailLoading, setAgentDetailLoading] = useState(false)
 
   async function refreshNodes() {
     const response = await fetch("/api/admin/nodes")
@@ -1163,6 +1421,17 @@ export default function AdminNodesPage() {
 
   async function load() {
     await refreshNodes()
+  }
+
+  async function handleRefresh() {
+    if (refreshing) return
+    setRefreshing(true)
+    try {
+      await refreshNodes()
+    } finally {
+      setRefreshing(false)
+      setLoading(false)
+    }
   }
 
   async function loadDnsStatus() {
@@ -1334,6 +1603,7 @@ export default function AdminNodesPage() {
         masqueradeConfig: buildMasqueradeConfigObj("create"),
         agentInterval: agentInterval ? Number(agentInterval) : null,
         agentAutoUpdateEnabled,
+        agentControlEnabled,
       }),
     })
 
@@ -1368,6 +1638,7 @@ export default function AdminNodesPage() {
     setMasqFileDir("/www/masq")
     setAgentInterval("")
     setAgentAutoUpdateEnabled(true)
+    setAgentControlEnabled(true)
     setCreateOpen(false)
     await load()
   }
@@ -1497,6 +1768,7 @@ export default function AdminNodesPage() {
       row.agent_interval != null ? String(row.agent_interval) : ""
     )
     setEditAgentAutoUpdateEnabled(row.agent_auto_update_enabled !== 0)
+    setEditAgentControlEnabled(row.agent_control_enabled !== 0)
   }
 
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
@@ -1528,28 +1800,30 @@ export default function AdminNodesPage() {
       masqueradeConfig: buildMasqueradeConfigObj("edit"),
       agentInterval: editAgentInterval ? Number(editAgentInterval) : null,
       agentAutoUpdateEnabled: editAgentAutoUpdateEnabled,
+      agentControlEnabled: editAgentControlEnabled,
     })
 
     setEditingRow(null)
   }
 
   async function showAgentConfig(row: NodeRow) {
-    const origin =
-      typeof window !== "undefined"
-        ? window.location.origin
-        : "https://h2o.example.com"
+    const response = await fetch(`/api/admin/nodes/${row.id}/agent-config`)
+    const json = await response.json()
 
-    const config = JSON.stringify(
-      {
-        h2o_url: origin,
-        auth_path: row.auth_path,
-        hysteria_stats_url: "http://127.0.0.1:9999",
-        hysteria_stats_secret: "<填入 Hy2 config 的 trafficStats.secret>",
-        interval_seconds: row.agent_interval ?? 120,
-      },
-      null,
-      2
-    )
+    if (
+      !response.ok ||
+      !json?.ok ||
+      typeof json.data?.config_json !== "string"
+    ) {
+      await alert({
+        title: "获取 Agent 配置失败",
+        description: json?.error?.message ?? "请稍后重试",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const config = json.data.config_json as string
 
     let copied = false
     try {
@@ -1567,6 +1841,83 @@ export default function AdminNodesPage() {
         </pre>
       ),
     })
+  }
+
+  async function queueAgentTask(row: NodeRow, type: AgentTaskType) {
+    const payload =
+      type === "HY2_LOGS" || type === "AGENT_LOGS" ? { lines: 160 } : null
+    const needConfirm = type === "HY2_STOP" || type === "AGENT_SELF_UPDATE"
+    if (needConfirm) {
+      const ok = await confirm({
+        title: `${TASK_LABEL[type]}？`,
+        description:
+          type === "HY2_STOP"
+            ? "停止 Hy2 会中断当前节点连接，确认继续？"
+            : "Agent 自更新成功后可能会自动重启服务。",
+        confirmText: "继续",
+      })
+      if (!ok) return
+    }
+
+    const response = await fetch(`/api/admin/nodes/${row.id}/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type, payload }),
+    })
+    const json = await response.json()
+    if (!response.ok || !json?.ok) {
+      await alert({
+        title: "创建任务失败",
+        description: json?.error?.message ?? "请稍后重试",
+        variant: "destructive",
+      })
+      return
+    }
+
+    await alert({
+      title: "任务已创建",
+      description: `${TASK_LABEL[type]} 已进入队列，Agent 下次同步时会执行。`,
+    })
+    await load()
+    if (agentDetailRow?.id === row.id) {
+      await loadAgentDetail(row)
+    }
+  }
+
+  async function loadAgentDetail(row: NodeRow) {
+    setAgentDetailRow(row)
+    setAgentDetail(null)
+    setAgentDetailLoading(true)
+    try {
+      const response = await fetch(`/api/admin/nodes/${row.id}/agent`)
+      const json = await response.json()
+      if (!response.ok || !json?.ok) {
+        await alert({
+          title: "获取 Agent 状态失败",
+          description: json?.error?.message ?? "请稍后重试",
+          variant: "destructive",
+        })
+        return
+      }
+      setAgentDetail(json.data as AgentDetail)
+    } finally {
+      setAgentDetailLoading(false)
+    }
+  }
+
+  function parseTaskOutput(task: AgentTaskRow) {
+    const raw = task.result || task.error
+    if (!raw) return ""
+    try {
+      const parsed = JSON.parse(raw) as unknown
+      if (parsed && typeof parsed === "object" && "logs" in parsed) {
+        const logs = (parsed as { logs?: unknown }).logs
+        return typeof logs === "string" ? logs : raw
+      }
+      return JSON.stringify(parsed, null, 2)
+    } catch {
+      return raw
+    }
   }
 
   async function showDeployCommand(row: NodeRow) {
@@ -1720,6 +2071,17 @@ export default function AdminNodesPage() {
               <Eye className="h-4 w-4" />
             )}
           </Button>
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => void handleRefresh()}
+            disabled={refreshing}
+            title="刷新节点数据"
+          >
+            <RefreshCw
+              className={cn("h-4 w-4", refreshing && "animate-spin")}
+            />
+          </Button>
           <Button onClick={() => setCreateOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" />
             添加节点
@@ -1731,7 +2093,7 @@ export default function AdminNodesPage() {
       {loading ? (
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
-            <Card key={index} className="h-40 overflow-hidden">
+            <Card key={index} className="h-48 overflow-hidden">
               <CardContent className="flex h-full flex-col justify-between p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1 space-y-2">
@@ -1775,6 +2137,8 @@ export default function AdminNodesPage() {
               onShowAgentConfig={(r) => void showAgentConfig(r)}
               onShowDeployCommand={(r) => void showDeployCommand(r)}
               onDnsResolve={(r) => void resolveDns(r)}
+              onQueueAgentTask={(r, type) => void queueAgentTask(r, type)}
+              onShowAgentDetail={(r) => void loadAgentDetail(r)}
             />
           ))}
         </div>
@@ -1847,9 +2211,196 @@ export default function AdminNodesPage() {
               setAgentInterval={setAgentInterval}
               agentAutoUpdateEnabled={agentAutoUpdateEnabled}
               setAgentAutoUpdateEnabled={setAgentAutoUpdateEnabled}
+              agentControlEnabled={agentControlEnabled}
+              setAgentControlEnabled={setAgentControlEnabled}
               onSubmit={create}
               submitLabel="创建节点"
             />
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Agent 状态 - 右侧滑出面板 */}
+      <Sheet
+        open={agentDetailRow !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setAgentDetailRow(null)
+            setAgentDetail(null)
+          }
+        }}
+      >
+        <SheetContent className="data-[side=right]:sm:max-w-xl">
+          <SheetHeader>
+            <SheetTitle>Agent 状态 {agentDetailRow?.name}</SheetTitle>
+            <SheetDescription>
+              查看控制面状态、配置同步进度和最近任务结果。
+            </SheetDescription>
+          </SheetHeader>
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+            {agentDetailLoading ? (
+              <div className="space-y-3 pt-2">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-40 w-full" />
+              </div>
+            ) : agentDetail ? (
+              <>
+                <Card>
+                  <CardHeader className="p-4 pb-1">
+                    <CardTitle className="text-base leading-none font-semibold">
+                      当前状态
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">控制面</span>
+                        <p className="font-medium">
+                          {isAgentFresh(
+                            (agentDetail.state?.last_seen_at as
+                              | string
+                              | null) ?? null
+                          )
+                            ? "在线"
+                            : "离线"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Hy2</span>
+                        <p className="font-medium">
+                          {getHy2StatusLabel(
+                            (agentDetail.state?.hy2_status as string | null) ??
+                              null
+                          )}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">主机</span>
+                        <p className="font-mono break-all">
+                          {(agentDetail.state?.hostname as string | null) ??
+                            "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">系统</span>
+                        <p className="font-mono">
+                          {[
+                            agentDetail.state?.os as string | null,
+                            agentDetail.state?.arch as string | null,
+                          ]
+                            .filter(Boolean)
+                            .join("/") || "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Agent</span>
+                        <p className="font-mono">
+                          {(agentDetail.state?.agent_version as
+                            | string
+                            | null) ?? "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">最后同步</span>
+                        <p className="font-mono text-[11px]">
+                          {(agentDetail.state?.last_seen_at as string | null) ??
+                            "-"}
+                        </p>
+                      </div>
+                    </div>
+                    {typeof agentDetail.state?.last_error === "string" &&
+                      agentDetail.state.last_error && (
+                        <div className="rounded bg-red-500/10 p-2 text-xs text-red-700 dark:text-red-300">
+                          {agentDetail.state.last_error}
+                        </div>
+                      )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="p-4 pb-1">
+                    <CardTitle className="text-base leading-none font-semibold">
+                      配置同步
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-xs">
+                    <div className="flex flex-wrap gap-2">
+                      <Badge>
+                        目标 r{agentDetail.desired_config?.revision ?? "-"}
+                      </Badge>
+                      <Badge>
+                        已应用 r
+                        {(agentDetail.state?.applied_config_revision as
+                          | number
+                          | null) ?? "-"}
+                      </Badge>
+                    </div>
+                    <p className="font-mono text-[11px] break-all text-muted-foreground">
+                      目标 Hash：{agentDetail.desired_config?.hash ?? "-"}
+                    </p>
+                    <p className="font-mono text-[11px] break-all text-muted-foreground">
+                      当前 Hash：
+                      {(agentDetail.state?.hysteria_config_hash as
+                        | string
+                        | null) ?? "-"}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="p-4 pb-1">
+                    <CardTitle className="text-base leading-none font-semibold">
+                      最近任务
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {agentDetail.recent_tasks.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">暂无任务</p>
+                    ) : (
+                      agentDetail.recent_tasks.map((task) => {
+                        const output = parseTaskOutput(task)
+                        return (
+                          <div
+                            key={task.id}
+                            className="rounded border p-2 text-xs"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium">
+                                #{task.id} {TASK_LABEL[task.type] ?? task.type}
+                              </span>
+                              <Badge
+                                className={cn(
+                                  "text-[10px]",
+                                  task.status === "succeeded" &&
+                                    "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+                                  task.status === "failed" &&
+                                    "bg-red-500/15 text-red-700 dark:text-red-400",
+                                  (task.status === "queued" ||
+                                    task.status === "claimed") &&
+                                    "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+                                )}
+                              >
+                                {TASK_STATUS_LABEL[task.status] ?? task.status}
+                              </Badge>
+                            </div>
+                            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                              {task.created_at}
+                            </p>
+                            {output && (
+                              <pre className="mt-2 max-h-52 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
+                                {output}
+                              </pre>
+                            )}
+                          </div>
+                        )
+                      })
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">暂无 Agent 状态</p>
+            )}
           </div>
         </SheetContent>
       </Sheet>
@@ -1924,6 +2475,8 @@ export default function AdminNodesPage() {
               setAgentInterval={setEditAgentInterval}
               agentAutoUpdateEnabled={editAgentAutoUpdateEnabled}
               setAgentAutoUpdateEnabled={setEditAgentAutoUpdateEnabled}
+              agentControlEnabled={editAgentControlEnabled}
+              setAgentControlEnabled={setEditAgentControlEnabled}
               onSubmit={submitEdit}
               submitLabel="保存修改"
               onCancel={() => setEditingRow(null)}
