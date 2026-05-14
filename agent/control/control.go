@@ -33,10 +33,11 @@ type Config struct {
 }
 
 type TaskResult struct {
-	ID     int64       `json:"id"`
-	Status string      `json:"status"`
-	Result interface{} `json:"result,omitempty"`
-	Error  string      `json:"error,omitempty"`
+	ID           int64       `json:"id"`
+	Status       string      `json:"status"`
+	Result       interface{} `json:"result,omitempty"`
+	Error        string      `json:"error,omitempty"`
+	RestartAgent bool        `json:"-"`
 }
 
 type SyncRequest struct {
@@ -112,6 +113,7 @@ func Sync(
 ) (*SyncResponse, []TaskResult, error) {
 	requestCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
+	deliveredPendingRestart := shouldRestartAgent(pending)
 
 	if cfg.AgentSecret == "" {
 		return nil, pending, fmt.Errorf("agent_secret 为空，无法同步控制面")
@@ -147,6 +149,7 @@ func Sync(
 			"logs",
 			"service-control",
 			"apply-config",
+			"agent-restart",
 			"self-update",
 		},
 		TaskResults: pending,
@@ -188,11 +191,22 @@ func Sync(
 		results = append(results, ExecuteTask(requestCtx, cfg, task, version))
 	}
 
+	restartAgent := deliveredPendingRestart || shouldRestartAgent(results)
+	if deliveredPendingRestart && len(results) > 0 && !shouldRestartAgent(results) {
+		// 如果本轮新结果提交失败，保留重启意图到下次成功补交结果后再执行。
+		results[0].RestartAgent = true
+	}
+
 	if len(results) > 0 {
 		if err := submitTaskResults(ctx, cfg, version, results); err != nil {
 			return resp, results, err
 		}
 		results = nil
+	}
+	if restartAgent {
+		if err := restartAgentService(ctx); err != nil {
+			return resp, results, fmt.Errorf("自更新已完成但重启 agent 服务失败: %w", err)
+		}
 	}
 
 	return resp, results, nil
@@ -231,6 +245,7 @@ func submitTaskResults(ctx context.Context, cfg Config, version string, results 
 			"logs",
 			"service-control",
 			"apply-config",
+			"agent-restart",
 			"self-update",
 		},
 		TaskResults: results,
@@ -414,6 +429,8 @@ func ExecuteTask(ctx context.Context, cfg Config, task Task, version string) Tas
 		return readLogsTask(taskCtx, task.ID, cfg.HysteriaServiceName, task.Payload)
 	case "AGENT_LOGS":
 		return readLogsTask(taskCtx, task.ID, "h2o-agent", task.Payload)
+	case "AGENT_RESTART":
+		return agentRestartTask(task.ID)
 	case "APPLY_CONFIG":
 		var payload applyConfigPayload
 		if len(task.Payload) > 0 && string(task.Payload) != "null" {
@@ -443,7 +460,7 @@ func taskTimeout(taskType string) time.Duration {
 		return time.Minute
 	case "APPLY_CONFIG":
 		return 5 * time.Minute
-	case "AGENT_SELF_UPDATE":
+	case "AGENT_RESTART", "AGENT_SELF_UPDATE":
 		return 10 * time.Minute
 	default:
 		return 2 * time.Minute
@@ -543,6 +560,14 @@ func readLogsTask(ctx context.Context, id int64, serviceName string, raw json.Ra
 	})
 }
 
+func agentRestartTask(id int64) TaskResult {
+	result := succeededTask(id, map[string]interface{}{
+		"restart_required": true,
+	})
+	result.RestartAgent = true
+	return result
+}
+
 func selfUpdateTask(ctx context.Context, id int64, version, configPath string) TaskResult {
 	args := []string{"-self-update"}
 	if configPath != "" {
@@ -551,12 +576,18 @@ func selfUpdateTask(ctx context.Context, id int64, version, configPath string) T
 	cmd := exec.CommandContext(ctx, os.Args[0], args...)
 	out, err := cmd.CombinedOutput()
 	result := map[string]interface{}{
-		"output":          trimOutput(string(out), 20000),
-		"current_version": version,
+		"output":           trimOutput(string(out), 20000),
+		"current_version":  version,
+		"updated":          false,
+		"restart_required": false,
 	}
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 2 {
-			return succeededTask(id, result)
+			result["updated"] = true
+			result["restart_required"] = true
+			taskResult := succeededTask(id, result)
+			taskResult.RestartAgent = true
+			return taskResult
 		}
 		return failedTask(
 			id,
@@ -920,6 +951,59 @@ func succeededTask(id int64, result interface{}) TaskResult {
 
 func failedTask(id int64, err error) TaskResult {
 	return TaskResult{ID: id, Status: "failed", Error: err.Error()}
+}
+
+func shouldRestartAgent(results []TaskResult) bool {
+	for _, result := range results {
+		if result.RestartAgent {
+			return true
+		}
+	}
+	return false
+}
+
+func restartAgentService(ctx context.Context) error {
+	const serviceName = "h2o-agent"
+	if !safeServiceName(serviceName) {
+		return fmt.Errorf("服务名不合法: %s", serviceName)
+	}
+
+	manager := detectServiceManager()
+	restartCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	switch manager {
+	case "systemd":
+		cmd = exec.CommandContext(
+			restartCtx,
+			"systemctl",
+			"--no-block",
+			"restart",
+			serviceName,
+		)
+	case "openrc":
+		// OpenRC 没有等价的 --no-block；后台延迟执行，避免当前进程被 stop 阶段打断。
+		cmd = exec.CommandContext(
+			restartCtx,
+			"sh",
+			"-c",
+			"sleep 1; rc-service h2o-agent restart >/dev/null 2>&1 &",
+		)
+	default:
+		return fmt.Errorf("未检测到支持的服务管理器")
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf(
+			"restart %s 失败: %w: %s",
+			serviceName,
+			err,
+			trimOutput(string(out), 2000),
+		)
+	}
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

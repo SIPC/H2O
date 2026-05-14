@@ -89,6 +89,7 @@ type AgentTaskType =
   | "HY2_RESTART"
   | "HY2_LOGS"
   | "AGENT_LOGS"
+  | "AGENT_RESTART"
   | "APPLY_CONFIG"
   | "AGENT_SELF_UPDATE"
 
@@ -222,6 +223,7 @@ const TASK_LABEL: Record<AgentTaskType, string> = {
   HY2_RESTART: "重启 Hysteria2",
   HY2_LOGS: "查看 Hysteria2 日志",
   AGENT_LOGS: "查看 Agent 日志",
+  AGENT_RESTART: "重启 Agent",
   APPLY_CONFIG: "应用配置",
   AGENT_SELF_UPDATE: "Agent 自更新",
 }
@@ -611,7 +613,7 @@ function NodeCard({
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Server className="h-4 w-4" />
-                    节点操作
+                    Hy2 操作
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-44">
                     <DropdownMenuItem
@@ -644,18 +646,6 @@ function NodeCard({
                       <FileText className="h-4 w-4" />
                       Hysteria2 日志
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => onQueueAgentTask(row, "AGENT_LOGS")}
-                    >
-                      <FileText className="h-4 w-4" />
-                      Agent 日志
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => onQueueAgentTask(row, "AGENT_SELF_UPDATE")}
-                    >
-                      <Bot className="h-4 w-4" />
-                      Agent 自更新
-                    </DropdownMenuItem>
                     {row.node_ip && row.ip !== row.node_ip && (
                       <DropdownMenuItem onClick={() => onDnsResolve(row)}>
                         <Globe className="h-4 w-4" />
@@ -671,6 +661,32 @@ function NodeCard({
                         )}
                       </DropdownMenuItem>
                     )}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <Bot className="h-4 w-4" />
+                    Agent 操作
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-44">
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "AGENT_RESTART")}
+                    >
+                      <RotateCw className="h-4 w-4" />
+                      重启 Agent
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "AGENT_LOGS")}
+                    >
+                      <FileText className="h-4 w-4" />
+                      Agent 日志
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onQueueAgentTask(row, "AGENT_SELF_UPDATE")}
+                    >
+                      <Bot className="h-4 w-4" />
+                      Agent 自更新
+                    </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 <DropdownMenuSeparator />
@@ -1937,14 +1953,16 @@ export default function AdminNodesPage() {
   async function queueAgentTask(row: NodeRow, type: AgentTaskType) {
     const payload =
       type === "HY2_LOGS" || type === "AGENT_LOGS" ? { lines: 160 } : null
-    const needConfirm = type === "HY2_STOP" || type === "AGENT_SELF_UPDATE"
-    if (needConfirm) {
+    const confirmDescriptions: Partial<Record<AgentTaskType, string>> = {
+      HY2_STOP: "停止 Hysteria2 会中断当前节点连接，确认继续？",
+      AGENT_RESTART: "重启 Agent 会短暂中断控制面同步和流量上报，确认继续？",
+      AGENT_SELF_UPDATE: "Agent 自更新成功后会自动重启服务，确认继续？",
+    }
+    const confirmDescription = confirmDescriptions[type]
+    if (confirmDescription) {
       const ok = await confirm({
         title: `${TASK_LABEL[type]}？`,
-        description:
-          type === "HY2_STOP"
-            ? "停止 Hysteria2 会中断当前节点连接，确认继续？"
-            : "Agent 自更新成功后可能会自动重启服务。",
+        description: confirmDescription,
         confirmText: "继续",
       })
       if (!ok) return

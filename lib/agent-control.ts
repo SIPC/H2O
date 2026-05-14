@@ -22,6 +22,7 @@ export const AGENT_TASK_TYPES = [
   "HY2_RESTART",
   "HY2_LOGS",
   "AGENT_LOGS",
+  "AGENT_RESTART",
   "APPLY_CONFIG",
   "AGENT_SELF_UPDATE",
 ] as const
@@ -425,7 +426,7 @@ export function rememberAgentNonce(params: {
 
 export function getTaskLeaseSeconds(type: AgentTaskType) {
   if (type === "HY2_LOGS" || type === "AGENT_LOGS") return 60
-  if (type === "AGENT_SELF_UPDATE") return 10 * 60
+  if (type === "AGENT_RESTART" || type === "AGENT_SELF_UPDATE") return 10 * 60
   if (type === "APPLY_CONFIG") return 5 * 60
   return 2 * 60
 }

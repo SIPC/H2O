@@ -37,6 +37,7 @@ type AgentTaskType =
   | "HY2_RESTART"
   | "HY2_LOGS"
   | "AGENT_LOGS"
+  | "AGENT_RESTART"
   | "APPLY_CONFIG"
   | "AGENT_SELF_UPDATE"
 
@@ -73,12 +74,13 @@ type NodeRow = { id: number; name: string }
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 
 const TASK_LABEL: Record<AgentTaskType, string> = {
-  HY2_STATUS: "检查 Hy2 状态",
-  HY2_START: "启动 Hy2",
-  HY2_STOP: "停止 Hy2",
-  HY2_RESTART: "重启 Hy2",
-  HY2_LOGS: "查看 Hy2 日志",
+  HY2_STATUS: "检查 Hysteria2 状态",
+  HY2_START: "启动 Hysteria2",
+  HY2_STOP: "停止 Hysteria2",
+  HY2_RESTART: "重启 Hysteria2",
+  HY2_LOGS: "查看 Hysteria2 日志",
   AGENT_LOGS: "查看 Agent 日志",
+  AGENT_RESTART: "重启 Agent",
   APPLY_CONFIG: "应用配置",
   AGENT_SELF_UPDATE: "Agent 自更新",
 }
@@ -93,12 +95,13 @@ const TASK_STATUS_LABEL: Record<AgentTaskStatus, string> = {
 
 const taskTypeOptions: Array<{ label: string; value: TaskTypeFilter }> = [
   { label: "全部任务", value: "all" },
-  { label: "检查 Hy2 状态", value: "HY2_STATUS" },
-  { label: "启动 Hy2", value: "HY2_START" },
-  { label: "停止 Hy2", value: "HY2_STOP" },
-  { label: "重启 Hy2", value: "HY2_RESTART" },
-  { label: "查看 Hy2 日志", value: "HY2_LOGS" },
+  { label: "检查 Hysteria2 状态", value: "HY2_STATUS" },
+  { label: "启动 Hysteria2", value: "HY2_START" },
+  { label: "停止 Hysteria2", value: "HY2_STOP" },
+  { label: "重启 Hysteria2", value: "HY2_RESTART" },
+  { label: "查看 Hysteria2 日志", value: "HY2_LOGS" },
   { label: "查看 Agent 日志", value: "AGENT_LOGS" },
+  { label: "重启 Agent", value: "AGENT_RESTART" },
   { label: "应用配置", value: "APPLY_CONFIG" },
   { label: "Agent 自更新", value: "AGENT_SELF_UPDATE" },
 ]
