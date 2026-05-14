@@ -18,6 +18,11 @@ function sha256(value: string) {
   return createHash("sha256").update(value).digest("hex")
 }
 
+export function getSessionTokenHashFromRequest(request: Request) {
+  const token = readSessionTokenFromRequest(request)
+  return token ? sha256(token) : null
+}
+
 function cookieSecure() {
   // 纯 IP+端口（HTTP）部署时设 H2O_SECURE_COOKIE=false，否则 cookie 无法存储
   if (process.env.H2O_SECURE_COOKIE === "false") return false

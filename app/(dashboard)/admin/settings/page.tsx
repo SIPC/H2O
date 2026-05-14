@@ -1,7 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { toast } from "sonner"
 
+import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -82,10 +84,14 @@ export default function AdminSettingsPage() {
   const [saved, setSaved] = useState<Settings>(DEFAULTS)
   const [draft, setDraft] = useState<Settings>(DEFAULTS)
   const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{
-    kind: "ok" | "err"
-    text: string
+  const [turnstileVerifyProof, setTurnstileVerifyProof] = useState("")
+  const [turnstileVerifiedKeys, setTurnstileVerifiedKeys] = useState<{
+    siteKey: string
+    secretKey: string
   } | null>(null)
+  const [turnstileVerifying, setTurnstileVerifying] = useState(false)
+  const [turnstileVerifyMessage, setTurnstileVerifyMessage] = useState("")
+  const turnstileVerifySeq = useRef(0)
 
   const dirty = useMemo(() => {
     return (
@@ -121,28 +127,119 @@ export default function AdminSettingsPage() {
     }
   }, [])
 
+  const turnstileKeysChanged =
+    draft.turnstile_site_key.trim() !== saved.turnstile_site_key.trim() ||
+    draft.turnstile_secret_key.trim() !== saved.turnstile_secret_key.trim()
+  const turnstileDraftEnabled = Boolean(
+    draft.turnstile_site_key.trim() && draft.turnstile_secret_key.trim()
+  )
+  const requiresTurnstileVerification =
+    turnstileKeysChanged && turnstileDraftEnabled
+  const turnstileProofValidForDraft = Boolean(
+    turnstileVerifyProof &&
+    turnstileVerifiedKeys?.siteKey === draft.turnstile_site_key.trim() &&
+    turnstileVerifiedKeys?.secretKey === draft.turnstile_secret_key.trim()
+  )
+
+  function resetTurnstileVerification() {
+    turnstileVerifySeq.current += 1
+    setTurnstileVerifyProof("")
+    setTurnstileVerifiedKeys(null)
+    setTurnstileVerifying(false)
+    setTurnstileVerifyMessage("")
+  }
+
+  async function verifyTurnstileDraft(token: string) {
+    const siteKey = draft.turnstile_site_key.trim()
+    const secretKey = draft.turnstile_secret_key.trim()
+    if (!siteKey || !secretKey) return
+
+    const requestSeq = turnstileVerifySeq.current + 1
+    turnstileVerifySeq.current = requestSeq
+    setTurnstileVerifyProof("")
+    setTurnstileVerifiedKeys(null)
+    setTurnstileVerifying(true)
+    setTurnstileVerifyMessage("正在用 Secret Key 验证...")
+
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          turnstileVerifySiteKey: siteKey,
+          turnstileVerifySecretKey: secretKey,
+          turnstileVerifyToken: token,
+        }),
+      })
+      const json = await response.json()
+      if (requestSeq !== turnstileVerifySeq.current) return
+
+      if (!response.ok || !json?.ok || typeof json.data?.proof !== "string") {
+        setTurnstileVerifyMessage(
+          json?.error?.message ?? "Secret Key 校验失败，请检查后重试"
+        )
+        return
+      }
+
+      setTurnstileVerifyProof(json.data.proof)
+      setTurnstileVerifiedKeys({ siteKey, secretKey })
+      setTurnstileVerifyMessage(
+        "Site Key 与 Secret Key 均已通过 Cloudflare 校验，可以保存。"
+      )
+    } catch {
+      if (requestSeq !== turnstileVerifySeq.current) return
+      setTurnstileVerifyMessage("校验请求失败，请稍后重试")
+    } finally {
+      if (requestSeq === turnstileVerifySeq.current) {
+        setTurnstileVerifying(false)
+      }
+    }
+  }
+
   async function save() {
-    setSaving(true)
-    setMessage(null)
-
-    const response = await fetch("/api/admin/settings", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(draft),
-    })
-
-    const json = await response.json()
-    setSaving(false)
-
-    if (!response.ok || !json.ok) {
-      setMessage({ kind: "err", text: json?.error?.message ?? "保存失败" })
+    if (requiresTurnstileVerification && !turnstileProofValidForDraft) {
+      toast.error("无法保存", {
+        description:
+          "请先完成 Turnstile 配置测试，确认 Site Key 与 Secret Key 都有效",
+      })
       return
     }
 
-    const next: Settings = { ...DEFAULTS, ...json.data }
-    setSaved(next)
-    setDraft(next)
-    setMessage({ kind: "ok", text: "已保存" })
+    setSaving(true)
+
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...draft,
+          ...(turnstileProofValidForDraft ? { turnstileVerifyProof } : {}),
+        }),
+      })
+
+      const json = await response.json()
+
+      if (!response.ok || !json.ok) {
+        toast.error("保存失败", {
+          description: json?.error?.message ?? "请稍后重试",
+        })
+        return
+      }
+
+      const next: Settings = { ...DEFAULTS, ...json.data }
+      setSaved(next)
+      setDraft(next)
+      resetTurnstileVerification()
+      toast.success("已保存", {
+        description: "站点设置已更新",
+      })
+    } catch {
+      toast.error("保存失败", {
+        description: "网络错误，请稍后重试",
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!loaded) {
@@ -180,6 +277,11 @@ export default function AdminSettingsPage() {
     draft.turnstile_site_key,
     draft.turnstile_secret_key
   )
+  const saveDisabled =
+    !dirty ||
+    saving ||
+    turnstileVerifying ||
+    (requiresTurnstileVerification && !turnstileProofValidForDraft)
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
@@ -192,20 +294,9 @@ export default function AdminSettingsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 pt-1">
-          <Button onClick={save} disabled={!dirty || saving}>
+          <Button onClick={save} disabled={saveDisabled}>
             {saving ? "保存中..." : "保存"}
           </Button>
-          {message ? (
-            <span
-              className={
-                message.kind === "ok"
-                  ? "text-sm text-green-600"
-                  : "text-sm text-destructive"
-              }
-            >
-              {message.text}
-            </span>
-          ) : null}
         </div>
       </div>
 
@@ -282,12 +373,13 @@ export default function AdminSettingsPage() {
                 autoComplete="off"
                 spellCheck={false}
                 value={draft.turnstile_site_key}
-                onChange={(e) =>
+                onChange={(e) => {
+                  resetTurnstileVerification()
                   setDraft((prev) => ({
                     ...prev,
                     turnstile_site_key: e.target.value,
                   }))
-                }
+                }}
               />
             </div>
             <div className="space-y-1">
@@ -298,14 +390,47 @@ export default function AdminSettingsPage() {
                 autoComplete="off"
                 spellCheck={false}
                 value={draft.turnstile_secret_key}
-                onChange={(e) =>
+                onChange={(e) => {
+                  resetTurnstileVerification()
                   setDraft((prev) => ({
                     ...prev,
                     turnstile_secret_key: e.target.value,
                   }))
-                }
+                }}
               />
             </div>
+            {turnstileKeysChanged && turnstileDraftEnabled && (
+              <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                <div className="space-y-1">
+                  <Label>保存前测试验证</Label>
+                  <p className="text-xs text-muted-foreground">
+                    请用上方新 Site Key 完成一次验证；组件返回 token
+                    后，后端会立刻用新 Secret Key 调用 Cloudflare
+                    校验，校验失败不会允许保存。
+                  </p>
+                </div>
+                <TurnstileWidget
+                  key={draft.turnstile_site_key.trim()}
+                  siteKey={draft.turnstile_site_key.trim()}
+                  onVerify={(token) => void verifyTurnstileDraft(token)}
+                  onExpire={resetTurnstileVerification}
+                  onError={resetTurnstileVerification}
+                />
+                <p
+                  className={
+                    turnstileProofValidForDraft
+                      ? "text-xs text-green-600"
+                      : turnstileVerifying
+                        ? "text-xs text-muted-foreground"
+                        : turnstileVerifyMessage
+                          ? "text-xs text-destructive"
+                          : "text-xs text-muted-foreground"
+                  }
+                >
+                  {turnstileVerifyMessage || "等待完成测试验证。"}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
