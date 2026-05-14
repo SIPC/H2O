@@ -44,6 +44,14 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -72,6 +80,7 @@ import {
 import { cn } from "@/lib/utils"
 
 type DnsStatus = "match" | "mismatch" | "unresolved" | "skip"
+type DnsDeployDecision = "resolve" | "skip" | "exit"
 
 type AgentTaskType =
   | "HY2_STATUS"
@@ -1318,6 +1327,12 @@ export default function AdminNodesPage() {
     {}
   )
   const dnsStatusRequestSeq = useRef(0)
+  const dnsDeployDecisionResolveRef = useRef<
+    ((decision: DnsDeployDecision) => void) | null
+  >(null)
+  const [dnsDeployDialog, setDnsDeployDialog] = useState<{
+    description: string
+  } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState("")
   const [remark, setRemark] = useState("")
@@ -1475,6 +1490,20 @@ export default function AdminNodesPage() {
     }
   }
 
+  function promptDnsDeployDecision(description: string) {
+    return new Promise<DnsDeployDecision>((resolve) => {
+      dnsDeployDecisionResolveRef.current = resolve
+      setDnsDeployDialog({ description })
+    })
+  }
+
+  function closeDnsDeployDialog(decision: DnsDeployDecision) {
+    const resolve = dnsDeployDecisionResolveRef.current
+    dnsDeployDecisionResolveRef.current = null
+    setDnsDeployDialog(null)
+    resolve?.(decision)
+  }
+
   async function loadDnsStatus() {
     const requestSeq = dnsStatusRequestSeq.current + 1
     dnsStatusRequestSeq.current = requestSeq
@@ -1583,7 +1612,12 @@ export default function AdminNodesPage() {
     return null
   }
 
-  async function resolveDns(row: NodeRow) {
+  async function resolveDns(
+    row: NodeRow,
+    opts: { showSuccessAlert?: boolean } = {}
+  ): Promise<boolean> {
+    const showSuccessAlert = opts.showSuccessAlert ?? true
+
     try {
       const res = await fetch(`/api/admin/nodes/${row.id}/dns`, {
         method: "POST",
@@ -1597,7 +1631,7 @@ export default function AdminNodesPage() {
           variant: "destructive",
         })
         await refreshPromise.catch(() => undefined)
-        return
+        return false
       }
       const d = json.data
       const actionText =
@@ -1606,11 +1640,14 @@ export default function AdminNodesPage() {
           : d.action === "updated"
             ? "已更新"
             : "已是最新"
-      await alert({
-        title: "DNS 解析成功",
-        description: `${d.domain} → ${d.ip}（${actionText}，Zone: ${d.zone}）`,
-      })
+      if (showSuccessAlert) {
+        await alert({
+          title: "DNS 解析成功",
+          description: `${d.domain} → ${d.ip}（${actionText}，Zone: ${d.zone}）`,
+        })
+      }
       await refreshPromise.catch(() => undefined)
+      return true
     } catch {
       await alert({
         title: "DNS 解析失败",
@@ -1618,6 +1655,7 @@ export default function AdminNodesPage() {
         variant: "destructive",
       })
       await refreshNodes().catch(() => undefined)
+      return false
     }
   }
 
@@ -1984,15 +2022,13 @@ export default function AdminNodesPage() {
         row.dns_status === "mismatch"
           ? "DNS 指向的 IP 与节点 IP 不一致"
           : "域名无法解析"
-      const shouldResolve = await confirm({
-        title: "DNS 解析状态异常",
-        description: `当前节点使用 ACME 证书模式，但${statusText}。建议先更新 DNS 解析再部署，否则 ACME 证书签发可能失败。`,
-        confirmText: "先更新解析",
-        cancelText: "仍然部署",
-      })
-      if (shouldResolve) {
-        await resolveDns(row)
-        return
+      const decision = await promptDnsDeployDecision(
+        `当前节点使用 ACME 证书模式，但${statusText}。建议先更新 DNS 解析再部署，否则 ACME 证书签发可能失败。`
+      )
+      if (decision === "exit") return
+      if (decision === "resolve") {
+        const resolved = await resolveDns(row, { showSuccessAlert: false })
+        if (!resolved) return
       }
     }
 
@@ -2097,450 +2133,492 @@ export default function AdminNodesPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
-      {/* 页面标题 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">节点管理</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            共 {rows.length} 个节点
-            {rows.filter((r) => isFresh(r.last_report_at)).length > 0 && (
-              <span className="ml-2 text-emerald-600 dark:text-emerald-400">
-                · {rows.filter((r) => isFresh(r.last_report_at)).length} 个在线
-              </span>
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => setHideIp((v) => !v)}
-            title={hideIp ? "显示 IP" : "隐藏 IP"}
-          >
-            {hideIp ? (
-              <EyeOff className="h-4 w-4" />
-            ) : (
-              <Eye className="h-4 w-4" />
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => void handleRefresh()}
-            disabled={refreshing}
-            title="刷新节点数据"
-          >
-            <RefreshCw
-              className={cn("h-4 w-4", refreshing && "animate-spin")}
-            />
-          </Button>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            添加节点
-          </Button>
-        </div>
-      </div>
-
-      {/* 节点卡片网格 */}
-      {loading ? (
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, index) => (
-            <Card key={index} className="h-48 overflow-hidden">
-              <CardContent className="flex h-full flex-col justify-between p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-3 w-36" />
-                  </div>
-                  <Skeleton className="size-6 rounded-md" />
-                </div>
-                <div className="space-y-2">
-                  <div className="flex gap-1">
-                    <Skeleton className="h-4 w-12" />
-                    <Skeleton className="h-4 w-14" />
-                  </div>
-                  <Skeleton className="h-3 w-40" />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <Server className="mb-3 h-10 w-10 opacity-40" />
-          <p className="text-sm">暂无节点</p>
-          <p className="mt-1 text-xs">点击右上角「添加节点」创建第一个节点</p>
-        </Card>
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {rows.map((row) => (
-            <NodeCard
-              key={row.id}
-              row={{ ...row, dns_status: dnsStatusMap[row.id] ?? "skip" }}
-              hourly={historyByNode[row.id] ?? buildEmptyHourly()}
-              hideIp={hideIp}
-              onEdit={startEdit}
-              onRemove={removeNode}
-              onToggleStatus={(r) =>
-                void updateNode(r.id, {
-                  status: r.status === "enabled" ? "disabled" : "enabled",
-                })
-              }
-              onShowAgentConfig={(r) => void showAgentConfig(r)}
-              onShowDeployCommand={(r) => void showDeployCommand(r)}
-              onDnsResolve={(r) => void resolveDns(r)}
-              onQueueAgentTask={(r, type) => void queueAgentTask(r, type)}
-              onShowAgentDetail={(r) => void loadAgentDetail(r)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* 创建节点 - 右侧滑出面板 */}
-      <Sheet open={createOpen} onOpenChange={setCreateOpen}>
-        <SheetContent className="data-[side=right]:sm:max-w-lg">
-          <SheetHeader>
-            <SheetTitle>添加节点</SheetTitle>
-            <SheetDescription>
-              创建新的 Hysteria2 节点，创建后可部署 Agent 上报流量。
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            <NodeForm
-              name={name}
-              setName={setName}
-              remark={remark}
-              setRemark={setRemark}
-              ip={ip}
-              setIp={setIp}
-              portInput={portInput}
-              setPortInput={setPortInput}
-              sni={sni}
-              setSni={setSni}
-              obfs={obfs}
-              setObfs={setObfs}
-              obfsPassword={obfsPassword}
-              setObfsPassword={setObfsPassword}
-              insecure={insecure}
-              setInsecure={setInsecure}
-              pinSha256={pinSha256}
-              setPinSha256={setPinSha256}
-              nodeIp={nodeIp}
-              setNodeIp={setNodeIp}
-              nodePortInput={nodePortInput}
-              setNodePortInput={setNodePortInput}
-              certMode={certMode}
-              setCertMode={setCertMode}
-              certPath={certPath}
-              setCertPath={setCertPath}
-              keyPath={keyPath}
-              setKeyPath={setKeyPath}
-              acmeDomainsInput={acmeDomainsInput}
-              setAcmeDomainsInput={setAcmeDomainsInput}
-              acmeEmail={acmeEmail}
-              setAcmeEmail={setAcmeEmail}
-              acmeDnsProvider={acmeDnsProvider}
-              setAcmeDnsProvider={setAcmeDnsProvider}
-              acmeCfToken={acmeCfToken}
-              setAcmeCfToken={setAcmeCfToken}
-              masqueradeType={masqueradeType}
-              setMasqueradeType={setMasqueradeType}
-              masqContent={masqContent}
-              setMasqContent={setMasqContent}
-              masqContentType={masqContentType}
-              setMasqContentType={setMasqContentType}
-              masqStatusCode={masqStatusCode}
-              setMasqStatusCode={setMasqStatusCode}
-              masqProxyUrl={masqProxyUrl}
-              setMasqProxyUrl={setMasqProxyUrl}
-              masqProxyRewriteHost={masqProxyRewriteHost}
-              setMasqProxyRewriteHost={setMasqProxyRewriteHost}
-              masqProxyInsecure={masqProxyInsecure}
-              setMasqProxyInsecure={setMasqProxyInsecure}
-              masqProxyXForwarded={masqProxyXForwarded}
-              setMasqProxyXForwarded={setMasqProxyXForwarded}
-              masqFileDir={masqFileDir}
-              setMasqFileDir={setMasqFileDir}
-              agentInterval={agentInterval}
-              setAgentInterval={setAgentInterval}
-              agentAutoUpdateEnabled={agentAutoUpdateEnabled}
-              setAgentAutoUpdateEnabled={setAgentAutoUpdateEnabled}
-              agentControlEnabled={agentControlEnabled}
-              setAgentControlEnabled={setAgentControlEnabled}
-              onSubmit={create}
-              submitLabel="创建节点"
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {/* Agent 状态 - 右侧滑出面板 */}
-      <Sheet
-        open={agentDetailRow !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAgentDetailRow(null)
-            setAgentDetail(null)
-          }
+    <>
+      <Dialog
+        open={dnsDeployDialog !== null}
+        onOpenChange={(next) => {
+          if (!next) closeDnsDeployDialog("exit")
         }}
       >
-        <SheetContent className="data-[side=right]:sm:max-w-xl">
-          <SheetHeader>
-            <SheetTitle>Agent 状态 {agentDetailRow?.name}</SheetTitle>
-            <SheetDescription>
-              查看控制面状态、配置同步进度和最近任务结果。
-            </SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
-            {agentDetailLoading ? (
-              <div className="space-y-3 pt-2">
-                <Skeleton className="h-24 w-full" />
-                <Skeleton className="h-40 w-full" />
-              </div>
-            ) : agentDetail ? (
-              <>
-                <Card>
-                  <CardHeader className="p-4 pb-1">
-                    <CardTitle className="text-base leading-none font-semibold">
-                      当前状态
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-sm">
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground">控制面</span>
-                        <p className="font-medium">
-                          {isAgentFresh(
-                            (agentDetail.state?.last_seen_at as
-                              | string
-                              | null) ?? null
-                          )
-                            ? "在线"
-                            : "离线"}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Hysteria2</span>
-                        <p className="font-medium">
-                          {getHy2StatusLabel(
-                            (agentDetail.state?.hy2_status as string | null) ??
-                              null
-                          )}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">主机</span>
-                        <p className="font-mono break-all">
-                          {(agentDetail.state?.hostname as string | null) ??
-                            "-"}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">系统</span>
-                        <p className="font-mono">
-                          {[
-                            agentDetail.state?.os as string | null,
-                            agentDetail.state?.arch as string | null,
-                          ]
-                            .filter(Boolean)
-                            .join("/") || "-"}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Agent</span>
-                        <p className="font-mono">
-                          {(agentDetail.state?.agent_version as
-                            | string
-                            | null) ?? "-"}
-                        </p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">最后同步</span>
-                        <p className="font-mono text-[11px]">
-                          {(agentDetail.state?.last_seen_at as string | null) ??
-                            "-"}
-                        </p>
-                      </div>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>DNS 解析状态异常</DialogTitle>
+            <DialogDescription>
+              {dnsDeployDialog?.description}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => closeDnsDeployDialog("skip")}
+            >
+              先不更新
+            </Button>
+            <Button onClick={() => closeDnsDeployDialog("resolve")}>
+              更新 DNS
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
+        {/* 页面标题 */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">节点管理</h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              共 {rows.length} 个节点
+              {rows.filter((r) => isFresh(r.last_report_at)).length > 0 && (
+                <span className="ml-2 text-emerald-600 dark:text-emerald-400">
+                  · {rows.filter((r) => isFresh(r.last_report_at)).length}{" "}
+                  个在线
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setHideIp((v) => !v)}
+              title={hideIp ? "显示 IP" : "隐藏 IP"}
+            >
+              {hideIp ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
+              title="刷新节点数据"
+            >
+              <RefreshCw
+                className={cn("h-4 w-4", refreshing && "animate-spin")}
+              />
+            </Button>
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              添加节点
+            </Button>
+          </div>
+        </div>
+
+        {/* 节点卡片网格 */}
+        {loading ? (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <Card key={index} className="h-48 overflow-hidden">
+                <CardContent className="flex h-full flex-col justify-between p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <Skeleton className="h-4 w-28" />
+                      <Skeleton className="h-3 w-36" />
                     </div>
-                    {typeof agentDetail.state?.last_error === "string" &&
-                      agentDetail.state.last_error && (
-                        <div className="rounded bg-red-500/10 p-2 text-xs text-red-700 dark:text-red-300">
-                          {agentDetail.state.last_error}
+                    <Skeleton className="size-6 rounded-md" />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex gap-1">
+                      <Skeleton className="h-4 w-12" />
+                      <Skeleton className="h-4 w-14" />
+                    </div>
+                    <Skeleton className="h-3 w-40" />
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : rows.length === 0 ? (
+          <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <Server className="mb-3 h-10 w-10 opacity-40" />
+            <p className="text-sm">暂无节点</p>
+            <p className="mt-1 text-xs">点击右上角「添加节点」创建第一个节点</p>
+          </Card>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {rows.map((row) => (
+              <NodeCard
+                key={row.id}
+                row={{ ...row, dns_status: dnsStatusMap[row.id] ?? "skip" }}
+                hourly={historyByNode[row.id] ?? buildEmptyHourly()}
+                hideIp={hideIp}
+                onEdit={startEdit}
+                onRemove={removeNode}
+                onToggleStatus={(r) =>
+                  void updateNode(r.id, {
+                    status: r.status === "enabled" ? "disabled" : "enabled",
+                  })
+                }
+                onShowAgentConfig={(r) => void showAgentConfig(r)}
+                onShowDeployCommand={(r) => void showDeployCommand(r)}
+                onDnsResolve={(r) => void resolveDns(r)}
+                onQueueAgentTask={(r, type) => void queueAgentTask(r, type)}
+                onShowAgentDetail={(r) => void loadAgentDetail(r)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* 创建节点 - 右侧滑出面板 */}
+        <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+          <SheetContent className="data-[side=right]:sm:max-w-lg">
+            <SheetHeader>
+              <SheetTitle>添加节点</SheetTitle>
+              <SheetDescription>
+                创建新的 Hysteria2 节点，创建后可部署 Agent 上报流量。
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto px-4 pb-4">
+              <NodeForm
+                name={name}
+                setName={setName}
+                remark={remark}
+                setRemark={setRemark}
+                ip={ip}
+                setIp={setIp}
+                portInput={portInput}
+                setPortInput={setPortInput}
+                sni={sni}
+                setSni={setSni}
+                obfs={obfs}
+                setObfs={setObfs}
+                obfsPassword={obfsPassword}
+                setObfsPassword={setObfsPassword}
+                insecure={insecure}
+                setInsecure={setInsecure}
+                pinSha256={pinSha256}
+                setPinSha256={setPinSha256}
+                nodeIp={nodeIp}
+                setNodeIp={setNodeIp}
+                nodePortInput={nodePortInput}
+                setNodePortInput={setNodePortInput}
+                certMode={certMode}
+                setCertMode={setCertMode}
+                certPath={certPath}
+                setCertPath={setCertPath}
+                keyPath={keyPath}
+                setKeyPath={setKeyPath}
+                acmeDomainsInput={acmeDomainsInput}
+                setAcmeDomainsInput={setAcmeDomainsInput}
+                acmeEmail={acmeEmail}
+                setAcmeEmail={setAcmeEmail}
+                acmeDnsProvider={acmeDnsProvider}
+                setAcmeDnsProvider={setAcmeDnsProvider}
+                acmeCfToken={acmeCfToken}
+                setAcmeCfToken={setAcmeCfToken}
+                masqueradeType={masqueradeType}
+                setMasqueradeType={setMasqueradeType}
+                masqContent={masqContent}
+                setMasqContent={setMasqContent}
+                masqContentType={masqContentType}
+                setMasqContentType={setMasqContentType}
+                masqStatusCode={masqStatusCode}
+                setMasqStatusCode={setMasqStatusCode}
+                masqProxyUrl={masqProxyUrl}
+                setMasqProxyUrl={setMasqProxyUrl}
+                masqProxyRewriteHost={masqProxyRewriteHost}
+                setMasqProxyRewriteHost={setMasqProxyRewriteHost}
+                masqProxyInsecure={masqProxyInsecure}
+                setMasqProxyInsecure={setMasqProxyInsecure}
+                masqProxyXForwarded={masqProxyXForwarded}
+                setMasqProxyXForwarded={setMasqProxyXForwarded}
+                masqFileDir={masqFileDir}
+                setMasqFileDir={setMasqFileDir}
+                agentInterval={agentInterval}
+                setAgentInterval={setAgentInterval}
+                agentAutoUpdateEnabled={agentAutoUpdateEnabled}
+                setAgentAutoUpdateEnabled={setAgentAutoUpdateEnabled}
+                agentControlEnabled={agentControlEnabled}
+                setAgentControlEnabled={setAgentControlEnabled}
+                onSubmit={create}
+                submitLabel="创建节点"
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* Agent 状态 - 右侧滑出面板 */}
+        <Sheet
+          open={agentDetailRow !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setAgentDetailRow(null)
+              setAgentDetail(null)
+            }
+          }}
+        >
+          <SheetContent className="data-[side=right]:sm:max-w-xl">
+            <SheetHeader>
+              <SheetTitle>Agent 状态 {agentDetailRow?.name}</SheetTitle>
+              <SheetDescription>
+                查看控制面状态、配置同步进度和最近任务结果。
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
+              {agentDetailLoading ? (
+                <div className="space-y-3 pt-2">
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-40 w-full" />
+                </div>
+              ) : agentDetail ? (
+                <>
+                  <Card>
+                    <CardHeader className="p-4 pb-1">
+                      <CardTitle className="text-base leading-none font-semibold">
+                        当前状态
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-sm">
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-muted-foreground">控制面</span>
+                          <p className="font-medium">
+                            {isAgentFresh(
+                              (agentDetail.state?.last_seen_at as
+                                | string
+                                | null) ?? null
+                            )
+                              ? "在线"
+                              : "离线"}
+                          </p>
                         </div>
-                      )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="p-4 pb-1">
-                    <CardTitle className="text-base leading-none font-semibold">
-                      配置同步
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2 text-xs">
-                    <div className="flex flex-wrap gap-2">
-                      <Badge>
-                        目标 r{agentDetail.desired_config?.revision ?? "-"}
-                      </Badge>
-                      <Badge>
-                        已应用 r
-                        {(agentDetail.state?.applied_config_revision as
-                          | number
-                          | null) ?? "-"}
-                      </Badge>
-                    </div>
-                    <p className="font-mono text-[11px] break-all text-muted-foreground">
-                      目标 Hash：{agentDetail.desired_config?.hash ?? "-"}
-                    </p>
-                    <p className="font-mono text-[11px] break-all text-muted-foreground">
-                      当前 Hash：
-                      {(agentDetail.state?.hysteria_config_hash as
-                        | string
-                        | null) ?? "-"}
-                    </p>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader className="p-4 pb-1">
-                    <CardTitle className="text-base leading-none font-semibold">
-                      最近任务
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {agentDetail.recent_tasks.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">暂无任务</p>
-                    ) : (
-                      agentDetail.recent_tasks.map((task) => {
-                        const output = parseTaskOutput(task)
-                        return (
-                          <div
-                            key={task.id}
-                            className="rounded border p-2 text-xs"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium">
-                                #{task.id} {TASK_LABEL[task.type] ?? task.type}
-                              </span>
-                              <Badge
-                                className={cn(
-                                  "text-[10px]",
-                                  task.status === "succeeded" &&
-                                    "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-                                  task.status === "failed" &&
-                                    "bg-red-500/15 text-red-700 dark:text-red-400",
-                                  (task.status === "queued" ||
-                                    task.status === "claimed") &&
-                                    "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
-                                )}
-                              >
-                                {TASK_STATUS_LABEL[task.status] ?? task.status}
-                              </Badge>
-                            </div>
-                            <p className="mt-1 font-mono text-[11px] text-muted-foreground">
-                              {task.created_at}
-                            </p>
-                            {output && (
-                              <pre className="mt-2 max-h-52 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
-                                {output}
-                              </pre>
+                        <div>
+                          <span className="text-muted-foreground">
+                            Hysteria2
+                          </span>
+                          <p className="font-medium">
+                            {getHy2StatusLabel(
+                              (agentDetail.state?.hy2_status as
+                                | string
+                                | null) ?? null
                             )}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">主机</span>
+                          <p className="font-mono break-all">
+                            {(agentDetail.state?.hostname as string | null) ??
+                              "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">系统</span>
+                          <p className="font-mono">
+                            {[
+                              agentDetail.state?.os as string | null,
+                              agentDetail.state?.arch as string | null,
+                            ]
+                              .filter(Boolean)
+                              .join("/") || "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Agent</span>
+                          <p className="font-mono">
+                            {(agentDetail.state?.agent_version as
+                              | string
+                              | null) ?? "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">
+                            最后同步
+                          </span>
+                          <p className="font-mono text-[11px]">
+                            {(agentDetail.state?.last_seen_at as
+                              | string
+                              | null) ?? "-"}
+                          </p>
+                        </div>
+                      </div>
+                      {typeof agentDetail.state?.last_error === "string" &&
+                        agentDetail.state.last_error && (
+                          <div className="rounded bg-red-500/10 p-2 text-xs text-red-700 dark:text-red-300">
+                            {agentDetail.state.last_error}
                           </div>
-                        )
-                      })
-                    )}
-                  </CardContent>
-                </Card>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">暂无 Agent 状态</p>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
+                        )}
+                    </CardContent>
+                  </Card>
 
-      {/* 编辑节点 - 右侧滑出面板 */}
-      <Sheet
-        open={editingRow !== null}
-        onOpenChange={(open) => {
-          if (!open) setEditingRow(null)
-        }}
-      >
-        <SheetContent className="data-[side=right]:sm:max-w-lg">
-          <SheetHeader>
-            <SheetTitle>编辑节点 {editingRow?.name}</SheetTitle>
-            <SheetDescription>修改节点配置，保存后立即生效。</SheetDescription>
-          </SheetHeader>
-          <div className="flex-1 overflow-y-auto px-4 pb-4">
-            <NodeForm
-              name={editName}
-              setName={setEditName}
-              remark={editRemark}
-              setRemark={setEditRemark}
-              ip={editIp}
-              setIp={setEditIp}
-              portInput={editPortInput}
-              setPortInput={setEditPortInput}
-              sni={editSni}
-              setSni={setEditSni}
-              obfs={editObfs}
-              setObfs={setEditObfs}
-              obfsPassword={editObfsPassword}
-              setObfsPassword={setEditObfsPassword}
-              insecure={editInsecure}
-              setInsecure={setEditInsecure}
-              pinSha256={editPinSha256}
-              setPinSha256={setEditPinSha256}
-              nodeIp={editNodeIp}
-              setNodeIp={setEditNodeIp}
-              nodePortInput={editNodePortInput}
-              setNodePortInput={setEditNodePortInput}
-              certMode={editCertMode}
-              setCertMode={setEditCertMode}
-              certPath={editCertPath}
-              setCertPath={setEditCertPath}
-              keyPath={editKeyPath}
-              setKeyPath={setEditKeyPath}
-              acmeDomainsInput={editAcmeDomainsInput}
-              setAcmeDomainsInput={setEditAcmeDomainsInput}
-              acmeEmail={editAcmeEmail}
-              setAcmeEmail={setEditAcmeEmail}
-              acmeDnsProvider={editAcmeDnsProvider}
-              setAcmeDnsProvider={setEditAcmeDnsProvider}
-              acmeCfToken={editAcmeCfToken}
-              setAcmeCfToken={setEditAcmeCfToken}
-              masqueradeType={editMasqueradeType}
-              setMasqueradeType={setEditMasqueradeType}
-              masqContent={editMasqContent}
-              setMasqContent={setEditMasqContent}
-              masqContentType={editMasqContentType}
-              setMasqContentType={setEditMasqContentType}
-              masqStatusCode={editMasqStatusCode}
-              setMasqStatusCode={setEditMasqStatusCode}
-              masqProxyUrl={editMasqProxyUrl}
-              setMasqProxyUrl={setEditMasqProxyUrl}
-              masqProxyRewriteHost={editMasqProxyRewriteHost}
-              setMasqProxyRewriteHost={setEditMasqProxyRewriteHost}
-              masqProxyInsecure={editMasqProxyInsecure}
-              setMasqProxyInsecure={setEditMasqProxyInsecure}
-              masqProxyXForwarded={editMasqProxyXForwarded}
-              setMasqProxyXForwarded={setEditMasqProxyXForwarded}
-              masqFileDir={editMasqFileDir}
-              setMasqFileDir={setEditMasqFileDir}
-              agentInterval={editAgentInterval}
-              setAgentInterval={setEditAgentInterval}
-              agentAutoUpdateEnabled={editAgentAutoUpdateEnabled}
-              setAgentAutoUpdateEnabled={setEditAgentAutoUpdateEnabled}
-              agentControlEnabled={editAgentControlEnabled}
-              setAgentControlEnabled={setEditAgentControlEnabled}
-              onSubmit={submitEdit}
-              submitLabel="保存修改"
-              onCancel={() => setEditingRow(null)}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
-    </div>
+                  <Card>
+                    <CardHeader className="p-4 pb-1">
+                      <CardTitle className="text-base leading-none font-semibold">
+                        配置同步
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2 text-xs">
+                      <div className="flex flex-wrap gap-2">
+                        <Badge>
+                          目标 r{agentDetail.desired_config?.revision ?? "-"}
+                        </Badge>
+                        <Badge>
+                          已应用 r
+                          {(agentDetail.state?.applied_config_revision as
+                            | number
+                            | null) ?? "-"}
+                        </Badge>
+                      </div>
+                      <p className="font-mono text-[11px] break-all text-muted-foreground">
+                        目标 Hash：{agentDetail.desired_config?.hash ?? "-"}
+                      </p>
+                      <p className="font-mono text-[11px] break-all text-muted-foreground">
+                        当前 Hash：
+                        {(agentDetail.state?.hysteria_config_hash as
+                          | string
+                          | null) ?? "-"}
+                      </p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="p-4 pb-1">
+                      <CardTitle className="text-base leading-none font-semibold">
+                        最近任务
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      {agentDetail.recent_tasks.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          暂无任务
+                        </p>
+                      ) : (
+                        agentDetail.recent_tasks.map((task) => {
+                          const output = parseTaskOutput(task)
+                          return (
+                            <div
+                              key={task.id}
+                              className="rounded border p-2 text-xs"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium">
+                                  #{task.id}{" "}
+                                  {TASK_LABEL[task.type] ?? task.type}
+                                </span>
+                                <Badge
+                                  className={cn(
+                                    "text-[10px]",
+                                    task.status === "succeeded" &&
+                                      "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+                                    task.status === "failed" &&
+                                      "bg-red-500/15 text-red-700 dark:text-red-400",
+                                    (task.status === "queued" ||
+                                      task.status === "claimed") &&
+                                      "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+                                  )}
+                                >
+                                  {TASK_STATUS_LABEL[task.status] ??
+                                    task.status}
+                                </Badge>
+                              </div>
+                              <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                                {task.created_at}
+                              </p>
+                              {output && (
+                                <pre className="mt-2 max-h-52 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
+                                  {output}
+                                </pre>
+                              )}
+                            </div>
+                          )
+                        })
+                      )}
+                    </CardContent>
+                  </Card>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">暂无 Agent 状态</p>
+              )}
+            </div>
+          </SheetContent>
+        </Sheet>
+
+        {/* 编辑节点 - 右侧滑出面板 */}
+        <Sheet
+          open={editingRow !== null}
+          onOpenChange={(open) => {
+            if (!open) setEditingRow(null)
+          }}
+        >
+          <SheetContent className="data-[side=right]:sm:max-w-lg">
+            <SheetHeader>
+              <SheetTitle>编辑节点 {editingRow?.name}</SheetTitle>
+              <SheetDescription>
+                修改节点配置，保存后立即生效。
+              </SheetDescription>
+            </SheetHeader>
+            <div className="flex-1 overflow-y-auto px-4 pb-4">
+              <NodeForm
+                name={editName}
+                setName={setEditName}
+                remark={editRemark}
+                setRemark={setEditRemark}
+                ip={editIp}
+                setIp={setEditIp}
+                portInput={editPortInput}
+                setPortInput={setEditPortInput}
+                sni={editSni}
+                setSni={setEditSni}
+                obfs={editObfs}
+                setObfs={setEditObfs}
+                obfsPassword={editObfsPassword}
+                setObfsPassword={setEditObfsPassword}
+                insecure={editInsecure}
+                setInsecure={setEditInsecure}
+                pinSha256={editPinSha256}
+                setPinSha256={setEditPinSha256}
+                nodeIp={editNodeIp}
+                setNodeIp={setEditNodeIp}
+                nodePortInput={editNodePortInput}
+                setNodePortInput={setEditNodePortInput}
+                certMode={editCertMode}
+                setCertMode={setEditCertMode}
+                certPath={editCertPath}
+                setCertPath={setEditCertPath}
+                keyPath={editKeyPath}
+                setKeyPath={setEditKeyPath}
+                acmeDomainsInput={editAcmeDomainsInput}
+                setAcmeDomainsInput={setEditAcmeDomainsInput}
+                acmeEmail={editAcmeEmail}
+                setAcmeEmail={setEditAcmeEmail}
+                acmeDnsProvider={editAcmeDnsProvider}
+                setAcmeDnsProvider={setEditAcmeDnsProvider}
+                acmeCfToken={editAcmeCfToken}
+                setAcmeCfToken={setEditAcmeCfToken}
+                masqueradeType={editMasqueradeType}
+                setMasqueradeType={setEditMasqueradeType}
+                masqContent={editMasqContent}
+                setMasqContent={setEditMasqContent}
+                masqContentType={editMasqContentType}
+                setMasqContentType={setEditMasqContentType}
+                masqStatusCode={editMasqStatusCode}
+                setMasqStatusCode={setEditMasqStatusCode}
+                masqProxyUrl={editMasqProxyUrl}
+                setMasqProxyUrl={setEditMasqProxyUrl}
+                masqProxyRewriteHost={editMasqProxyRewriteHost}
+                setMasqProxyRewriteHost={setEditMasqProxyRewriteHost}
+                masqProxyInsecure={editMasqProxyInsecure}
+                setMasqProxyInsecure={setEditMasqProxyInsecure}
+                masqProxyXForwarded={editMasqProxyXForwarded}
+                setMasqProxyXForwarded={setEditMasqProxyXForwarded}
+                masqFileDir={editMasqFileDir}
+                setMasqFileDir={setEditMasqFileDir}
+                agentInterval={editAgentInterval}
+                setAgentInterval={setEditAgentInterval}
+                agentAutoUpdateEnabled={editAgentAutoUpdateEnabled}
+                setAgentAutoUpdateEnabled={setEditAgentAutoUpdateEnabled}
+                agentControlEnabled={editAgentControlEnabled}
+                setAgentControlEnabled={setEditAgentControlEnabled}
+                onSubmit={submitEdit}
+                submitLabel="保存修改"
+                onCancel={() => setEditingRow(null)}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      </div>
+    </>
   )
 }
