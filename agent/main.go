@@ -20,6 +20,8 @@ import (
 // Version 由构建脚本通过 -ldflags 注入，未注入时用于开发构建
 var Version = "dev"
 
+const initialRunDelay = 10 * time.Second
+
 // 配置文件结构；字段名与 JSON 键保持 snake_case
 type Config struct {
 	H2OURL              string `json:"h2o_url"`
@@ -124,7 +126,15 @@ func main() {
 
 	var pendingControlResults []control.TaskResult
 
-	// 启动时立即跑一轮，再按 ticker 运行
+	// 首次启动时给 Hy2 预留证书申请/服务初始化时间，避免过早判断状态。
+	log.Printf("[h2o-agent] 首次同步将在 %s 后开始", initialRunDelay)
+	select {
+	case <-ctx.Done():
+		log.Println("[h2o-agent] 退出")
+		return
+	case <-time.After(initialRunDelay):
+	}
+
 	pendingControlResults = runOnce(ctx, cfg, pendingControlResults)
 
 	tick := time.NewTicker(interval)
@@ -172,7 +182,6 @@ func runOnce(ctx context.Context, cfg *Config, pending []control.TaskResult) []c
 		log.Printf("抓取 Hy2 stats 失败: %v", err)
 		return pending
 	}
-	snap.AgentVersion = Version
 	if err := sendReportWithRetry(ctx, cfg, snap); err != nil {
 		log.Printf("上报 h2o 失败: %v", err)
 		return pending

@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useEffect, useRef, useState } from "react"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import {
   Activity,
@@ -10,6 +10,7 @@ import {
   EyeOff,
   FileText,
   Globe,
+  Info,
   MoreVertical,
   Pencil,
   Play,
@@ -63,6 +64,11 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 type DnsStatus = "match" | "mismatch" | "unresolved" | "skip"
@@ -122,6 +128,7 @@ type AgentDetail = {
 type NodeRow = {
   id: number
   name: string
+  remark: string | null
   ip: string
   port: number
   port_hopping: string | null
@@ -134,7 +141,6 @@ type NodeRow = {
   pin_sha256: string | null
   last_report_at: string | null
   online_count: number | null
-  agent_version: string | null
   agent_control_enabled: 0 | 1 | null
   agent_config_revision: number | null
   agent_desired_config_hash: string | null
@@ -201,11 +207,11 @@ const FRESH_THRESHOLD_MS = 3 * 60 * 1000
 const AGENT_FRESH_THRESHOLD_MS = 3 * 60 * 1000
 
 const TASK_LABEL: Record<AgentTaskType, string> = {
-  HY2_STATUS: "检查 Hy2 状态",
-  HY2_START: "启动 Hy2",
-  HY2_STOP: "停止 Hy2",
-  HY2_RESTART: "重启 Hy2",
-  HY2_LOGS: "查看 Hy2 日志",
+  HY2_STATUS: "检查 Hysteria2 状态",
+  HY2_START: "启动 Hysteria2",
+  HY2_STOP: "停止 Hysteria2",
+  HY2_RESTART: "重启 Hysteria2",
+  HY2_LOGS: "查看 Hysteria2 日志",
   AGENT_LOGS: "查看 Agent 日志",
   APPLY_CONFIG: "应用配置",
   AGENT_SELF_UPDATE: "Agent 自更新",
@@ -275,12 +281,50 @@ function isAgentFresh(lastSeenAt: string | null): boolean {
   )
 }
 
+function getNodeStatusLight(
+  trafficFresh: boolean,
+  agentFresh: boolean,
+  hy2Status: string | null
+) {
+  if (trafficFresh && agentFresh) {
+    return {
+      className: "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]",
+      title: "流量上报与控制面均在线",
+    }
+  }
+  if (trafficFresh) {
+    return {
+      className: "bg-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.5)]",
+      title: "流量上报在线，控制面离线",
+    }
+  }
+  if (agentFresh) {
+    if (hy2Status === "failed") {
+      return {
+        className: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]",
+        title: "控制面在线，Hysteria2 异常",
+      }
+    }
+    return {
+      className: "bg-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.5)]",
+      title:
+        hy2Status === "stopped"
+          ? "控制面在线，Hysteria2 已停止"
+          : "控制面在线，暂无流量上报",
+    }
+  }
+  return {
+    className: "bg-muted-foreground/40",
+    title: "流量上报与控制面均离线",
+  }
+}
+
 function getHy2StatusLabel(status: string | null) {
-  if (status === "running") return "Hy2 运行中"
-  if (status === "stopped") return "Hy2 已停止"
-  if (status === "failed") return "Hy2 异常"
-  if (status === "unknown") return "Hy2 未知"
-  return status || "Hy2 未知"
+  if (status === "running") return "Hysteria2 运行中"
+  if (status === "stopped") return "Hysteria2 已停止"
+  if (status === "failed") return "Hysteria2 异常"
+  if (status === "unknown") return "Hysteria2 未知"
+  return status || "Hysteria2 未知"
 }
 
 function getHy2StatusClass(status: string | null) {
@@ -290,17 +334,6 @@ function getHy2StatusClass(status: string | null) {
   if (status === "stopped") return "bg-muted text-muted-foreground"
   if (status === "failed") return "bg-red-500/15 text-red-700 dark:text-red-400"
   return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
-}
-
-function isConfigSynced(row: NodeRow) {
-  return (
-    row.applied_config_revision != null &&
-    (row.agent_config_revision == null ||
-      row.agent_config_revision === row.applied_config_revision) &&
-    (!row.agent_desired_config_hash ||
-      !row.hysteria_config_hash ||
-      row.agent_desired_config_hash === row.hysteria_config_hash)
-  )
 }
 
 function clampHour(hour: number): number {
@@ -480,10 +513,10 @@ function NodeCard({
 }) {
   const fresh = isFresh(row.last_report_at)
   const agentFresh = isAgentFresh(row.agent_last_seen_at)
-  const configSynced = isConfigSynced(row)
-  const displayAgentVersion = row.control_agent_version ?? row.agent_version
+  const displayAgentVersion = row.control_agent_version
   const onlineCount = row.online_count ?? 0
   const dnsStatusMeta = getDnsStatusMeta(row.dns_status)
+  const statusLight = getNodeStatusLight(fresh, agentFresh, row.hy2_status)
 
   // 计算今日上传/下载
   const todayTx = hourly.reduce((sum, h) => sum + h.txBytes, 0)
@@ -497,27 +530,49 @@ function NodeCard({
       {/* 渐变遮罩 - 确保文字可读 */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-card/95 via-card/70 to-card/30" />
 
+      {displayAgentVersion && (
+        <Badge
+          className="absolute right-3 bottom-3 z-10 bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
+          title={`Agent 版本：${displayAgentVersion}`}
+        >
+          <Bot className="mr-0.5 h-2.5 w-2.5" />
+          {displayAgentVersion}
+        </Badge>
+      )}
+
       {/* 节点信息 - 叠加在图表上 */}
       <div className="relative flex h-full flex-col justify-between p-3">
         {/* 顶部：名称 + 状态 */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm font-semibold">{row.name}</h3>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h3 className="truncate text-sm font-semibold">{row.name}</h3>
+              {row.remark && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex shrink-0 cursor-help text-muted-foreground hover:text-foreground">
+                      <Info className="h-3.5 w-3.5" />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-70 break-words whitespace-pre-wrap">
+                    {row.remark}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
             <p className="truncate font-mono text-[11px] text-muted-foreground">
               {hideIp ? row.ip.replace(/[^.]/g, "*") : row.ip}:
               {row.port_hopping ?? row.port}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {/* 控制面状态指示灯 */}
+            {/* 节点综合状态指示灯 */}
             <span
               className={cn(
                 "inline-block h-2 w-2 rounded-full",
-                agentFresh
-                  ? "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]"
-                  : "bg-muted-foreground/40"
+                statusLight.className
               )}
-              title={agentFresh ? "Agent 控制面在线" : "Agent 控制面离线"}
+              title={statusLight.title}
             />
             {/* 更多操作菜单 */}
             <DropdownMenu>
@@ -560,25 +615,25 @@ function NodeCard({
                       onClick={() => onQueueAgentTask(row, "HY2_RESTART")}
                     >
                       <RotateCw className="h-4 w-4" />
-                      重启 Hy2
+                      重启 Hysteria2
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_START")}
                     >
                       <Play className="h-4 w-4" />
-                      启动 Hy2
+                      启动 Hysteria2
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_STOP")}
                     >
                       <Square className="h-4 w-4" />
-                      停止 Hy2
+                      停止 Hysteria2
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_LOGS")}
                     >
                       <FileText className="h-4 w-4" />
-                      Hy2 日志
+                      Hysteria2 日志
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "AGENT_LOGS")}
@@ -668,27 +723,19 @@ function NodeCard({
                 {onlineCount}
               </Badge>
             )}
-            {!fresh && row.last_report_at && (
+            {!fresh && !agentFresh && row.last_report_at && (
               <Badge className="bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
-                流量离线
+                离线
               </Badge>
             )}
-            <Badge
-              className={cn(
-                "px-1.5 py-0 text-[10px]",
-                agentFresh
-                  ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                  : "bg-muted text-muted-foreground"
-              )}
-              title={
-                row.agent_last_seen_at
-                  ? `最后同步：${row.agent_last_seen_at}`
-                  : "尚未同步"
-              }
-            >
-              <Bot className="mr-0.5 h-2.5 w-2.5" />
-              {agentFresh ? "控制在线" : "控制离线"}
-            </Badge>
+            {!fresh && agentFresh && row.hy2_status === "running" && (
+              <Badge
+                className="bg-yellow-500/15 px-1.5 py-0 text-[10px] text-yellow-700 dark:text-yellow-300"
+                title="控制面在线且 Hysteria2 运行中，但最近未收到流量上报"
+              >
+                流量异常
+              </Badge>
+            )}
             {row.hy2_status && (
               <Badge
                 className={cn(
@@ -699,32 +746,10 @@ function NodeCard({
                 {getHy2StatusLabel(row.hy2_status)}
               </Badge>
             )}
-            {row.applied_config_revision != null && (
-              <Badge
-                className={cn(
-                  "px-1.5 py-0 text-[10px]",
-                  configSynced
-                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                    : "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
-                )}
-                title={`目标 r${row.agent_config_revision ?? 1} / 已应用 r${row.applied_config_revision}`}
-              >
-                {configSynced ? "配置已同步" : "配置待同步"}
-              </Badge>
-            )}
-            {displayAgentVersion && (
-              <Badge
-                className="bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
-                title={`Agent 版本：${displayAgentVersion}`}
-              >
-                <Bot className="mr-0.5 h-2.5 w-2.5" />
-                {displayAgentVersion}
-              </Badge>
-            )}
           </div>
 
           {/* 今日流量 */}
-          <div className="flex items-center gap-2 text-[11px]">
+          <div className="flex items-center gap-2 pr-20 text-[11px]">
             <span className="text-muted-foreground">今日</span>
             <span className="font-medium text-violet-600 dark:text-violet-400">
               ↑ {formatBytes(todayTx)}
@@ -744,6 +769,8 @@ function NodeForm({
   // 订阅配置
   name,
   setName,
+  remark,
+  setRemark,
   ip,
   setIp,
   portInput,
@@ -810,6 +837,8 @@ function NodeForm({
   // 订阅配置
   name: string
   setName: (v: string) => void
+  remark: string
+  setRemark: (v: string) => void
   ip: string
   setIp: (v: string) => void
   portInput: string
@@ -893,6 +922,15 @@ function NodeForm({
               onChange={(e) => setName(e.target.value)}
               placeholder="节点名称"
               required
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>备注</Label>
+            <Textarea
+              value={remark}
+              onChange={(e) => setRemark(e.target.value)}
+              placeholder="可选，仅管理员可见"
+              rows={2}
             />
           </div>
           <div className="space-y-1">
@@ -1228,7 +1266,7 @@ function NodeForm({
             <div>
               <Label>控制面同步</Label>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                允许 Agent 拉取配置和执行 Hy2 管理任务。
+                允许 Agent 拉取配置和执行 Hysteria2 管理任务。
               </p>
             </div>
             <Switch
@@ -1279,8 +1317,10 @@ export default function AdminNodesPage() {
   const [dnsStatusMap, setDnsStatusMap] = useState<Record<number, DnsStatus>>(
     {}
   )
+  const dnsStatusRequestSeq = useRef(0)
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState("")
+  const [remark, setRemark] = useState("")
   const [ip, setIp] = useState("")
   const [portInput, setPortInput] = useState("")
   const [sni, setSni] = useState("")
@@ -1315,6 +1355,7 @@ export default function AdminNodesPage() {
   // 编辑面板
   const [editingRow, setEditingRow] = useState<NodeRow | null>(null)
   const [editName, setEditName] = useState("")
+  const [editRemark, setEditRemark] = useState("")
   const [editIp, setEditIp] = useState("")
   const [editPortInput, setEditPortInput] = useState("")
   const [editSni, setEditSni] = useState("")
@@ -1435,10 +1476,18 @@ export default function AdminNodesPage() {
   }
 
   async function loadDnsStatus() {
+    const requestSeq = dnsStatusRequestSeq.current + 1
+    dnsStatusRequestSeq.current = requestSeq
+
     try {
       const res = await fetch("/api/admin/nodes/dns-status")
       const json = await res.json()
-      if (json?.ok && json.data && typeof json.data === "object") {
+      if (
+        requestSeq === dnsStatusRequestSeq.current &&
+        json?.ok &&
+        json.data &&
+        typeof json.data === "object"
+      ) {
         setDnsStatusMap(json.data as Record<number, DnsStatus>)
       }
     } catch {
@@ -1583,6 +1632,7 @@ export default function AdminNodesPage() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         name,
+        remark: remark || null,
         ip,
         port: portInput,
         sni: sni || null,
@@ -1611,6 +1661,7 @@ export default function AdminNodesPage() {
     if (!response.ok || !json.ok) return
 
     setName("")
+    setRemark("")
     setIp("")
     setPortInput("443")
     setSni("")
@@ -1683,6 +1734,7 @@ export default function AdminNodesPage() {
   function startEdit(row: NodeRow) {
     setEditingRow(row)
     setEditName(row.name)
+    setEditRemark(row.remark ?? "")
     setEditIp(row.ip)
     setEditPortInput(row.port_hopping ?? String(row.port))
     setEditSni(row.sni ?? "")
@@ -1780,6 +1832,7 @@ export default function AdminNodesPage() {
         : []
     await updateNode(editingRow.id, {
       name: editName,
+      remark: editRemark || null,
       ip: editIp,
       port: editPortInput,
       sni: editSni,
@@ -1852,7 +1905,7 @@ export default function AdminNodesPage() {
         title: `${TASK_LABEL[type]}？`,
         description:
           type === "HY2_STOP"
-            ? "停止 Hy2 会中断当前节点连接，确认继续？"
+            ? "停止 Hysteria2 会中断当前节点连接，确认继续？"
             : "Agent 自更新成功后可能会自动重启服务。",
         confirmText: "继续",
       })
@@ -2157,6 +2210,8 @@ export default function AdminNodesPage() {
             <NodeForm
               name={name}
               setName={setName}
+              remark={remark}
+              setRemark={setRemark}
               ip={ip}
               setIp={setIp}
               portInput={portInput}
@@ -2266,7 +2321,7 @@ export default function AdminNodesPage() {
                         </p>
                       </div>
                       <div>
-                        <span className="text-muted-foreground">Hy2</span>
+                        <span className="text-muted-foreground">Hysteria2</span>
                         <p className="font-medium">
                           {getHy2StatusLabel(
                             (agentDetail.state?.hy2_status as string | null) ??
@@ -2421,6 +2476,8 @@ export default function AdminNodesPage() {
             <NodeForm
               name={editName}
               setName={setEditName}
+              remark={editRemark}
+              setRemark={setEditRemark}
               ip={editIp}
               setIp={setEditIp}
               portInput={editPortInput}

@@ -32,6 +32,7 @@ function migrate(database: DatabaseSync) {
     CREATE TABLE IF NOT EXISTS nodes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE,
+      remark TEXT,
       ip TEXT NOT NULL,
       port INTEGER NOT NULL,
       port_hopping TEXT,
@@ -249,6 +250,7 @@ function migrate(database: DatabaseSync) {
   // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）
   // 不是多版本迁移链，仅是单次向前兼容
   for (const alter of [
+    `ALTER TABLE nodes ADD COLUMN remark TEXT`,
     `ALTER TABLE nodes ADD COLUMN port_hopping TEXT`,
     `ALTER TABLE plans ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0`,

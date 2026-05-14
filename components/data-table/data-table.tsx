@@ -116,6 +116,13 @@ export function DataTable<TData, TValue>({
       }
     : setInternalPagination
 
+  React.useEffect(() => {
+    if (manualPagination) return
+    setInternalPagination((current) =>
+      current.pageIndex === 0 ? current : { ...current, pageIndex: 0 }
+    )
+  }, [manualPagination, data, sorting, columnFilters])
+
   // TanStack Table 官方 hook 返回不可安全 memoize 的函数，React Compiler 会跳过该组件。
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -134,6 +141,7 @@ export function DataTable<TData, TValue>({
     onColumnVisibilityChange: setColumnVisibility,
     onRowSelectionChange: setRowSelection,
     onPaginationChange,
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getFacetedRowModel: getFacetedRowModel(),

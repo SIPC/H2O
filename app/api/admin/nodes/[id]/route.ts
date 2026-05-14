@@ -9,6 +9,7 @@ import { getClientIp } from "@/lib/turnstile"
 type UpdateNodeBody = {
   // 订阅配置
   name?: string
+  remark?: string | null
   ip?: string
   port?: string | number
   status?: "enabled" | "disabled"
@@ -62,6 +63,12 @@ export async function PATCH(
     updates.push("name = ?")
     values.push(body.name)
     changedFields.push("name")
+  }
+
+  if (body.remark !== undefined) {
+    updates.push("remark = ?")
+    values.push(body.remark && body.remark.trim() ? body.remark.trim() : null)
+    changedFields.push("remark")
   }
 
   if (body.ip) {

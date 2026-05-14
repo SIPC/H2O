@@ -12,6 +12,7 @@ import { getClientIp } from "@/lib/turnstile"
 type CreateNodeBody = {
   // 订阅配置
   name?: string
+  remark?: string | null
   ip?: string
   port?: string | number
   sni?: string | null
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
   const db = getDb()
   const rows = db
     .prepare(
-      `SELECT n.id, n.name, n.ip, n.port, n.port_hopping, n.auth_path, n.status, n.sni, n.obfs,
+      `SELECT n.id, n.name, n.remark, n.ip, n.port, n.port_hopping, n.auth_path, n.status, n.sni, n.obfs,
               n.obfs_password, n.insecure, n.pin_sha256, n.created_at,
               n.node_ip, n.node_port, n.node_port_hopping,
               n.cert_mode, n.cert_path, n.key_path,
@@ -52,7 +53,7 @@ export async function GET(request: Request) {
               n.masquerade_type, n.masquerade_config, n.agent_interval, n.agent_auto_update_enabled,
               n.agent_control_enabled, n.agent_config_revision, n.agent_desired_config_hash,
               n.agent_last_config_built_at,
-              ns.last_report_at, ns.online_count, ns.agent_version,
+              ns.last_report_at, ns.online_count,
               nas.last_seen_at AS agent_last_seen_at,
               nas.agent_version AS control_agent_version,
               nas.hostname, nas.os, nas.arch, nas.service_manager,
@@ -94,6 +95,7 @@ export async function POST(request: Request) {
   const authPath = randomBytes(24).toString("hex")
   const db = getDb()
 
+  const remark = body.remark?.trim() || null
   const sni = body.sni?.trim() || null
   const obfs = body.obfs?.trim() || null
   const obfsPassword = body.obfsPassword?.trim() || null
@@ -185,15 +187,16 @@ export async function POST(request: Request) {
   try {
     const result = db
       .prepare(
-        `INSERT INTO nodes(name, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256,
+        `INSERT INTO nodes(name, remark, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256,
            node_ip, node_port, node_port_hopping, cert_mode, cert_path, key_path,
            acme_domains, acme_email, acme_dns_provider, acme_dns_config,
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
            hy2_stats_secret, agent_secret, agent_control_enabled)
-         VALUES (?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
+        remark,
         body.ip,
         resolvedPort,
         resolvedPortHopping,

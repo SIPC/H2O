@@ -5,7 +5,7 @@ function hasSessionCookie(request: Request) {
   return Boolean(cookie && cookie.includes("h2o_session="))
 }
 
-export function middleware(request: Request) {
+export function proxy(request: Request) {
   const url = new URL(request.url)
   const pathname = url.pathname
   const loggedIn = hasSessionCookie(request)

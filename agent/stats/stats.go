@@ -19,9 +19,8 @@ type UserTraffic struct {
 
 // Snapshot 是每次抓取得到的全量快照，字段名与 h2o 侧 /traffic 路由期望的 JSON 对齐
 type Snapshot struct {
-	Traffic      map[string]UserTraffic `json:"traffic"`
-	Online       map[string]int         `json:"online"`
-	AgentVersion string                 `json:"agent_version,omitempty"`
+	Traffic map[string]UserTraffic `json:"traffic"`
+	Online  map[string]int         `json:"online"`
 }
 
 // Fetch 并行拉取 /traffic 与 /online，超时 10s
