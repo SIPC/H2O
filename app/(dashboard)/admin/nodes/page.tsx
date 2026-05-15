@@ -79,8 +79,13 @@ import {
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-type DnsStatus = "match" | "mismatch" | "unresolved" | "skip"
+type DnsStatus = "match" | "partial" | "mismatch" | "unresolved" | "skip"
 type DnsDeployDecision = "resolve" | "skip" | "exit"
+
+type DnsStatusInfo = {
+  status: DnsStatus
+  detail?: string
+}
 
 type AgentTaskType =
   | "HY2_STATUS"
@@ -185,6 +190,7 @@ type NodeRow = {
   agent_interval: number | null
   agent_auto_update_enabled: 0 | 1 | null
   dns_status: DnsStatus
+  dns_status_detail?: string | null
 }
 
 type HourPoint = {
@@ -251,21 +257,28 @@ const DNS_STATUS_META: Record<
     shortLabel: "正常",
     dotClassName: "bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]",
     badgeClassName: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-    description: "DNS 已指向正确 IP",
+    description: "所有 DNS 源均已指向正确 IP",
+  },
+  partial: {
+    label: "DNS 部分生效",
+    shortLabel: "部分生效",
+    dotClassName: "bg-blue-500 shadow-[0_0_4px_rgba(59,130,246,0.6)]",
+    badgeClassName: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+    description: "部分 DNS 源已指向正确 IP，仍在传播或存在缓存差异",
   },
   mismatch: {
     label: "DNS 不匹配",
     shortLabel: "不匹配",
     dotClassName: "bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)]",
     badgeClassName: "bg-red-500/15 text-red-700 dark:text-red-400",
-    description: "DNS 指向的 IP 与节点 IP 不一致",
+    description: "所有已解析 DNS 源均未指向节点 IP",
   },
   unresolved: {
     label: "DNS 未解析",
     shortLabel: "未解析",
     dotClassName: "bg-yellow-500 shadow-[0_0_4px_rgba(234,179,8,0.6)]",
     badgeClassName: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
-    description: "域名无法解析",
+    description: "所有 DNS 源均无法解析该域名",
   },
 }
 
@@ -527,6 +540,7 @@ function NodeCard({
   const displayAgentVersion = row.control_agent_version
   const onlineCount = row.online_count ?? 0
   const dnsStatusMeta = getDnsStatusMeta(row.dns_status)
+  const dnsStatusTitle = row.dns_status_detail || dnsStatusMeta?.description
   const statusLight = getNodeStatusLight(fresh, agentFresh, row.hy2_status)
 
   // 计算今日上传/下载
@@ -656,7 +670,7 @@ function NodeCard({
                               "ml-auto h-2 w-2 rounded-full",
                               dnsStatusMeta.dotClassName
                             )}
-                            title={dnsStatusMeta.description}
+                            title={dnsStatusTitle}
                           />
                         )}
                       </DropdownMenuItem>
@@ -736,7 +750,7 @@ function NodeCard({
                   "px-1.5 py-0 text-[10px]",
                   dnsStatusMeta.badgeClassName
                 )}
-                title={dnsStatusMeta.description}
+                title={dnsStatusTitle}
               >
                 <Globe className="mr-0.5 h-2.5 w-2.5" />
                 {dnsStatusMeta.label}
@@ -1339,9 +1353,9 @@ export default function AdminNodesPage() {
 
   // 创建面板
   const [hideIp, setHideIp] = useState(false)
-  const [dnsStatusMap, setDnsStatusMap] = useState<Record<number, DnsStatus>>(
-    {}
-  )
+  const [dnsStatusMap, setDnsStatusMap] = useState<
+    Record<number, DnsStatusInfo>
+  >({})
   const dnsStatusRequestSeq = useRef(0)
   const dnsDeployDecisionResolveRef = useRef<
     ((decision: DnsDeployDecision) => void) | null
@@ -1533,7 +1547,24 @@ export default function AdminNodesPage() {
         json.data &&
         typeof json.data === "object"
       ) {
-        setDnsStatusMap(json.data as Record<number, DnsStatus>)
+        const nextMap: Record<number, DnsStatusInfo> = {}
+        for (const [rawId, rawValue] of Object.entries(json.data)) {
+          const id = Number(rawId)
+          if (!Number.isInteger(id) || id <= 0) continue
+          if (typeof rawValue === "string") {
+            nextMap[id] = { status: rawValue as DnsStatus }
+            continue
+          }
+          if (rawValue && typeof rawValue === "object") {
+            const item = rawValue as { status?: unknown; detail?: unknown }
+            if (typeof item.status !== "string") continue
+            nextMap[id] = {
+              status: item.status as DnsStatus,
+              detail: typeof item.detail === "string" ? item.detail : undefined,
+            }
+          }
+        }
+        setDnsStatusMap(nextMap)
       }
     } catch {
       // 静默失败，不影响主流程
@@ -2260,7 +2291,11 @@ export default function AdminNodesPage() {
             {rows.map((row) => (
               <NodeCard
                 key={row.id}
-                row={{ ...row, dns_status: dnsStatusMap[row.id] ?? "skip" }}
+                row={{
+                  ...row,
+                  dns_status: dnsStatusMap[row.id]?.status ?? "skip",
+                  dns_status_detail: dnsStatusMap[row.id]?.detail ?? null,
+                }}
                 hourly={historyByNode[row.id] ?? buildEmptyHourly()}
                 hideIp={hideIp}
                 onEdit={startEdit}
