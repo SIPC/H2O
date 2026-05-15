@@ -6,6 +6,17 @@ import { requireAdmin } from "@/lib/auth"
 import { createAgentSecret, createHy2StatsSecret } from "@/lib/agent-control"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
+import {
+  buildNodeHostTrafficSummary,
+  ensureAllNodeHostTrafficPeriods,
+  parseHostTrafficBillingMode,
+  parseHostTrafficLimitBytes,
+  parseHostTrafficResetAnchor,
+  parseHostTrafficUsedBytes,
+  parseHostTrafficResetCycle,
+  parseHostTrafficResetIntervalDays,
+  validateHostTrafficResetConfig,
+} from "@/lib/node-traffic-quota"
 import { parseUnifiedPortInput } from "@/lib/port-hopping"
 import { getClientIp } from "@/lib/turnstile"
 
@@ -24,7 +35,7 @@ type CreateNodeBody = {
   nodeIp?: string | null
   nodePort?: string | number | null
   nodePortHopping?: string | null
-  certMode?: "self-signed" | "acme" | "custom"
+  certMode?: "self-signed" | "acme" | "acme-http" | "acme-dns" | "custom"
   certPath?: string | null
   keyPath?: string | null
   acmeDomains?: string[] | null
@@ -36,6 +47,12 @@ type CreateNodeBody = {
   agentInterval?: number | null
   agentAutoUpdateEnabled?: boolean
   agentControlEnabled?: boolean
+  hostTrafficLimitBytes?: number | null
+  hostTrafficUsedBytes?: number | null
+  hostTrafficBillingMode?: string | null
+  hostTrafficResetCycle?: string | null
+  hostTrafficResetIntervalDays?: number | null
+  hostTrafficResetAnchor?: string | null
 }
 
 export async function GET(request: Request) {
@@ -43,6 +60,8 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response
 
   const db = getDb()
+  ensureAllNodeHostTrafficPeriods(db)
+
   const rows = db
     .prepare(
       `SELECT n.id, n.name, n.remark, n.ip, n.port, n.port_hopping, n.auth_path, n.status, n.sni, n.obfs,
@@ -53,6 +72,10 @@ export async function GET(request: Request) {
               n.masquerade_type, n.masquerade_config, n.agent_interval, n.agent_auto_update_enabled,
               n.agent_control_enabled, n.agent_config_revision, n.agent_desired_config_hash,
               n.agent_last_config_built_at,
+              n.host_traffic_limit_bytes, n.host_traffic_used_bytes,
+              n.host_traffic_billing_mode,
+              n.host_traffic_reset_cycle, n.host_traffic_reset_interval_days,
+              n.host_traffic_reset_anchor, n.host_traffic_last_reset_at,
               ns.last_report_at, ns.online_count,
               nas.last_seen_at AS agent_last_seen_at,
               nas.agent_version AS control_agent_version,
@@ -65,8 +88,17 @@ export async function GET(request: Request) {
        LEFT JOIN node_agent_state nas ON nas.node_id = n.id
        ORDER BY n.id DESC`
     )
-    .all()
-  return NextResponse.json({ ok: true, data: rows })
+    .all() as Array<Record<string, unknown>>
+
+  return NextResponse.json({
+    ok: true,
+    data: rows.map((row) => ({
+      ...row,
+      ...buildNodeHostTrafficSummary(
+        row as Parameters<typeof buildNodeHostTrafficSummary>[0]
+      ),
+    })),
+  })
 }
 
 export async function POST(request: Request) {
@@ -181,6 +213,168 @@ export async function POST(request: Request) {
       : null
   const agentAutoUpdateEnabled = body.agentAutoUpdateEnabled === false ? 0 : 1
   const agentControlEnabled = body.agentControlEnabled === false ? 0 : 1
+
+  const hostTrafficLimit = parseHostTrafficLimitBytes(
+    body.hostTrafficLimitBytes
+  )
+  if (!hostTrafficLimit.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_TRAFFIC",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_TRAFFIC", message: hostTrafficLimit.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficUsed = parseHostTrafficUsedBytes(body.hostTrafficUsedBytes)
+  if (!hostTrafficUsed.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_TRAFFIC",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_TRAFFIC", message: hostTrafficUsed.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficBillingMode = parseHostTrafficBillingMode(
+    body.hostTrafficBillingMode
+  )
+  if (!hostTrafficBillingMode.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message: hostTrafficBillingMode.message,
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficCycle = parseHostTrafficResetCycle(
+    body.hostTrafficResetCycle ?? "monthly"
+  )
+  if (!hostTrafficCycle.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: hostTrafficCycle.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficInterval = parseHostTrafficResetIntervalDays(
+    body.hostTrafficResetIntervalDays
+  )
+  if (!hostTrafficInterval.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message: hostTrafficInterval.message,
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (hostTrafficLimit.value) {
+    const hostTrafficConfig = validateHostTrafficResetConfig(
+      hostTrafficCycle.value,
+      hostTrafficInterval.value
+    )
+    if (!hostTrafficConfig.ok) {
+      writeAdminEvent({
+        event: "NODE_CREATE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { name: body.name ?? null },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_PAYLOAD",
+            message: hostTrafficConfig.message,
+          },
+        },
+        { status: 400 }
+      )
+    }
+  }
+
+  const hostTrafficAnchor = parseHostTrafficResetAnchor(
+    body.hostTrafficResetAnchor
+  )
+  if (!hostTrafficAnchor.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: hostTrafficAnchor.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficAnchorValue = hostTrafficLimit.value
+    ? (hostTrafficAnchor.value ?? new Date().toISOString())
+    : hostTrafficAnchor.value
+
   const hy2StatsSecret = createHy2StatsSecret()
   const agentSecret = createAgentSecret()
 
@@ -191,8 +385,10 @@ export async function POST(request: Request) {
            node_ip, node_port, node_port_hopping, cert_mode, cert_path, key_path,
            acme_domains, acme_email, acme_dns_provider, acme_dns_config,
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
-           hy2_stats_secret, agent_secret, agent_control_enabled)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           hy2_stats_secret, agent_secret, agent_control_enabled,
+           host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
+           host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor)
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
@@ -222,7 +418,13 @@ export async function POST(request: Request) {
         agentAutoUpdateEnabled,
         hy2StatsSecret,
         agentSecret,
-        agentControlEnabled
+        agentControlEnabled,
+        hostTrafficLimit.value,
+        hostTrafficLimit.value ? hostTrafficUsed.value : 0,
+        hostTrafficBillingMode.value,
+        hostTrafficCycle.value,
+        hostTrafficInterval.value,
+        hostTrafficAnchorValue
       )
 
     const newNodeId = Number(result.lastInsertRowid)

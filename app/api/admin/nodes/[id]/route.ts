@@ -3,8 +3,34 @@ import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
+import {
+  isHostTrafficResetCycle,
+  parseHostTrafficBillingMode,
+  parseHostTrafficLimitBytes,
+  parseHostTrafficResetAnchor,
+  parseHostTrafficUsedBytes,
+  parseHostTrafficResetCycle,
+  parseHostTrafficResetIntervalDays,
+  validateHostTrafficResetConfig,
+} from "@/lib/node-traffic-quota"
 import { parseUnifiedPortInput } from "@/lib/port-hopping"
 import { getClientIp } from "@/lib/turnstile"
+
+function normalizeDateSecondKey(value: string | null) {
+  if (!value) return null
+
+  const raw = value.trim()
+  if (!raw) return null
+
+  const normalized = raw.includes("T") ? raw : raw.replace(" ", "T")
+  const withZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(normalized)
+    ? normalized
+    : `${normalized}Z`
+  const date = new Date(withZone)
+  if (!Number.isFinite(date.getTime())) return null
+
+  return new Date(Math.floor(date.getTime() / 1000) * 1000).toISOString()
+}
 
 type UpdateNodeBody = {
   // 订阅配置
@@ -22,7 +48,7 @@ type UpdateNodeBody = {
   nodeIp?: string | null
   nodePort?: string | number | null
   nodePortHopping?: string | null
-  certMode?: "self-signed" | "acme" | "custom"
+  certMode?: "self-signed" | "acme" | "acme-http" | "acme-dns" | "custom"
   certPath?: string | null
   keyPath?: string | null
   acmeDomains?: string[] | null
@@ -34,6 +60,13 @@ type UpdateNodeBody = {
   agentInterval?: number | null
   agentAutoUpdateEnabled?: boolean
   agentControlEnabled?: boolean
+  hostTrafficLimitBytes?: number | null
+  hostTrafficUsedBytes?: number | null
+  hostTrafficBillingMode?: string | null
+  hostTrafficResetCycle?: string | null
+  hostTrafficResetIntervalDays?: number | null
+  hostTrafficResetAnchor?: string | null
+  resetHostTrafficUsed?: boolean
 }
 
 export async function PATCH(
@@ -276,7 +309,10 @@ export async function PATCH(
       `SELECT port, port_hopping, obfs, obfs_password, node_port, node_port_hopping,
               cert_mode, cert_path, key_path, acme_domains, acme_email,
               acme_dns_provider, acme_dns_config, masquerade_type,
-              masquerade_config, agent_interval, agent_auto_update_enabled
+              masquerade_config, agent_interval, agent_auto_update_enabled,
+              host_traffic_limit_bytes, host_traffic_used_bytes,
+              host_traffic_billing_mode, host_traffic_reset_cycle,
+              host_traffic_reset_interval_days, host_traffic_reset_anchor
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -318,6 +354,297 @@ export async function PATCH(
     updates.push("agent_control_enabled = ?")
     values.push(body.agentControlEnabled ? 1 : 0)
     changedFields.push("agent_control_enabled")
+  }
+
+  const hostTrafficLimit =
+    body.hostTrafficLimitBytes !== undefined
+      ? parseHostTrafficLimitBytes(body.hostTrafficLimitBytes)
+      : null
+  if (hostTrafficLimit && !hostTrafficLimit.ok) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "INVALID_TRAFFIC",
+      detail: { nodeId },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_TRAFFIC", message: hostTrafficLimit.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficUsed =
+    body.hostTrafficUsedBytes !== undefined
+      ? parseHostTrafficUsedBytes(body.hostTrafficUsedBytes)
+      : null
+  if (hostTrafficUsed && !hostTrafficUsed.ok) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "INVALID_TRAFFIC",
+      detail: { nodeId },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_TRAFFIC", message: hostTrafficUsed.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficBillingMode =
+    body.hostTrafficBillingMode !== undefined
+      ? parseHostTrafficBillingMode(body.hostTrafficBillingMode)
+      : null
+  if (hostTrafficBillingMode && !hostTrafficBillingMode.ok) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { nodeId },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message: hostTrafficBillingMode.message,
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficCycle =
+    body.hostTrafficResetCycle !== undefined
+      ? parseHostTrafficResetCycle(body.hostTrafficResetCycle)
+      : null
+  if (hostTrafficCycle && !hostTrafficCycle.ok) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { nodeId },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: hostTrafficCycle.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficInterval =
+    body.hostTrafficResetIntervalDays !== undefined
+      ? parseHostTrafficResetIntervalDays(body.hostTrafficResetIntervalDays)
+      : null
+  if (hostTrafficInterval && !hostTrafficInterval.ok) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { nodeId },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message: hostTrafficInterval.message,
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  const hostTrafficAnchor =
+    body.hostTrafficResetAnchor !== undefined
+      ? parseHostTrafficResetAnchor(body.hostTrafficResetAnchor)
+      : null
+  if (hostTrafficAnchor && !hostTrafficAnchor.ok) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { nodeId },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: hostTrafficAnchor.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const currentHostTrafficCycle = isHostTrafficResetCycle(
+    currentNode.host_traffic_reset_cycle
+  )
+    ? currentNode.host_traffic_reset_cycle
+    : "monthly"
+  const nextHostTrafficCycle = hostTrafficCycle?.ok
+    ? hostTrafficCycle.value
+    : currentHostTrafficCycle
+  const currentHostTrafficInterval =
+    typeof currentNode.host_traffic_reset_interval_days === "number"
+      ? currentNode.host_traffic_reset_interval_days
+      : null
+  const nextHostTrafficInterval = hostTrafficInterval?.ok
+    ? hostTrafficInterval.value
+    : currentHostTrafficInterval
+
+  const currentHostTrafficLimitForValidation =
+    typeof currentNode.host_traffic_limit_bytes === "number"
+      ? currentNode.host_traffic_limit_bytes
+      : 0
+  const nextHostTrafficLimitForValidation = hostTrafficLimit?.ok
+    ? (hostTrafficLimit.value ?? 0)
+    : currentHostTrafficLimitForValidation
+
+  if (nextHostTrafficLimitForValidation > 0) {
+    const hostTrafficConfig = validateHostTrafficResetConfig(
+      nextHostTrafficCycle,
+      nextHostTrafficInterval
+    )
+    if (!hostTrafficConfig.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_PAYLOAD",
+            message: hostTrafficConfig.message,
+          },
+        },
+        { status: 400 }
+      )
+    }
+  }
+
+  const hostTrafficResetNow = new Date().toISOString()
+  let hostTrafficAnchorUpdated = false
+  const currentHostTrafficAnchor =
+    typeof currentNode.host_traffic_reset_anchor === "string"
+      ? currentNode.host_traffic_reset_anchor
+      : null
+  const nextHostTrafficAnchor = hostTrafficAnchor?.ok
+    ? hostTrafficAnchor.value
+    : currentHostTrafficAnchor
+  const currentHostTrafficAnchorKey = normalizeDateSecondKey(
+    currentHostTrafficAnchor
+  )
+  const nextHostTrafficAnchorKey = hostTrafficAnchor?.ok
+    ? normalizeDateSecondKey(hostTrafficAnchor.value)
+    : currentHostTrafficAnchorKey
+  const hostTrafficPeriodChanged =
+    (hostTrafficCycle?.ok &&
+      hostTrafficCycle.value !== currentHostTrafficCycle) ||
+    (hostTrafficInterval?.ok &&
+      hostTrafficInterval.value !== currentHostTrafficInterval) ||
+    (hostTrafficAnchor?.ok &&
+      nextHostTrafficAnchorKey !== currentHostTrafficAnchorKey)
+
+  if (hostTrafficLimit?.ok) {
+    updates.push("host_traffic_limit_bytes = ?")
+    values.push(hostTrafficLimit.value)
+    changedFields.push("host_traffic_limit_bytes")
+  }
+
+  if (hostTrafficUsed?.ok) {
+    updates.push("host_traffic_used_bytes = ?")
+    values.push(
+      nextHostTrafficLimitForValidation > 0 ? hostTrafficUsed.value : 0
+    )
+    changedFields.push("host_traffic_used_bytes")
+  }
+
+  if (hostTrafficBillingMode?.ok) {
+    updates.push("host_traffic_billing_mode = ?")
+    values.push(hostTrafficBillingMode.value)
+    changedFields.push("host_traffic_billing_mode")
+  }
+
+  if (hostTrafficCycle?.ok) {
+    updates.push("host_traffic_reset_cycle = ?")
+    values.push(hostTrafficCycle.value)
+    changedFields.push("host_traffic_reset_cycle")
+  }
+
+  if (hostTrafficInterval?.ok) {
+    updates.push("host_traffic_reset_interval_days = ?")
+    values.push(hostTrafficInterval.value)
+    changedFields.push("host_traffic_reset_interval_days")
+  }
+
+  if (
+    !hostTrafficInterval?.ok &&
+    nextHostTrafficCycle !== "custom_days" &&
+    currentNode.host_traffic_reset_interval_days !== null
+  ) {
+    updates.push("host_traffic_reset_interval_days = ?")
+    values.push(null)
+    changedFields.push("host_traffic_reset_interval_days")
+  }
+
+  if (hostTrafficAnchor?.ok) {
+    updates.push("host_traffic_reset_anchor = ?")
+    values.push(hostTrafficAnchor.value)
+    changedFields.push("host_traffic_reset_anchor")
+    hostTrafficAnchorUpdated = true
+  }
+
+  const currentHostTrafficLimit = currentHostTrafficLimitForValidation
+  const nextHostTrafficLimit = nextHostTrafficLimitForValidation
+  const shouldResetHostTraffic =
+    hostTrafficUsed === null &&
+    (body.resetHostTrafficUsed === true ||
+      hostTrafficPeriodChanged ||
+      (hostTrafficLimit?.ok && !hostTrafficLimit.value))
+
+  if (
+    !hostTrafficAnchorUpdated &&
+    (body.resetHostTrafficUsed === true ||
+      hostTrafficPeriodChanged ||
+      (currentHostTrafficLimit <= 0 && nextHostTrafficLimit > 0) ||
+      (nextHostTrafficLimit > 0 && !nextHostTrafficAnchor))
+  ) {
+    updates.push("host_traffic_reset_anchor = ?")
+    values.push(hostTrafficResetNow)
+    changedFields.push("host_traffic_reset_anchor")
+  }
+
+  if (shouldResetHostTraffic) {
+    updates.push("host_traffic_used_bytes = ?")
+    values.push(0)
+    changedFields.push("host_traffic_used_bytes")
+
+    updates.push("host_traffic_last_reset_at = ?")
+    values.push(hostTrafficResetNow)
+    changedFields.push("host_traffic_last_reset_at")
   }
 
   if (updates.length === 0) {

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
 import {
+  addNodeHostTrafficUsage,
+  ensureNodeHostTrafficPeriod,
+} from "@/lib/node-traffic-quota"
+import {
   type AgentTrafficReportLogFields,
   type AgentTrafficUserLogFields,
   writeAgentTrafficLogs,
@@ -584,6 +588,9 @@ export async function POST(
     if (hourlyTxDelta > 0 || hourlyRxDelta > 0) {
       upsertHourlyStats.run(hourlyTxDelta, hourlyRxDelta)
       upsertNodeHourly.run(node.id, hourlyTxDelta, hourlyRxDelta)
+      addNodeHostTrafficUsage(db, node.id, hourlyTxDelta, hourlyRxDelta)
+    } else {
+      ensureNodeHostTrafficPeriod(db, node.id)
     }
 
     // 节点心跳与在线/流量快照

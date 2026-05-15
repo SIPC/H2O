@@ -63,6 +63,13 @@ function migrate(database: DatabaseSync) {
       agent_config_revision INTEGER NOT NULL DEFAULT 1,
       agent_desired_config_hash TEXT,
       agent_last_config_built_at TEXT,
+      host_traffic_limit_bytes INTEGER,
+      host_traffic_used_bytes INTEGER NOT NULL DEFAULT 0,
+      host_traffic_billing_mode TEXT NOT NULL DEFAULT 'tx_rx' CHECK(host_traffic_billing_mode IN ('tx_rx','tx','rx')),
+      host_traffic_reset_cycle TEXT NOT NULL DEFAULT 'monthly' CHECK(host_traffic_reset_cycle IN ('none','daily','weekly','monthly','custom_days')),
+      host_traffic_reset_interval_days INTEGER,
+      host_traffic_reset_anchor TEXT,
+      host_traffic_last_reset_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -278,6 +285,13 @@ function migrate(database: DatabaseSync) {
     `ALTER TABLE plans ADD COLUMN renewal_period_days INTEGER`,
     `ALTER TABLE subscriptions ADD COLUMN renewal_anchor TEXT`,
     `ALTER TABLE node_stats ADD COLUMN agent_version TEXT`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_limit_bytes INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_used_bytes INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_billing_mode TEXT NOT NULL DEFAULT 'tx_rx'`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_cycle TEXT NOT NULL DEFAULT 'monthly'`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_interval_days INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_anchor TEXT`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_last_reset_at TEXT`,
   ]) {
     try {
       database.exec(alter)

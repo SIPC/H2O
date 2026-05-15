@@ -105,6 +105,17 @@ type AgentTaskStatus =
   | "failed"
   | "cancelled"
 
+type HostTrafficResetCycle =
+  | "none"
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "custom_days"
+
+type HostTrafficBillingMode = "tx_rx" | "tx" | "rx"
+
+type HostTrafficUnit = "GB" | "TB"
+
 type AgentTaskRow = {
   id: number
   node_id: number
@@ -189,6 +200,17 @@ type NodeRow = {
   masquerade_config: string | null
   agent_interval: number | null
   agent_auto_update_enabled: 0 | 1 | null
+  host_traffic_limit_bytes: number | null
+  host_traffic_used_bytes: number | null
+  host_traffic_billing_mode: HostTrafficBillingMode | null
+  host_traffic_reset_cycle: HostTrafficResetCycle | null
+  host_traffic_reset_interval_days: number | null
+  host_traffic_reset_anchor: string | null
+  host_traffic_last_reset_at: string | null
+  host_traffic_remaining_bytes: number | null
+  host_traffic_usage_ratio: number | null
+  host_traffic_next_reset_at: string | null
+  host_traffic_over_limit: boolean
   dns_status: DnsStatus
   dns_status_detail?: string | null
 }
@@ -204,6 +226,24 @@ type HourPoint = {
 }
 
 const HISTORY_CHUNK_SIZE = 200
+const HOST_TRAFFIC_UNIT_MULTIPLIER: Record<HostTrafficUnit, number> = {
+  GB: 1024 ** 3,
+  TB: 1024 ** 4,
+}
+
+const HOST_TRAFFIC_RESET_LABEL: Record<HostTrafficResetCycle, string> = {
+  none: "不自动重置",
+  daily: "每天",
+  weekly: "每周",
+  monthly: "每月",
+  custom_days: "每 N 天",
+}
+
+const HOST_TRAFFIC_BILLING_LABEL: Record<HostTrafficBillingMode, string> = {
+  tx_rx: "上行 + 下行",
+  tx: "仅上行",
+  rx: "仅下行",
+}
 
 const CHART_CONFIG = {
   rxBytes: {
@@ -366,16 +406,58 @@ function clampHour(hour: number): number {
 }
 
 function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B"
+  if (!Number.isFinite(bytes)) return "0 B"
+  const sign = bytes < 0 ? "-" : ""
+  let value = Math.abs(bytes)
+  if (value <= 0) return "0 B"
+
   const units = ["B", "KB", "MB", "GB", "TB", "PB"]
-  let value = bytes
   let idx = 0
   while (value >= 1024 && idx < units.length - 1) {
     value /= 1024
     idx += 1
   }
   const decimals = idx === 0 ? 0 : value >= 100 ? 1 : 2
-  return `${value.toFixed(decimals)} ${units[idx]}`
+  return `${sign}${value.toFixed(decimals)} ${units[idx]}`
+}
+
+function formatLocalDateTimeInput(value: string | null): string {
+  if (!value) return ""
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return ""
+
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  const hour = String(date.getHours()).padStart(2, "0")
+  const minute = String(date.getMinutes()).padStart(2, "0")
+  const second = String(date.getSeconds()).padStart(2, "0")
+  return `${year}-${month}-${day}T${hour}:${minute}:${second}`
+}
+
+function serializeLocalDateTimeInput(value: string): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return null
+  return date.toISOString()
+}
+
+function getHostTrafficLimitValue(
+  bytes: number | null,
+  unit: HostTrafficUnit
+): string {
+  if (!bytes || bytes <= 0) return ""
+  const value = bytes / HOST_TRAFFIC_UNIT_MULTIPLIER[unit]
+  return Number.isInteger(value) ? String(value) : value.toFixed(2)
+}
+
+function buildHostTrafficLimitBytes(
+  value: string,
+  unit: HostTrafficUnit
+): number | null {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return null
+  return Math.floor(n * HOST_TRAFFIC_UNIT_MULTIPLIER[unit])
 }
 
 function buildEmptyHourly(): HourPoint[] {
@@ -546,6 +628,9 @@ function NodeCard({
   // 计算今日上传/下载
   const todayTx = hourly.reduce((sum, h) => sum + h.txBytes, 0)
   const todayRx = hourly.reduce((sum, h) => sum + h.rxBytes, 0)
+  const hostTrafficLimit = row.host_traffic_limit_bytes ?? 0
+  const hostTrafficRemaining = row.host_traffic_remaining_bytes ?? 0
+  const hostTrafficOverLimit = row.host_traffic_over_limit
 
   return (
     <Card className="relative h-48 overflow-hidden">
@@ -788,7 +873,7 @@ function NodeCard({
           </div>
 
           {/* 今日流量 */}
-          <div className="flex items-center gap-2 pr-20 text-[11px]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-20 text-[11px]">
             <span className="text-muted-foreground">今日</span>
             <span className="font-medium text-violet-600 dark:text-violet-400">
               ↑ {formatBytes(todayTx)}
@@ -796,6 +881,20 @@ function NodeCard({
             <span className="font-medium text-blue-600 dark:text-blue-400">
               ↓ {formatBytes(todayRx)}
             </span>
+            {hostTrafficLimit > 0 && (
+              <span
+                className={cn(
+                  "font-medium",
+                  hostTrafficOverLimit
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-emerald-700 dark:text-emerald-400"
+                )}
+              >
+                {hostTrafficOverLimit
+                  ? `超出 ${formatBytes(Math.abs(hostTrafficRemaining))}`
+                  : `剩余 ${formatBytes(hostTrafficRemaining)}`}
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -862,6 +961,23 @@ function NodeForm({
   setMasqProxyXForwarded,
   masqFileDir,
   setMasqFileDir,
+  // 宿主机流量
+  hostTrafficEnabled,
+  setHostTrafficEnabled,
+  hostTrafficLimit,
+  setHostTrafficLimit,
+  hostTrafficUsed,
+  setHostTrafficUsed,
+  hostTrafficUnit,
+  setHostTrafficUnit,
+  hostTrafficBillingMode,
+  setHostTrafficBillingMode,
+  hostTrafficResetCycle,
+  setHostTrafficResetCycle,
+  hostTrafficResetIntervalDays,
+  setHostTrafficResetIntervalDays,
+  hostTrafficResetAnchor,
+  setHostTrafficResetAnchor,
   // Agent 配置
   agentInterval,
   setAgentInterval,
@@ -930,6 +1046,23 @@ function NodeForm({
   setMasqProxyXForwarded: (v: boolean) => void
   masqFileDir: string
   setMasqFileDir: (v: string) => void
+  // 宿主机流量
+  hostTrafficEnabled: boolean
+  setHostTrafficEnabled: (v: boolean) => void
+  hostTrafficLimit: string
+  setHostTrafficLimit: (v: string) => void
+  hostTrafficUsed: string
+  setHostTrafficUsed: (v: string) => void
+  hostTrafficUnit: HostTrafficUnit
+  setHostTrafficUnit: (v: HostTrafficUnit) => void
+  hostTrafficBillingMode: HostTrafficBillingMode
+  setHostTrafficBillingMode: (v: HostTrafficBillingMode) => void
+  hostTrafficResetCycle: HostTrafficResetCycle
+  setHostTrafficResetCycle: (v: HostTrafficResetCycle) => void
+  hostTrafficResetIntervalDays: string
+  setHostTrafficResetIntervalDays: (v: string) => void
+  hostTrafficResetAnchor: string
+  setHostTrafficResetAnchor: (v: string) => void
   // Agent 配置
   agentInterval: string
   setAgentInterval: (v: string) => void
@@ -1281,6 +1414,160 @@ function NodeForm({
         </CardContent>
       </Card>
 
+      {/* === 宿主机流量 === */}
+      <Card>
+        <CardHeader className="p-4 pb-1">
+          <CardTitle className="text-base leading-none font-semibold">
+            宿主机流量
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 p-4 pt-2">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <Label>显示剩余流量</Label>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                按 Agent 上报的节点实际用量预估宿主机剩余额度。
+              </p>
+            </div>
+            <Switch
+              checked={hostTrafficEnabled}
+              onCheckedChange={setHostTrafficEnabled}
+            />
+          </div>
+          {hostTrafficEnabled && (
+            <>
+              <div className="grid grid-cols-[1fr_1fr_96px] gap-3">
+                <div className="space-y-1">
+                  <Label>总流量</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={hostTrafficLimit}
+                    onChange={(e) => setHostTrafficLimit(e.target.value)}
+                    placeholder="如 1"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>已用流量</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={hostTrafficUsed}
+                    onChange={(e) => setHostTrafficUsed(e.target.value)}
+                    placeholder="如 0.2"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>单位</Label>
+                  <Select
+                    value={hostTrafficUnit}
+                    onValueChange={(v) =>
+                      setHostTrafficUnit(v as HostTrafficUnit)
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent position="popper">
+                      <SelectItem value="GB">GB</SelectItem>
+                      <SelectItem value="TB">TB</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label>计费口径</Label>
+                <Select
+                  value={hostTrafficBillingMode}
+                  onValueChange={(v) =>
+                    setHostTrafficBillingMode(v as HostTrafficBillingMode)
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="tx_rx">
+                      {HOST_TRAFFIC_BILLING_LABEL.tx_rx}
+                    </SelectItem>
+                    <SelectItem value="tx">
+                      {HOST_TRAFFIC_BILLING_LABEL.tx}
+                    </SelectItem>
+                    <SelectItem value="rx">
+                      {HOST_TRAFFIC_BILLING_LABEL.rx}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  只影响宿主机剩余流量估算，不影响用户套餐流量统计。
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label>自动重置</Label>
+                  <Select
+                    value={hostTrafficResetCycle}
+                    onValueChange={(v) =>
+                      setHostTrafficResetCycle(v as HostTrafficResetCycle)
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent position="popper">
+                      <SelectItem value="monthly">每月</SelectItem>
+                      <SelectItem value="weekly">每周</SelectItem>
+                      <SelectItem value="daily">每天</SelectItem>
+                      <SelectItem value="custom_days">每 N 天</SelectItem>
+                      <SelectItem value="none">不自动重置</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {hostTrafficResetCycle === "custom_days" ? (
+                  <div className="space-y-1">
+                    <Label>周期天数</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="366"
+                      value={hostTrafficResetIntervalDays}
+                      onChange={(e) =>
+                        setHostTrafficResetIntervalDays(e.target.value)
+                      }
+                      placeholder="如 30"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <Label>周期</Label>
+                    <Input
+                      value={HOST_TRAFFIC_RESET_LABEL[hostTrafficResetCycle]}
+                      disabled
+                    />
+                  </div>
+                )}
+              </div>
+              {hostTrafficResetCycle !== "none" && (
+                <div className="space-y-1">
+                  <Label>周期起始时间</Label>
+                  <Input
+                    type="datetime-local"
+                    step="1"
+                    value={hostTrafficResetAnchor}
+                    onChange={(e) => setHostTrafficResetAnchor(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    到达下一个周期后会自动清零节点宿主机已用流量。
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       {/* === Agent 配置 === */}
       <Card>
         <CardHeader className="p-4 pb-1">
@@ -1393,6 +1680,17 @@ export default function AdminNodesPage() {
   const [masqProxyInsecure, setMasqProxyInsecure] = useState(false)
   const [masqProxyXForwarded, setMasqProxyXForwarded] = useState(false)
   const [masqFileDir, setMasqFileDir] = useState("/www/masq")
+  const [hostTrafficEnabled, setHostTrafficEnabled] = useState(false)
+  const [hostTrafficLimit, setHostTrafficLimit] = useState("")
+  const [hostTrafficUsed, setHostTrafficUsed] = useState("")
+  const [hostTrafficUnit, setHostTrafficUnit] = useState<HostTrafficUnit>("TB")
+  const [hostTrafficBillingMode, setHostTrafficBillingMode] =
+    useState<HostTrafficBillingMode>("tx_rx")
+  const [hostTrafficResetCycle, setHostTrafficResetCycle] =
+    useState<HostTrafficResetCycle>("monthly")
+  const [hostTrafficResetIntervalDays, setHostTrafficResetIntervalDays] =
+    useState("")
+  const [hostTrafficResetAnchor, setHostTrafficResetAnchor] = useState("")
   const [agentInterval, setAgentInterval] = useState("")
   const [agentAutoUpdateEnabled, setAgentAutoUpdateEnabled] = useState(true)
   const [agentControlEnabled, setAgentControlEnabled] = useState(true)
@@ -1428,6 +1726,21 @@ export default function AdminNodesPage() {
   const [editMasqProxyInsecure, setEditMasqProxyInsecure] = useState(false)
   const [editMasqProxyXForwarded, setEditMasqProxyXForwarded] = useState(false)
   const [editMasqFileDir, setEditMasqFileDir] = useState("/www/masq")
+  const [editHostTrafficEnabled, setEditHostTrafficEnabled] = useState(false)
+  const [editHostTrafficLimit, setEditHostTrafficLimit] = useState("")
+  const [editHostTrafficUsed, setEditHostTrafficUsed] = useState("")
+  const [editHostTrafficUnit, setEditHostTrafficUnit] =
+    useState<HostTrafficUnit>("TB")
+  const [editHostTrafficBillingMode, setEditHostTrafficBillingMode] =
+    useState<HostTrafficBillingMode>("tx_rx")
+  const [editHostTrafficResetCycle, setEditHostTrafficResetCycle] =
+    useState<HostTrafficResetCycle>("monthly")
+  const [
+    editHostTrafficResetIntervalDays,
+    setEditHostTrafficResetIntervalDays,
+  ] = useState("")
+  const [editHostTrafficResetAnchor, setEditHostTrafficResetAnchor] =
+    useState("")
   const [editAgentInterval, setEditAgentInterval] = useState("")
   const [editAgentAutoUpdateEnabled, setEditAgentAutoUpdateEnabled] =
     useState(true)
@@ -1736,6 +2049,22 @@ export default function AdminNodesPage() {
         acmeDnsConfig: buildAcmeDnsConfig("create"),
         masqueradeType,
         masqueradeConfig: buildMasqueradeConfigObj("create"),
+        hostTrafficLimitBytes: hostTrafficEnabled
+          ? buildHostTrafficLimitBytes(hostTrafficLimit, hostTrafficUnit)
+          : null,
+        hostTrafficUsedBytes: hostTrafficEnabled
+          ? buildHostTrafficLimitBytes(hostTrafficUsed, hostTrafficUnit)
+          : 0,
+        hostTrafficBillingMode,
+        hostTrafficResetCycle,
+        hostTrafficResetIntervalDays:
+          hostTrafficResetCycle === "custom_days" &&
+          hostTrafficResetIntervalDays
+            ? Number(hostTrafficResetIntervalDays)
+            : null,
+        hostTrafficResetAnchor: serializeLocalDateTimeInput(
+          hostTrafficResetAnchor
+        ),
         agentInterval: agentInterval ? Number(agentInterval) : null,
         agentAutoUpdateEnabled,
         agentControlEnabled,
@@ -1772,6 +2101,14 @@ export default function AdminNodesPage() {
     setMasqProxyInsecure(false)
     setMasqProxyXForwarded(false)
     setMasqFileDir("/www/masq")
+    setHostTrafficEnabled(false)
+    setHostTrafficLimit("")
+    setHostTrafficUsed("")
+    setHostTrafficUnit("TB")
+    setHostTrafficBillingMode("tx_rx")
+    setHostTrafficResetCycle("monthly")
+    setHostTrafficResetIntervalDays("")
+    setHostTrafficResetAnchor("")
     setAgentInterval("")
     setAgentAutoUpdateEnabled(true)
     setAgentControlEnabled(true)
@@ -1900,6 +2237,36 @@ export default function AdminNodesPage() {
       setEditMasqProxyXForwarded(false)
       setEditMasqFileDir("/www/masq")
     }
+    // 宿主机流量
+    const enabledHostTraffic = (row.host_traffic_limit_bytes ?? 0) > 0
+    const preferredHostTrafficUnit =
+      (row.host_traffic_limit_bytes ?? 0) >= HOST_TRAFFIC_UNIT_MULTIPLIER.TB
+        ? "TB"
+        : "GB"
+    setEditHostTrafficEnabled(enabledHostTraffic)
+    setEditHostTrafficUnit(preferredHostTrafficUnit)
+    setEditHostTrafficLimit(
+      getHostTrafficLimitValue(
+        row.host_traffic_limit_bytes,
+        preferredHostTrafficUnit
+      )
+    )
+    setEditHostTrafficUsed(
+      getHostTrafficLimitValue(
+        row.host_traffic_used_bytes,
+        preferredHostTrafficUnit
+      )
+    )
+    setEditHostTrafficBillingMode(row.host_traffic_billing_mode ?? "tx_rx")
+    setEditHostTrafficResetCycle(row.host_traffic_reset_cycle ?? "monthly")
+    setEditHostTrafficResetIntervalDays(
+      row.host_traffic_reset_interval_days != null
+        ? String(row.host_traffic_reset_interval_days)
+        : ""
+    )
+    setEditHostTrafficResetAnchor(
+      formatLocalDateTimeInput(row.host_traffic_reset_anchor)
+    )
     // Agent 配置
     setEditAgentInterval(
       row.agent_interval != null ? String(row.agent_interval) : ""
@@ -1936,6 +2303,22 @@ export default function AdminNodesPage() {
       acmeDnsConfig: buildAcmeDnsConfig("edit"),
       masqueradeType: editMasqueradeType,
       masqueradeConfig: buildMasqueradeConfigObj("edit"),
+      hostTrafficLimitBytes: editHostTrafficEnabled
+        ? buildHostTrafficLimitBytes(editHostTrafficLimit, editHostTrafficUnit)
+        : null,
+      hostTrafficUsedBytes: editHostTrafficEnabled
+        ? buildHostTrafficLimitBytes(editHostTrafficUsed, editHostTrafficUnit)
+        : 0,
+      hostTrafficBillingMode: editHostTrafficBillingMode,
+      hostTrafficResetCycle: editHostTrafficResetCycle,
+      hostTrafficResetIntervalDays:
+        editHostTrafficResetCycle === "custom_days" &&
+        editHostTrafficResetIntervalDays
+          ? Number(editHostTrafficResetIntervalDays)
+          : null,
+      hostTrafficResetAnchor: serializeLocalDateTimeInput(
+        editHostTrafficResetAnchor
+      ),
       agentInterval: editAgentInterval ? Number(editAgentInterval) : null,
       agentAutoUpdateEnabled: editAgentAutoUpdateEnabled,
       agentControlEnabled: editAgentControlEnabled,
@@ -2380,6 +2763,24 @@ export default function AdminNodesPage() {
                 setMasqProxyXForwarded={setMasqProxyXForwarded}
                 masqFileDir={masqFileDir}
                 setMasqFileDir={setMasqFileDir}
+                hostTrafficEnabled={hostTrafficEnabled}
+                setHostTrafficEnabled={setHostTrafficEnabled}
+                hostTrafficLimit={hostTrafficLimit}
+                setHostTrafficLimit={setHostTrafficLimit}
+                hostTrafficUsed={hostTrafficUsed}
+                setHostTrafficUsed={setHostTrafficUsed}
+                hostTrafficUnit={hostTrafficUnit}
+                setHostTrafficUnit={setHostTrafficUnit}
+                hostTrafficBillingMode={hostTrafficBillingMode}
+                setHostTrafficBillingMode={setHostTrafficBillingMode}
+                hostTrafficResetCycle={hostTrafficResetCycle}
+                setHostTrafficResetCycle={setHostTrafficResetCycle}
+                hostTrafficResetIntervalDays={hostTrafficResetIntervalDays}
+                setHostTrafficResetIntervalDays={
+                  setHostTrafficResetIntervalDays
+                }
+                hostTrafficResetAnchor={hostTrafficResetAnchor}
+                setHostTrafficResetAnchor={setHostTrafficResetAnchor}
                 agentInterval={agentInterval}
                 setAgentInterval={setAgentInterval}
                 agentAutoUpdateEnabled={agentAutoUpdateEnabled}
@@ -2658,6 +3059,24 @@ export default function AdminNodesPage() {
                 setMasqProxyXForwarded={setEditMasqProxyXForwarded}
                 masqFileDir={editMasqFileDir}
                 setMasqFileDir={setEditMasqFileDir}
+                hostTrafficEnabled={editHostTrafficEnabled}
+                setHostTrafficEnabled={setEditHostTrafficEnabled}
+                hostTrafficLimit={editHostTrafficLimit}
+                setHostTrafficLimit={setEditHostTrafficLimit}
+                hostTrafficUsed={editHostTrafficUsed}
+                setHostTrafficUsed={setEditHostTrafficUsed}
+                hostTrafficUnit={editHostTrafficUnit}
+                setHostTrafficUnit={setEditHostTrafficUnit}
+                hostTrafficBillingMode={editHostTrafficBillingMode}
+                setHostTrafficBillingMode={setEditHostTrafficBillingMode}
+                hostTrafficResetCycle={editHostTrafficResetCycle}
+                setHostTrafficResetCycle={setEditHostTrafficResetCycle}
+                hostTrafficResetIntervalDays={editHostTrafficResetIntervalDays}
+                setHostTrafficResetIntervalDays={
+                  setEditHostTrafficResetIntervalDays
+                }
+                hostTrafficResetAnchor={editHostTrafficResetAnchor}
+                setHostTrafficResetAnchor={setEditHostTrafficResetAnchor}
                 agentInterval={editAgentInterval}
                 setAgentInterval={setEditAgentInterval}
                 agentAutoUpdateEnabled={editAgentAutoUpdateEnabled}
