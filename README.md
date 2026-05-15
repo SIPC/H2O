@@ -6,6 +6,7 @@ Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 ---
 
 ![Dashboard](docs/imge/dashboard.png)
+![Nodes](docs/imge/node.png)
 
 ---
 
