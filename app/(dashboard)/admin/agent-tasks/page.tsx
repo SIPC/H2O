@@ -28,6 +28,19 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  parseAgentTaskOutput,
+  renderAgentTaskOutput,
+  type AgentLogEntry,
+} from "@/lib/agent-task-output"
 import { cn } from "@/lib/utils"
 
 type AgentTaskType =
@@ -137,15 +150,7 @@ function renderJsonLike(raw: string | null): string {
 }
 
 function parseTaskOutput(row: AgentTaskRow) {
-  const raw = row.result || row.error
-  if (!raw) return ""
-  const parsed = parseJsonString(raw)
-  if (parsed && typeof parsed === "object" && "logs" in parsed) {
-    const logs = (parsed as { logs?: unknown }).logs
-    return typeof logs === "string" ? logs : raw
-  }
-  if (typeof parsed === "string") return parsed
-  return JSON.stringify(parsed, null, 2)
+  return renderAgentTaskOutput(row.result, row.error)
 }
 
 function getTaskSummary(row: AgentTaskRow) {
@@ -550,7 +555,8 @@ function TaskDetailSheet({
   row: AgentTaskRow | null
   onClose: () => void
 }) {
-  const output = row ? parseTaskOutput(row) : ""
+  const taskOutput = row ? parseAgentTaskOutput(row.result, row.error) : null
+  const output = taskOutput?.value ?? ""
 
   return (
     <Sheet
@@ -614,7 +620,13 @@ function TaskDetailSheet({
                   value={renderJsonLike(row.payload)}
                 />
               ) : null}
-              {output ? <DetailBlock title="执行输出" value={output} /> : null}
+              {output ? (
+                <DetailBlock
+                  title="执行输出"
+                  value={output}
+                  logEntries={taskOutput?.logEntries}
+                />
+              ) : null}
               {row.result && row.error ? (
                 <DetailBlock
                   title="错误信息"
@@ -648,15 +660,142 @@ function DetailField({
   )
 }
 
-function DetailBlock({ title, value }: { title: string; value: string }) {
+function getLogDetail(entry: AgentLogEntry, key: string) {
+  const value = entry.detail?.[key]
+  if (value === undefined || value === null) return "-"
+  return typeof value === "string" ? value : JSON.stringify(value)
+}
+
+function TruncatedLogCell({
+  value,
+  className,
+}: {
+  value: string
+  className?: string
+}) {
+  return (
+    <div
+      className={cn("truncate", className)}
+      title={value === "-" ? undefined : value}
+    >
+      {value}
+    </div>
+  )
+}
+
+function LogLevelBadge({ level }: { level?: string }) {
+  if (!level) return <span className="text-muted-foreground">-</span>
+
+  return (
+    <Badge
+      className={cn(
+        "px-1.5 py-0 font-mono text-[10px]",
+        level === "ERROR" && "bg-red-500/15 text-red-700 dark:text-red-400",
+        level === "WARN" &&
+          "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
+        level === "INFO" && "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+        level !== "ERROR" &&
+          level !== "WARN" &&
+          level !== "INFO" &&
+          "bg-muted text-muted-foreground"
+      )}
+    >
+      {level}
+    </Badge>
+  )
+}
+
+function AgentLogTable({ entries }: { entries: AgentLogEntry[] }) {
+  return (
+    <div className="max-h-105 overflow-auto">
+      <Table className="min-w-[920px] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-1.5">
+        <colgroup>
+          <col className="w-[150px]" />
+          <col className="w-[64px]" />
+          <col className="w-[130px]" />
+          <col className="w-[72px]" />
+          <col className="w-[132px]" />
+          <col className="w-[180px]" />
+          <col />
+        </colgroup>
+        <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableRow>
+            <TableHead>时间</TableHead>
+            <TableHead>级别</TableHead>
+            <TableHead>事件</TableHead>
+            <TableHead>用户</TableHead>
+            <TableHead>来源</TableHead>
+            <TableHead>目标</TableHead>
+            <TableHead>错误 / 详情</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {entries.map((entry, index) => {
+            const source = getLogDetail(entry, "addr")
+            const target =
+              getLogDetail(entry, "reqAddr") !== "-"
+                ? getLogDetail(entry, "reqAddr")
+                : (entry.service ?? "-")
+            const detail =
+              getLogDetail(entry, "error") !== "-"
+                ? getLogDetail(entry, "error")
+                : entry.detail
+                  ? JSON.stringify(entry.detail)
+                  : (entry.prefix ?? entry.raw)
+
+            return (
+              <TableRow key={`${entry.time ?? "raw"}-${index}`}>
+                <TableCell className="font-mono text-[11px] whitespace-nowrap">
+                  <TruncatedLogCell value={entry.time ?? "-"} />
+                </TableCell>
+                <TableCell>
+                  <LogLevelBadge level={entry.level} />
+                </TableCell>
+                <TableCell className="font-medium">
+                  <TruncatedLogCell value={entry.message || "-"} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={getLogDetail(entry, "id")} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={source} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={target} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={detail} />
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  )
+}
+
+function DetailBlock({
+  title,
+  value,
+  logEntries,
+}: {
+  title: string
+  value: string
+  logEntries?: AgentLogEntry[]
+}) {
   return (
     <div className="rounded-md border">
       <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
         {title}
       </div>
-      <pre className="max-h-105 overflow-auto p-3 font-mono text-xs break-all whitespace-pre-wrap">
-        {value}
-      </pre>
+      {logEntries ? (
+        <AgentLogTable entries={logEntries} />
+      ) : (
+        <pre className="max-h-105 overflow-auto p-3 font-mono text-xs whitespace-pre-wrap">
+          {value}
+        </pre>
+      )}
     </div>
   )
 }

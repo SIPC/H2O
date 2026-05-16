@@ -43,6 +43,10 @@ import {
 } from "lucide-react"
 
 import { useConfirm } from "@/components/confirm-provider"
+import {
+  parseAgentTaskOutput,
+  type AgentLogEntry,
+} from "@/lib/agent-task-output"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -95,6 +99,14 @@ import {
 } from "@/components/ui/sheet"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
@@ -771,6 +783,121 @@ function SortableNodeCard({
       {...listeners}
     >
       {children}
+    </div>
+  )
+}
+
+function getLogDetail(entry: AgentLogEntry, key: string) {
+  const value = entry.detail?.[key]
+  if (value === undefined || value === null) return "-"
+  return typeof value === "string" ? value : JSON.stringify(value)
+}
+
+function TruncatedLogCell({
+  value,
+  className,
+}: {
+  value: string
+  className?: string
+}) {
+  return (
+    <div
+      className={cn("truncate", className)}
+      title={value === "-" ? undefined : value}
+    >
+      {value}
+    </div>
+  )
+}
+
+function LogLevelBadge({ level }: { level?: string }) {
+  if (!level) return <span className="text-muted-foreground">-</span>
+
+  return (
+    <Badge
+      className={cn(
+        "px-1.5 py-0 font-mono text-[10px]",
+        level === "ERROR" && "bg-red-500/15 text-red-700 dark:text-red-400",
+        level === "WARN" &&
+          "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
+        level === "INFO" && "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+        level !== "ERROR" &&
+          level !== "WARN" &&
+          level !== "INFO" &&
+          "bg-muted text-muted-foreground"
+      )}
+    >
+      {level}
+    </Badge>
+  )
+}
+
+function AgentLogTable({ entries }: { entries: AgentLogEntry[] }) {
+  return (
+    <div className="mt-2 max-h-52 overflow-auto rounded border">
+      <Table className="min-w-[860px] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-1.5">
+        <colgroup>
+          <col className="w-[150px]" />
+          <col className="w-[64px]" />
+          <col className="w-[120px]" />
+          <col className="w-[64px]" />
+          <col className="w-[120px]" />
+          <col className="w-[160px]" />
+          <col />
+        </colgroup>
+        <TableHeader className="sticky top-0 z-10 bg-background">
+          <TableRow>
+            <TableHead>时间</TableHead>
+            <TableHead>级别</TableHead>
+            <TableHead>事件</TableHead>
+            <TableHead>用户</TableHead>
+            <TableHead>来源</TableHead>
+            <TableHead>目标</TableHead>
+            <TableHead>错误 / 详情</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {entries.map((entry, index) => {
+            const source = getLogDetail(entry, "addr")
+            const target =
+              getLogDetail(entry, "reqAddr") !== "-"
+                ? getLogDetail(entry, "reqAddr")
+                : (entry.service ?? "-")
+            const detail =
+              getLogDetail(entry, "error") !== "-"
+                ? getLogDetail(entry, "error")
+                : entry.detail
+                  ? JSON.stringify(entry.detail)
+                  : (entry.prefix ?? entry.raw)
+
+            return (
+              <TableRow key={`${entry.time ?? "raw"}-${index}`}>
+                <TableCell className="font-mono text-[11px] whitespace-nowrap">
+                  <TruncatedLogCell value={entry.time ?? "-"} />
+                </TableCell>
+                <TableCell>
+                  <LogLevelBadge level={entry.level} />
+                </TableCell>
+                <TableCell className="font-medium">
+                  <TruncatedLogCell value={entry.message || "-"} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={getLogDetail(entry, "id")} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={source} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={target} />
+                </TableCell>
+                <TableCell className="font-mono text-[11px]">
+                  <TruncatedLogCell value={detail} />
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
     </div>
   )
 }
@@ -2771,21 +2898,6 @@ export default function AdminNodesPage() {
     }
   }
 
-  function parseTaskOutput(task: AgentTaskRow) {
-    const raw = task.result || task.error
-    if (!raw) return ""
-    try {
-      const parsed = JSON.parse(raw) as unknown
-      if (parsed && typeof parsed === "object" && "logs" in parsed) {
-        const logs = (parsed as { logs?: unknown }).logs
-        return typeof logs === "string" ? logs : raw
-      }
-      return JSON.stringify(parsed, null, 2)
-    } catch {
-      return raw
-    }
-  }
-
   async function showDeployCommand(row: NodeRow) {
     // ACME 节点先检查 DNS 解析状态
     const isAcmeMode =
@@ -3357,7 +3469,11 @@ export default function AdminNodesPage() {
                         </p>
                       ) : (
                         agentDetail.recent_tasks.map((task) => {
-                          const output = parseTaskOutput(task)
+                          const taskOutput = parseAgentTaskOutput(
+                            task.result,
+                            task.error
+                          )
+                          const output = taskOutput?.value ?? ""
                           return (
                             <div
                               key={task.id}
@@ -3387,11 +3503,15 @@ export default function AdminNodesPage() {
                               <p className="mt-1 font-mono text-[11px] text-muted-foreground">
                                 {task.created_at}
                               </p>
-                              {output && (
+                              {taskOutput?.logEntries ? (
+                                <AgentLogTable
+                                  entries={taskOutput.logEntries}
+                                />
+                              ) : output ? (
                                 <pre className="mt-2 max-h-52 overflow-auto rounded bg-muted p-2 font-mono text-[11px] whitespace-pre-wrap">
                                   {output}
                                 </pre>
-                              )}
+                              ) : null}
                             </div>
                           )
                         })

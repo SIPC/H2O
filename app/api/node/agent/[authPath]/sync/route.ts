@@ -117,11 +117,52 @@ function normalizeTaskResultStatus(input: unknown) {
   return false
 }
 
+function trimTextToJsonLength(
+  build: (value: string) => string,
+  value: string,
+  maxLength: number
+) {
+  let next = value
+  while (next.length > 0) {
+    const raw = build(next)
+    if (raw.length <= maxLength) return raw
+    const overflow = raw.length - maxLength
+    next = next.slice(0, Math.max(0, next.length - overflow - 64))
+  }
+  return build("").slice(0, maxLength)
+}
+
 function stringifyJsonValue(input: unknown, maxLength: number) {
   if (input === undefined || input === null) return null
-  const raw = typeof input === "string" ? input : JSON.stringify(input)
-  if (raw.length > maxLength) return raw.slice(0, maxLength)
-  return raw
+  if (typeof input === "string") {
+    if (input.length > maxLength) return input.slice(0, maxLength)
+    return input
+  }
+
+  const raw = JSON.stringify(input)
+  if (raw.length <= maxLength) return raw
+
+  if (input && typeof input === "object" && "logs" in input) {
+    const payload = input as { logs?: unknown; lines?: unknown }
+    if (typeof payload.logs === "string") {
+      const lines =
+        typeof payload.lines === "number" && Number.isInteger(payload.lines)
+          ? payload.lines
+          : undefined
+      return trimTextToJsonLength(
+        (logs) =>
+          JSON.stringify({
+            logs,
+            lines,
+            truncated: true,
+          }),
+        payload.logs,
+        maxLength
+      )
+    }
+  }
+
+  return raw.slice(0, maxLength)
 }
 
 function parseTaskPayload(raw: string | null) {
