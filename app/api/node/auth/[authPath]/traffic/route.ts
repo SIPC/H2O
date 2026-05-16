@@ -11,6 +11,7 @@ import {
   writeAgentTrafficLogs,
   writeAuthLog,
 } from "@/lib/logs-db"
+import { getBillableTrafficBytes } from "@/lib/plan-traffic"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
 // agent 每次上报的 payload 结构
@@ -252,7 +253,7 @@ export async function POST(
       `SELECT id, username, status FROM users WHERE username = ? LIMIT 1`
     )
     const selectSub = db.prepare(
-      `SELECT s.id, s.used_traffic_bytes, p.traffic_limit_bytes
+      `SELECT s.id, s.used_traffic_bytes, p.traffic_limit_bytes, p.traffic_billing_mode
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
        JOIN plan_nodes pn ON pn.plan_id = p.id
@@ -456,6 +457,7 @@ export async function POST(
             id: number
             used_traffic_bytes: number
             traffic_limit_bytes: number
+            traffic_billing_mode: string | null
           }
         | undefined
 
@@ -510,7 +512,12 @@ export async function POST(
       const deltaTx = stat.tx < lastTx ? stat.tx : stat.tx - lastTx
       const deltaRx = stat.rx < lastRx ? stat.rx : stat.rx - lastRx
       const delta = deltaTx + deltaRx
-      const nextUsage = activeSub.used_traffic_bytes + delta
+      const billableDelta = getBillableTrafficBytes(
+        activeSub.traffic_billing_mode,
+        deltaTx,
+        deltaRx
+      )
+      const nextUsage = activeSub.used_traffic_bytes + billableDelta
 
       const baseUserLog = {
         node_id: node.id,
@@ -543,6 +550,8 @@ export async function POST(
             used_traffic_bytes: activeSub.used_traffic_bytes,
             next_usage_bytes: nextUsage,
             traffic_limit_bytes: activeSub.traffic_limit_bytes,
+            traffic_billing_mode: activeSub.traffic_billing_mode ?? "tx_rx",
+            billable_delta_bytes: billableDelta,
             counter_reset: counterReset,
           }),
         })

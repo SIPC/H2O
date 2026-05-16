@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     .prepare(
       `SELECT s.id, s.start_time, s.expire_time, s.used_traffic_bytes, s.status,
               s.renewal_anchor, p.name AS plan_name, p.traffic_limit_bytes,
-              p.duration_days, p.auto_renew, p.renewal_period_days
+              p.traffic_billing_mode, p.duration_days, p.auto_renew, p.renewal_period_days
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
        WHERE s.user_id = ?

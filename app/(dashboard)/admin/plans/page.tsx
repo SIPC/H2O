@@ -18,6 +18,13 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -33,10 +40,13 @@ import {
   DataTableViewOptions,
 } from "@/components/data-table"
 
+type TrafficBillingMode = "tx_rx" | "tx" | "rx"
+
 type PlanRow = {
   id: number
   name: string
   traffic_limit_bytes: number
+  traffic_billing_mode: TrafficBillingMode | null
   duration_days: number
   up_mbps: number
   down_mbps: number
@@ -46,6 +56,22 @@ type PlanRow = {
 }
 
 type NodeRow = { id: number; name: string }
+
+const TRAFFIC_BILLING_LABEL: Record<TrafficBillingMode, string> = {
+  tx_rx: "上行 + 下行",
+  tx: "仅上行",
+  rx: "仅下行",
+}
+
+function normalizeTrafficBillingMode(
+  value: string | null | undefined
+): TrafficBillingMode {
+  return value === "tx" || value === "rx" ? value : "tx_rx"
+}
+
+function formatTrafficBillingMode(value: string | null | undefined) {
+  return TRAFFIC_BILLING_LABEL[normalizeTrafficBillingMode(value)]
+}
 
 // 前端统一用 GB 展示，提交 / 存库仍走 bytes
 const BYTES_PER_GB = 1024 ** 3
@@ -135,6 +161,8 @@ function PlanForm({
   setName,
   trafficLimitGb,
   setTrafficLimitGb,
+  trafficBillingMode,
+  setTrafficBillingMode,
   durationDays,
   setDurationDays,
   upMbps,
@@ -158,6 +186,8 @@ function PlanForm({
   setName: (v: string) => void
   trafficLimitGb: string
   setTrafficLimitGb: (v: string) => void
+  trafficBillingMode: TrafficBillingMode
+  setTrafficBillingMode: (v: TrafficBillingMode) => void
   durationDays: string
   setDurationDays: (v: string) => void
   upMbps: string
@@ -198,16 +228,36 @@ function PlanForm({
               required
             />
           </div>
-          <div className="space-y-1">
-            <Label>流量上限 (GB)</Label>
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={trafficLimitGb}
-              onChange={(e) => setTrafficLimitGb(e.target.value)}
-              required
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>流量上限 (GB)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={trafficLimitGb}
+                onChange={(e) => setTrafficLimitGb(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>计费方式</Label>
+              <Select
+                value={trafficBillingMode}
+                onValueChange={(v) =>
+                  setTrafficBillingMode(v as TrafficBillingMode)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="选择计费方式" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="tx_rx">上行 + 下行</SelectItem>
+                  <SelectItem value="tx">仅上行</SelectItem>
+                  <SelectItem value="rx">仅下行</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="space-y-1">
             <div className="flex items-center justify-between">
@@ -339,6 +389,8 @@ export default function AdminPlansPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [name, setName] = useState("")
   const [trafficLimitGb, setTrafficLimitGb] = useState("1")
+  const [trafficBillingMode, setTrafficBillingMode] =
+    useState<TrafficBillingMode>("tx_rx")
   const [durationDays, setDurationDays] = useState("30")
   const [upMbps, setUpMbps] = useState("0")
   const [downMbps, setDownMbps] = useState("0")
@@ -351,6 +403,8 @@ export default function AdminPlansPage() {
   const [editingRow, setEditingRow] = useState<PlanRow | null>(null)
   const [editName, setEditName] = useState("")
   const [editTraffic, setEditTraffic] = useState("")
+  const [editTrafficBillingMode, setEditTrafficBillingMode] =
+    useState<TrafficBillingMode>("tx_rx")
   const [editDuration, setEditDuration] = useState("")
   const [editUpMbps, setEditUpMbps] = useState("0")
   const [editDownMbps, setEditDownMbps] = useState("0")
@@ -401,6 +455,7 @@ export default function AdminPlansPage() {
   function resetCreateForm() {
     setName("")
     setTrafficLimitGb("1")
+    setTrafficBillingMode("tx_rx")
     setDurationDays("30")
     setUpMbps("0")
     setDownMbps("0")
@@ -418,6 +473,7 @@ export default function AdminPlansPage() {
       body: JSON.stringify({
         name,
         trafficLimitBytes: Math.round(Number(trafficLimitGb) * BYTES_PER_GB),
+        trafficBillingMode,
         durationDays: permanent ? 0 : Number(durationDays),
         upMbps: Math.max(0, Math.floor(Number(upMbps))),
         downMbps: Math.max(0, Math.floor(Number(downMbps))),
@@ -439,6 +495,9 @@ export default function AdminPlansPage() {
     setEditingRow(row)
     setEditName(row.name)
     setEditTraffic(bytesToGbString(row.traffic_limit_bytes))
+    setEditTrafficBillingMode(
+      normalizeTrafficBillingMode(row.traffic_billing_mode)
+    )
     setEditDuration(String(row.duration_days))
     setEditUpMbps(String(row.up_mbps ?? 0))
     setEditDownMbps(String(row.down_mbps ?? 0))
@@ -460,6 +519,7 @@ export default function AdminPlansPage() {
       body: JSON.stringify({
         name: editName,
         trafficLimitBytes: Math.round(Number(editTraffic) * BYTES_PER_GB),
+        trafficBillingMode: editTrafficBillingMode,
         durationDays: editPermanent ? 0 : Number(editDuration),
         upMbps: Math.max(0, Math.floor(Number(editUpMbps))),
         downMbps: Math.max(0, Math.floor(Number(editDownMbps))),
@@ -538,6 +598,21 @@ export default function AdminPlansPage() {
         ),
         cell: ({ row }) => formatBytes(row.getValue("traffic_limit_bytes")),
         meta: { label: "流量上限" },
+      },
+      {
+        id: "traffic_billing_mode",
+        accessorFn: (row) =>
+          normalizeTrafficBillingMode(row.traffic_billing_mode),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="计费方式" />
+        ),
+        cell: ({ row }) => (
+          <Badge>
+            {formatTrafficBillingMode(row.original.traffic_billing_mode)}
+          </Badge>
+        ),
+        filterFn: "arrIncludesSome" as const,
+        meta: { label: "计费方式" },
       },
       {
         accessorKey: "duration_days",
@@ -657,6 +732,15 @@ export default function AdminPlansPage() {
           renderToolbar={(table) => (
             <>
               <DataTableFacetedFilter
+                column={table.getColumn("traffic_billing_mode")}
+                title="计费方式"
+                options={[
+                  { label: "上行 + 下行", value: "tx_rx" },
+                  { label: "仅上行", value: "tx" },
+                  { label: "仅下行", value: "rx" },
+                ]}
+              />
+              <DataTableFacetedFilter
                 column={table.getColumn("auto_renew")}
                 title="自动续订"
                 options={[
@@ -691,6 +775,8 @@ export default function AdminPlansPage() {
               setName={setName}
               trafficLimitGb={trafficLimitGb}
               setTrafficLimitGb={setTrafficLimitGb}
+              trafficBillingMode={trafficBillingMode}
+              setTrafficBillingMode={setTrafficBillingMode}
               durationDays={durationDays}
               setDurationDays={setDurationDays}
               upMbps={upMbps}
@@ -734,6 +820,8 @@ export default function AdminPlansPage() {
               setName={setEditName}
               trafficLimitGb={editTraffic}
               setTrafficLimitGb={setEditTraffic}
+              trafficBillingMode={editTrafficBillingMode}
+              setTrafficBillingMode={setEditTrafficBillingMode}
               durationDays={editDuration}
               setDurationDays={setEditDuration}
               upMbps={editUpMbps}

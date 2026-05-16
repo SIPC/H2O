@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const rows = db
     .prepare(
       `SELECT s.id, s.user_id, s.plan_id, s.start_time, s.expire_time, s.used_traffic_bytes, s.status,
-              u.username, p.name AS plan_name, p.traffic_limit_bytes, p.duration_days
+              u.username, p.name AS plan_name, p.traffic_limit_bytes, p.traffic_billing_mode, p.duration_days
        FROM subscriptions s
        JOIN users u ON u.id = s.user_id
        JOIN plans p ON p.id = s.plan_id

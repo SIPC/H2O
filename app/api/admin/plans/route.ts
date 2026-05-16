@@ -3,11 +3,13 @@ import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
+import { isPlanTrafficBillingMode } from "@/lib/plan-traffic"
 import { getClientIp } from "@/lib/turnstile"
 
 type CreatePlanBody = {
   name?: string
   trafficLimitBytes?: number
+  trafficBillingMode?: string
   durationDays?: number
   upMbps?: number
   downMbps?: number
@@ -23,7 +25,7 @@ export async function GET(request: Request) {
   const db = getDb()
   const plans = db
     .prepare(
-      `SELECT p.id, p.name, p.traffic_limit_bytes, p.duration_days,
+      `SELECT p.id, p.name, p.traffic_limit_bytes, p.traffic_billing_mode, p.duration_days,
               p.up_mbps, p.down_mbps, p.auto_renew, p.renewal_period_days,
               GROUP_CONCAT(pn.node_id) AS node_ids
        FROM plans p
@@ -42,6 +44,25 @@ export async function POST(request: Request) {
 
   const ip = getClientIp(request)
   const body = (await request.json()) as CreatePlanBody
+
+  const trafficBillingMode = body.trafficBillingMode ?? "tx_rx"
+  if (!isPlanTrafficBillingMode(trafficBillingMode)) {
+    writeAdminEvent({
+      event: "PLAN_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_TRAFFIC",
+      detail: { name: body.name ?? null, trafficBillingMode },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_TRAFFIC", message: "流量计费方式不合法" },
+      },
+      { status: 400 }
+    )
+  }
 
   // 限速字段可选，缺省视为 0（不限速）
   const upMbps =
@@ -117,12 +138,13 @@ export async function POST(request: Request) {
 
     const planRes = db
       .prepare(
-        `INSERT INTO plans(name, traffic_limit_bytes, duration_days, up_mbps, down_mbps, auto_renew, renewal_period_days)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO plans(name, traffic_limit_bytes, traffic_billing_mode, duration_days, up_mbps, down_mbps, auto_renew, renewal_period_days)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
         body.trafficLimitBytes,
+        trafficBillingMode,
         body.durationDays,
         upMbps,
         downMbps,
@@ -151,6 +173,7 @@ export async function POST(request: Request) {
         planId,
         name: body.name,
         trafficLimitBytes: body.trafficLimitBytes,
+        trafficBillingMode,
         durationDays: body.durationDays,
         upMbps,
         downMbps,

@@ -54,6 +54,7 @@ import {
 } from "@/components/data-table"
 
 type SubscriptionStatus = "active" | "expired" | "blocked"
+type TrafficBillingMode = "tx_rx" | "tx" | "rx"
 
 type Row = {
   id: number
@@ -61,6 +62,7 @@ type Row = {
   plan_name: string
   used_traffic_bytes: number
   traffic_limit_bytes: number
+  traffic_billing_mode: TrafficBillingMode | null
   status: SubscriptionStatus
   expire_time: string
 }
@@ -87,6 +89,22 @@ const statusLabel: Record<SubscriptionStatus, string> = {
   active: "启用",
   expired: "过期",
   blocked: "封禁",
+}
+
+const TRAFFIC_BILLING_LABEL: Record<TrafficBillingMode, string> = {
+  tx_rx: "上行 + 下行",
+  tx: "仅上行",
+  rx: "仅下行",
+}
+
+function normalizeTrafficBillingMode(
+  value: string | null | undefined
+): TrafficBillingMode {
+  return value === "tx" || value === "rx" ? value : "tx_rx"
+}
+
+function formatTrafficBillingMode(value: string | null | undefined) {
+  return TRAFFIC_BILLING_LABEL[normalizeTrafficBillingMode(value)]
 }
 
 const HISTORY_CHUNK_SIZE = 200
@@ -663,6 +681,21 @@ export default function AdminSubscriptionsPage() {
       meta: { label: "流量上限" },
     },
     {
+      id: "traffic_billing_mode",
+      accessorFn: (row) =>
+        normalizeTrafficBillingMode(row.traffic_billing_mode),
+      header: ({ column }) => (
+        <DataTableColumnHeader column={column} title="计费方式" />
+      ),
+      cell: ({ row }) => (
+        <Badge>
+          {formatTrafficBillingMode(row.original.traffic_billing_mode)}
+        </Badge>
+      ),
+      filterFn: "arrIncludesSome" as const,
+      meta: { label: "计费方式" },
+    },
+    {
       id: "tx_history",
       header: "总出历史",
       enableSorting: false,
@@ -816,6 +849,15 @@ export default function AdminSubscriptionsPage() {
                 column={table.getColumn("plan_name")}
                 title="套餐"
                 options={planOptions}
+              />
+              <DataTableFacetedFilter
+                column={table.getColumn("traffic_billing_mode")}
+                title="计费方式"
+                options={[
+                  { label: "上行 + 下行", value: "tx_rx" },
+                  { label: "仅上行", value: "tx" },
+                  { label: "仅下行", value: "rx" },
+                ]}
               />
               <DataTableFacetedFilter
                 column={table.getColumn("status")}

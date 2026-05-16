@@ -21,10 +21,13 @@ import { cn, formatBytes } from "@/lib/utils"
 
 import { Eye, EyeOff } from "lucide-react"
 
+type TrafficBillingMode = "tx_rx" | "tx" | "rx"
+
 type SubscriptionRow = {
   id: number
   plan_name: string
   traffic_limit_bytes: number
+  traffic_billing_mode: TrafficBillingMode | null
   duration_days: number
   used_traffic_bytes: number
   start_time: string
@@ -33,6 +36,22 @@ type SubscriptionRow = {
   renewal_anchor: string | null
   auto_renew: number
   renewal_period_days: number | null
+}
+
+const TRAFFIC_BILLING_LABEL: Record<TrafficBillingMode, string> = {
+  tx_rx: "上行 + 下行",
+  tx: "仅上行",
+  rx: "仅下行",
+}
+
+function normalizeTrafficBillingMode(
+  value: string | null | undefined
+): TrafficBillingMode {
+  return value === "tx" || value === "rx" ? value : "tx_rx"
+}
+
+function formatTrafficBillingMode(value: string | null | undefined) {
+  return TRAFFIC_BILLING_LABEL[normalizeTrafficBillingMode(value)]
 }
 
 function nextRenewalDate(row: SubscriptionRow): string | null {
@@ -574,6 +593,7 @@ export default function DashboardPage() {
                 <TH>套餐</TH>
                 <TH>流量上限</TH>
                 <TH>已用流量</TH>
+                <TH>计费方式</TH>
                 <TH>重置时间</TH>
                 <TH>状态</TH>
                 <TH>到期时间</TH>
@@ -588,6 +608,11 @@ export default function DashboardPage() {
                     <TD>{row.plan_name}</TD>
                     <TD>{formatBytes(row.traffic_limit_bytes)}</TD>
                     <TD>{formatBytes(row.used_traffic_bytes)}</TD>
+                    <TD>
+                      <Badge className="border bg-transparent text-foreground">
+                        {formatTrafficBillingMode(row.traffic_billing_mode)}
+                      </Badge>
+                    </TD>
                     <TD className="text-xs">
                       {nextRenew ? (
                         <span title={`每 ${row.renewal_period_days} 天重置`}>

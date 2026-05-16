@@ -3,11 +3,13 @@ import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
+import { isPlanTrafficBillingMode } from "@/lib/plan-traffic"
 import { getClientIp } from "@/lib/turnstile"
 
 type UpdatePlanBody = {
   name?: string
   trafficLimitBytes?: number
+  trafficBillingMode?: string
   durationDays?: number
   upMbps?: number
   downMbps?: number
@@ -69,6 +71,29 @@ export async function PATCH(
     updates.push("traffic_limit_bytes = ?")
     values.push(Math.floor(body.trafficLimitBytes))
     changedFields.push("traffic_limit_bytes")
+  }
+
+  if (body.trafficBillingMode !== undefined) {
+    if (!isPlanTrafficBillingMode(body.trafficBillingMode)) {
+      writeAdminEvent({
+        event: "PLAN_UPDATE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "INVALID_TRAFFIC",
+        detail: { planId, trafficBillingMode: body.trafficBillingMode },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_TRAFFIC", message: "流量计费方式不合法" },
+        },
+        { status: 400 }
+      )
+    }
+    updates.push("traffic_billing_mode = ?")
+    values.push(body.trafficBillingMode)
+    changedFields.push("traffic_billing_mode")
   }
 
   if (typeof body.durationDays === "number") {
