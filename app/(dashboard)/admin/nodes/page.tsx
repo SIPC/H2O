@@ -23,6 +23,7 @@ import {
   Activity,
   ArrowUpDown,
   Bot,
+  ChevronDown,
   Copy,
   Eye,
   EyeOff,
@@ -52,6 +53,11 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -479,6 +485,90 @@ function buildHostTrafficLimitBytes(
   return Math.floor(n * HOST_TRAFFIC_UNIT_MULTIPLIER[unit])
 }
 
+function getSecureRandomBytes(length: number): Uint8Array {
+  const bytes = new Uint8Array(length)
+
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(bytes)
+    return bytes
+  }
+
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = Math.floor(Math.random() * 256)
+  }
+
+  return bytes
+}
+
+function pickRandomChars(length: number, alphabet: string): string {
+  const bytes = getSecureRandomBytes(length)
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("")
+}
+
+function shuffleRandomChars(chars: string[]): string {
+  const priorities = getSecureRandomBytes(chars.length)
+  return chars
+    .map((char, index) => ({ char, priority: priorities[index] ?? 0 }))
+    .sort((a, b) => a.priority - b.priority)
+    .map((item) => item.char)
+    .join("")
+}
+
+function generateAcmeEmail(domain: string | null): string {
+  const mailboxDomain = domain ?? "example.com"
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_"
+  return `acme-${pickRandomChars(12, alphabet).toLowerCase()}@${mailboxDomain}`
+}
+
+function generateStrongObfsPassword(): string {
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+  const numbers = "23456789"
+  const symbols = "!#$%&()*+,-./:;<=>?@[]^_{|}~"
+  const chars = [
+    ...pickRandomChars(10, letters),
+    ...pickRandomChars(6, numbers),
+    ...pickRandomChars(16, symbols),
+  ]
+
+  return shuffleRandomChars(chars)
+}
+
+function getAutoFillDomain(value: string): string | null {
+  const raw = value.trim()
+  if (!raw) return null
+
+  let host = raw
+  try {
+    const url = new URL(
+      /^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`
+    )
+    host = url.hostname
+  } catch {
+    host = raw.split(/[/?#]/, 1)[0] ?? raw
+  }
+
+  host = host.trim()
+  if (!host) return null
+  if (host.startsWith("[") && host.endsWith("]")) return null
+  if (host.includes("@")) host = host.slice(host.lastIndexOf("@") + 1)
+
+  const colonCount = (host.match(/:/g) ?? []).length
+  if (colonCount > 1) return null
+  if (colonCount === 1) host = host.split(":")[0] ?? host
+
+  host = host.replace(/\.$/, "").toLowerCase()
+  if (!host || host === "localhost") return null
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) return null
+  if (!host.includes(".")) return null
+
+  const labels = host.split(".")
+  const isValidDomain = labels.every((label) =>
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)
+  )
+
+  return isValidDomain ? host : null
+}
+
 function buildEmptyHourly(): HourPoint[] {
   return Array.from({ length: 24 }, (_, hour) => ({
     index: hour,
@@ -607,6 +697,45 @@ function NodeTrafficChart({ hourly }: { hourly: HourPoint[] }) {
         />
       </AreaChart>
     </ChartContainer>
+  )
+}
+
+function NodeFormSection({
+  title,
+  defaultOpen = true,
+  contentClassName = "space-y-3",
+  children,
+}: {
+  title: string
+  defaultOpen?: boolean
+  contentClassName?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Collapsible defaultOpen={defaultOpen}>
+      <Card className="overflow-hidden transition-colors hover:border-border/80">
+        <CardHeader className="p-0">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="group flex w-full items-center justify-between gap-3 border-b border-transparent bg-transparent p-4 pb-3 text-left transition-colors outline-none hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-border/70 data-[state=open]:hover:bg-muted/40"
+            >
+              <CardTitle className="text-base leading-none font-semibold transition-colors group-hover:text-foreground">
+                {title}
+              </CardTitle>
+              <span className="rounded-md p-0.5 text-muted-foreground transition-colors group-hover:bg-background/80 group-hover:text-foreground">
+                <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
+              </span>
+            </button>
+          </CollapsibleTrigger>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className={cn("p-4 pt-3", contentClassName)}>
+            {children}
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   )
 }
 
@@ -1129,67 +1258,285 @@ function NodeForm({
   submitLabel: string
   onCancel?: () => void
 }) {
+  const sniRef = useRef(sni)
+  const acmeDomainsInputRef = useRef(acmeDomainsInput)
+  const lastAutoDomainRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    sniRef.current = sni
+  }, [sni])
+
+  useEffect(() => {
+    acmeDomainsInputRef.current = acmeDomainsInput
+  }, [acmeDomainsInput])
+
+  useEffect(() => {
+    const domain = getAutoFillDomain(ip)
+    const lastAutoDomain = lastAutoDomainRef.current
+
+    if (!domain) return
+
+    const currentSni = sniRef.current.trim()
+    if (!currentSni || (lastAutoDomain && currentSni === lastAutoDomain)) {
+      setSni(domain)
+      sniRef.current = domain
+    }
+
+    if (certMode === "acme-http" || certMode === "acme-dns") {
+      const currentAcmeDomains = acmeDomainsInputRef.current.trim()
+      if (
+        !currentAcmeDomains ||
+        (lastAutoDomain && currentAcmeDomains === lastAutoDomain)
+      ) {
+        setAcmeDomainsInput(domain)
+        acmeDomainsInputRef.current = domain
+      }
+    }
+
+    lastAutoDomainRef.current = domain
+  }, [certMode, ip, setAcmeDomainsInput, setSni])
+
   return (
     <form
       className="space-y-4 **:data-[slot=label]:text-xs"
       onSubmit={onSubmit}
     >
-      {/* === 订阅配置 === */}
-      <Card>
-        <CardHeader className="p-4 pb-1">
-          <CardTitle className="text-base leading-none font-semibold">
-            订阅配置
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <Label>节点名称</Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="节点名称"
-              required
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>备注</Label>
-            <Textarea
-              value={remark}
-              onChange={(e) => setRemark(e.target.value)}
-              placeholder="可选，仅管理员可见"
-              rows={2}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>订阅地址</Label>
-            <Input
-              value={ip}
-              onChange={(e) => setIp(e.target.value)}
-              placeholder="域名或 IP，如 hy2.example.com"
-              required
-            />
-            <p className="text-[11px] text-muted-foreground">
-              客户端通过此地址连接节点，域名会自动解析到节点 IP
+      {/* === 基础信息 === */}
+      <NodeFormSection title="基础信息">
+        <div className="space-y-1">
+          <Label>节点名称</Label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="节点名称"
+            required
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>备注</Label>
+          <Textarea
+            value={remark}
+            onChange={(e) => setRemark(e.target.value)}
+            placeholder="可选，仅管理员可见"
+            rows={2}
+          />
+        </div>
+      </NodeFormSection>
+
+      {/* === 连接地址 === */}
+      <NodeFormSection title="连接地址" contentClassName="space-y-4">
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">订阅连接地址</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              用于生成订阅配置中的服务器地址与端口，客户端将依据该信息建立连接。
             </p>
           </div>
-          <div className="space-y-1">
-            <Label>订阅端口（支持端口跳跃）</Label>
-            <Input
-              value={portInput}
-              onChange={(e) => setPortInput(e.target.value)}
-              placeholder="如 443 或 1145,1155,1157 或 1145-1155"
-              required
-            />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>订阅地址</Label>
+              <Input
+                value={ip}
+                onChange={(e) => setIp(e.target.value)}
+                placeholder="hy2.example.com"
+                required
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>订阅端口</Label>
+              <Input
+                value={portInput}
+                onChange={(e) => setPortInput(e.target.value)}
+                placeholder="443 或 5000-6000"
+                required
+              />
+            </div>
           </div>
-          <div className="space-y-1">
-            <Label>SNI</Label>
-            <Input
-              value={sni}
-              onChange={(e) => setSni(e.target.value)}
-              placeholder="可选，TLS SNI"
-            />
+        </div>
+
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">节点实际监听</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              用于部署、DNS 与实际监听；留空时继承订阅连接地址。
+            </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>节点 IP</Label>
+              <Input
+                value={nodeIp}
+                onChange={(e) => setNodeIp(e.target.value)}
+                placeholder="服务器实际 IP，如 1.2.3.4"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>节点端口</Label>
+              <Input
+                value={nodePortInput}
+                onChange={(e) => setNodePortInput(e.target.value)}
+                placeholder="留空继承订阅端口"
+              />
+            </div>
+          </div>
+        </div>
+      </NodeFormSection>
+
+      {/* === TLS 与证书 === */}
+      <NodeFormSection title="TLS 与证书">
+        <div className="space-y-1">
+          <Label>SNI</Label>
+          <Input
+            value={sni}
+            onChange={(e) => setSni(e.target.value)}
+            placeholder="可选，TLS SNI"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            TLS 握手使用的服务器名称；订阅地址为域名时将自动同步该值。
+          </p>
+        </div>
+        <div className="space-y-1">
+          <Label>pinSHA256</Label>
+          <Input
+            value={pinSha256}
+            onChange={(e) => setPinSha256(e.target.value)}
+            placeholder="可选，自签证书的 SHA-256 指纹"
+          />
+        </div>
+        <label className="flex cursor-pointer items-center gap-2 text-sm">
+          <Checkbox
+            checked={insecure}
+            onCheckedChange={(next) => setInsecure(next === true)}
+          />
+          <span>跳过证书校验 (insecure)</span>
+        </label>
+
+        <div className="space-y-1 pt-1">
+          <Label>证书模式</Label>
+          <Select value={certMode} onValueChange={setCertMode}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              <SelectGroup>
+                <SelectItem value="self-signed">自签证书</SelectItem>
+                <SelectItem value="acme-http">ACME HTTP</SelectItem>
+                <SelectItem value="acme-dns">ACME DNS</SelectItem>
+                <SelectItem value="custom">自定义路径</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
+        {(certMode === "acme-http" || certMode === "acme-dns") && (
+          <>
+            <div className="space-y-1">
+              <Label>ACME 域名</Label>
+              <Textarea
+                value={acmeDomainsInput}
+                onChange={(e) => setAcmeDomainsInput(e.target.value)}
+                placeholder={"每行一个，如\nexample.com\n*.example.com"}
+                rows={3}
+              />
+              <p className="text-[11px] text-muted-foreground">
+                {certMode === "acme-http"
+                  ? "HTTP-01 验证仅支持普通域名，不支持通配符证书。"
+                  : "DNS-01 验证支持普通域名与通配符证书。"}
+                订阅地址为域名时将自动填入首个域名。
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label>ACME 邮箱</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="email"
+                  value={acmeEmail}
+                  onChange={(e) => setAcmeEmail(e.target.value)}
+                  placeholder="留空则使用全局设置"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setAcmeEmail(generateAcmeEmail(getAutoFillDomain(ip)))
+                  }
+                >
+                  随机
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+        {certMode === "acme-dns" && (
+          <>
+            <div className="space-y-1">
+              <Label>DNS 服务商</Label>
+              <Select
+                value={acmeDnsProvider}
+                onValueChange={setAcmeDnsProvider}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="选择 DNS 服务商" />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectGroup>
+                    <SelectItem value="cloudflare">Cloudflare</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                DNS-01 证书签发需要可用的 DNS 服务商凭据，用于自动创建验证记录。
+              </p>
+            </div>
+            {acmeDnsProvider === "cloudflare" && (
+              <div className="space-y-1">
+                <Label>Cloudflare API Token</Label>
+                <Input
+                  type="password"
+                  value={acmeCfToken}
+                  onChange={(e) => setAcmeCfToken(e.target.value)}
+                  placeholder="留空则使用全局设置"
+                />
+              </div>
+            )}
+          </>
+        )}
+        {certMode === "custom" && (
+          <>
+            <div className="space-y-1">
+              <Label>证书路径</Label>
+              <Input
+                value={certPath}
+                onChange={(e) => setCertPath(e.target.value)}
+                placeholder="/etc/hysteria/server.crt"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>私钥路径</Label>
+              <Input
+                value={keyPath}
+                onChange={(e) => setKeyPath(e.target.value)}
+                placeholder="/etc/hysteria/server.key"
+              />
+            </div>
+          </>
+        )}
+      </NodeFormSection>
+
+      {/* === 混淆与伪装 === */}
+      <NodeFormSection
+        title="混淆与伪装"
+        defaultOpen={false}
+        contentClassName="space-y-4"
+      >
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">Obfs 混淆</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              配置 Hysteria2 Salamander
+              混淆参数，服务端配置与订阅配置将保持一致。
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
             <div className="space-y-1">
               <Label>Obfs 类型</Label>
               <Select
@@ -1209,39 +1556,32 @@ function NodeForm({
             </div>
             <div className="space-y-1">
               <Label>Obfs 密码</Label>
-              <Input
-                value={obfsPassword}
-                onChange={(e) => setObfsPassword(e.target.value)}
-                placeholder="可选"
-              />
+              <div className="flex gap-2">
+                <Input
+                  value={obfsPassword}
+                  onChange={(e) => setObfsPassword(e.target.value)}
+                  placeholder="可选"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setObfsPassword(generateStrongObfsPassword())}
+                >
+                  随机
+                </Button>
+              </div>
             </div>
           </div>
-          <div className="space-y-1">
-            <Label>pinSHA256</Label>
-            <Input
-              value={pinSha256}
-              onChange={(e) => setPinSha256(e.target.value)}
-              placeholder="可选，自签证书的 SHA-256 指纹"
-            />
-          </div>
-          <label className="flex cursor-pointer items-center gap-2 text-sm">
-            <Checkbox
-              checked={insecure}
-              onCheckedChange={(next) => setInsecure(next === true)}
-            />
-            <span>跳过证书校验 (insecure)</span>
-          </label>
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* === 伪装 === */}
-      <Card>
-        <CardHeader className="p-4 pb-1">
-          <CardTitle className="text-base leading-none font-semibold">
-            伪装
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">伪装 Masquerade</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              定义非协议流量访问节点时的 HTTP/HTTPS
+              响应行为，用于服务端伪装场景。
+            </p>
+          </div>
           <div className="space-y-1">
             <Label>伪装类型</Label>
             <Select value={masqueradeType} onValueChange={setMasqueradeType}>
@@ -1269,7 +1609,7 @@ function NodeForm({
                   rows={3}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Content-Type</Label>
                   <Input
@@ -1339,336 +1679,196 @@ function NodeForm({
               />
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* === 节点配置 === */}
-      <Card>
-        <CardHeader className="p-4 pb-1">
-          <CardTitle className="text-base leading-none font-semibold">
-            节点配置
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="space-y-1">
-            <Label>节点 IP</Label>
-            <Input
-              value={nodeIp}
-              onChange={(e) => setNodeIp(e.target.value)}
-              placeholder="服务器实际 IP，如 1.2.3.4"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              用于一键部署和 DNS 解析，留空则使用订阅地址
-            </p>
-          </div>
-          <div className="space-y-1">
-            <Label>节点端口（支持端口跳跃）</Label>
-            <Input
-              value={nodePortInput}
-              onChange={(e) => setNodePortInput(e.target.value)}
-              placeholder="留空则与订阅端口一致"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label>证书模式</Label>
-            <Select value={certMode} onValueChange={setCertMode}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent position="popper">
-                <SelectGroup>
-                  <SelectItem value="self-signed">自签证书</SelectItem>
-                  <SelectItem value="acme-http">ACME HTTP</SelectItem>
-                  <SelectItem value="acme-dns">ACME DNS</SelectItem>
-                  <SelectItem value="custom">自定义路径</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
-          {(certMode === "acme-http" || certMode === "acme-dns") && (
-            <>
-              <div className="space-y-1">
-                <Label>ACME 域名</Label>
-                <Textarea
-                  value={acmeDomainsInput}
-                  onChange={(e) => setAcmeDomainsInput(e.target.value)}
-                  placeholder={"每行一个，如\nexample.com\n*.example.com"}
-                  rows={3}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  {certMode === "acme-http"
-                    ? "HTTP 验证仅支持裸域名，不支持通配符"
-                    : "DNS 验证支持通配符域名"}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <Label>ACME 邮箱</Label>
-                <Input
-                  type="email"
-                  value={acmeEmail}
-                  onChange={(e) => setAcmeEmail(e.target.value)}
-                  placeholder="留空则使用全局设置"
-                />
-              </div>
-            </>
-          )}
-          {certMode === "acme-dns" && (
-            <>
-              <div className="space-y-1">
-                <Label>DNS 服务商</Label>
-                <Select
-                  value={acmeDnsProvider}
-                  onValueChange={setAcmeDnsProvider}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择 DNS 服务商" />
-                  </SelectTrigger>
-                  <SelectContent position="popper">
-                    <SelectGroup>
-                      <SelectItem value="cloudflare">Cloudflare</SelectItem>
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  Hysteria2 ACME 仅支持 DNS-01 验证，必须配置 DNS 服务商
-                </p>
-              </div>
-              {acmeDnsProvider === "cloudflare" && (
-                <div className="space-y-1">
-                  <Label>Cloudflare API Token</Label>
-                  <Input
-                    type="password"
-                    value={acmeCfToken}
-                    onChange={(e) => setAcmeCfToken(e.target.value)}
-                    placeholder="留空则使用全局设置"
-                  />
-                </div>
-              )}
-            </>
-          )}
-          {certMode === "custom" && (
-            <>
-              <div className="space-y-1">
-                <Label>证书路径</Label>
-                <Input
-                  value={certPath}
-                  onChange={(e) => setCertPath(e.target.value)}
-                  placeholder="/etc/hysteria/server.crt"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label>私钥路径</Label>
-                <Input
-                  value={keyPath}
-                  onChange={(e) => setKeyPath(e.target.value)}
-                  placeholder="/etc/hysteria/server.key"
-                />
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+        </div>
+      </NodeFormSection>
 
       {/* === 宿主机流量 === */}
-      <Card>
-        <CardHeader className="p-4 pb-1">
-          <CardTitle className="text-base leading-none font-semibold">
-            宿主机流量
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 p-4 pt-2">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <Label>显示剩余流量</Label>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                按 Agent 上报的节点实际用量预估宿主机剩余额度。
-              </p>
-            </div>
-            <Switch
-              checked={hostTrafficEnabled}
-              onCheckedChange={setHostTrafficEnabled}
-            />
+      <NodeFormSection title="宿主机流量" defaultOpen={false}>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>显示剩余流量</Label>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              基于 Agent 流量统计宿主机额度与剩余量。
+            </p>
           </div>
-          {hostTrafficEnabled && (
-            <>
-              <div className="grid grid-cols-[1fr_1fr_96px] gap-3">
-                <div className="space-y-1">
-                  <Label>总流量</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={hostTrafficLimit}
-                    onChange={(e) => setHostTrafficLimit(e.target.value)}
-                    placeholder="如 1"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>已用流量</Label>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={hostTrafficUsed}
-                    onChange={(e) => setHostTrafficUsed(e.target.value)}
-                    placeholder="如 0.2"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <Label>单位</Label>
-                  <Select
-                    value={hostTrafficUnit}
-                    onValueChange={(v) =>
-                      setHostTrafficUnit(v as HostTrafficUnit)
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      <SelectItem value="GB">GB</SelectItem>
-                      <SelectItem value="TB">TB</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+          <Switch
+            checked={hostTrafficEnabled}
+            onCheckedChange={setHostTrafficEnabled}
+          />
+        </div>
+        {hostTrafficEnabled && (
+          <>
+            <div className="grid grid-cols-[1fr_1fr_96px] gap-3">
+              <div className="space-y-1">
+                <Label>总流量</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={hostTrafficLimit}
+                  onChange={(e) => setHostTrafficLimit(e.target.value)}
+                  placeholder="如 1"
+                />
               </div>
               <div className="space-y-1">
-                <Label>计费口径</Label>
+                <Label>已用流量</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={hostTrafficUsed}
+                  onChange={(e) => setHostTrafficUsed(e.target.value)}
+                  placeholder="如 0.2"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>单位</Label>
                 <Select
-                  value={hostTrafficBillingMode}
+                  value={hostTrafficUnit}
                   onValueChange={(v) =>
-                    setHostTrafficBillingMode(v as HostTrafficBillingMode)
+                    setHostTrafficUnit(v as HostTrafficUnit)
                   }
                 >
                   <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper">
-                    <SelectItem value="tx_rx">
-                      {HOST_TRAFFIC_BILLING_LABEL.tx_rx}
-                    </SelectItem>
-                    <SelectItem value="tx">
-                      {HOST_TRAFFIC_BILLING_LABEL.tx}
-                    </SelectItem>
-                    <SelectItem value="rx">
-                      {HOST_TRAFFIC_BILLING_LABEL.rx}
-                    </SelectItem>
+                    <SelectItem value="GB">GB</SelectItem>
+                    <SelectItem value="TB">TB</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[11px] text-muted-foreground">
-                  只影响宿主机剩余流量估算，不影响用户套餐流量统计。
-                </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label>自动重置</Label>
-                  <Select
-                    value={hostTrafficResetCycle}
-                    onValueChange={(v) =>
-                      setHostTrafficResetCycle(v as HostTrafficResetCycle)
-                    }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent position="popper">
-                      <SelectItem value="monthly">每月</SelectItem>
-                      <SelectItem value="weekly">每周</SelectItem>
-                      <SelectItem value="daily">每天</SelectItem>
-                      <SelectItem value="custom_days">每 N 天</SelectItem>
-                      <SelectItem value="none">不自动重置</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                {hostTrafficResetCycle === "custom_days" ? (
-                  <div className="space-y-1">
-                    <Label>周期天数</Label>
-                    <Input
-                      type="number"
-                      min="1"
-                      max="366"
-                      value={hostTrafficResetIntervalDays}
-                      onChange={(e) =>
-                        setHostTrafficResetIntervalDays(e.target.value)
-                      }
-                      placeholder="如 30"
-                    />
-                  </div>
-                ) : (
-                  <div className="space-y-1">
-                    <Label>周期</Label>
-                    <Input
-                      value={HOST_TRAFFIC_RESET_LABEL[hostTrafficResetCycle]}
-                      disabled
-                    />
-                  </div>
-                )}
+            </div>
+            <div className="space-y-1">
+              <Label>统计口径</Label>
+              <Select
+                value={hostTrafficBillingMode}
+                onValueChange={(v) =>
+                  setHostTrafficBillingMode(v as HostTrafficBillingMode)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="tx_rx">
+                    {HOST_TRAFFIC_BILLING_LABEL.tx_rx}
+                  </SelectItem>
+                  <SelectItem value="tx">
+                    {HOST_TRAFFIC_BILLING_LABEL.tx}
+                  </SelectItem>
+                  <SelectItem value="rx">
+                    {HOST_TRAFFIC_BILLING_LABEL.rx}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                仅用于宿主机额度统计口径，不参与用户套餐流量计算。
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label>自动重置</Label>
+                <Select
+                  value={hostTrafficResetCycle}
+                  onValueChange={(v) =>
+                    setHostTrafficResetCycle(v as HostTrafficResetCycle)
+                  }
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    <SelectItem value="monthly">每月</SelectItem>
+                    <SelectItem value="weekly">每周</SelectItem>
+                    <SelectItem value="daily">每天</SelectItem>
+                    <SelectItem value="custom_days">每 N 天</SelectItem>
+                    <SelectItem value="none">不自动重置</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              {hostTrafficResetCycle !== "none" && (
+              {hostTrafficResetCycle === "custom_days" ? (
                 <div className="space-y-1">
-                  <Label>周期起始时间</Label>
+                  <Label>周期天数</Label>
                   <Input
-                    type="datetime-local"
-                    step="1"
-                    value={hostTrafficResetAnchor}
-                    onChange={(e) => setHostTrafficResetAnchor(e.target.value)}
+                    type="number"
+                    min="1"
+                    max="366"
+                    value={hostTrafficResetIntervalDays}
+                    onChange={(e) =>
+                      setHostTrafficResetIntervalDays(e.target.value)
+                    }
+                    placeholder="如 30"
                   />
-                  <p className="text-[11px] text-muted-foreground">
-                    到达下一个周期后会自动清零节点宿主机已用流量。
-                  </p>
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <Label>周期</Label>
+                  <Input
+                    value={HOST_TRAFFIC_RESET_LABEL[hostTrafficResetCycle]}
+                    disabled
+                  />
                 </div>
               )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+            </div>
+            {hostTrafficResetCycle !== "none" && (
+              <div className="space-y-1">
+                <Label>周期起始时间</Label>
+                <Input
+                  type="datetime-local"
+                  step="1"
+                  value={hostTrafficResetAnchor}
+                  onChange={(e) => setHostTrafficResetAnchor(e.target.value)}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  系统将以该时间为周期锚点，在进入下一计费周期后重置宿主机已用流量。
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </NodeFormSection>
 
       {/* === Agent 配置 === */}
-      <Card>
-        <CardHeader className="p-4 pb-1">
-          <CardTitle className="text-base leading-none font-semibold">
-            Agent 配置
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 p-4 pt-2">
-          <div className="space-y-1">
-            <Label>上报间隔（秒）</Label>
-            <Input
-              type="number"
-              value={agentInterval}
-              onChange={(e) => setAgentInterval(e.target.value)}
-              placeholder="留空默认 120"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Agent 向面板上报流量与在线状态的时间间隔
+      <NodeFormSection title="Agent 配置" defaultOpen={false}>
+        <div className="space-y-1">
+          <Label>上报间隔（秒）</Label>
+          <Input
+            type="number"
+            value={agentInterval}
+            onChange={(e) => setAgentInterval(e.target.value)}
+            placeholder="留空默认 120"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Agent 执行流量上报、在线状态同步与控制面轮询的间隔时间。
+          </p>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>控制面同步</Label>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              启用后，Agent 可从面板拉取目标配置并执行白名单内的 Hysteria2
+              管理任务。
             </p>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <Label>控制面同步</Label>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                允许 Agent 拉取配置和执行 Hysteria2 管理任务。
-              </p>
-            </div>
-            <Switch
-              checked={agentControlEnabled}
-              onCheckedChange={setAgentControlEnabled}
-            />
+          <Switch
+            checked={agentControlEnabled}
+            onCheckedChange={setAgentControlEnabled}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>每日自动更新</Label>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              启用后，Agent 将按计划检查发布版本并更新当前系统架构对应的程序包。
+            </p>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <Label>每日自动更新</Label>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                每日从 GitHub 检查并更新对应架构的 agent。
-              </p>
-            </div>
-            <Switch
-              checked={agentAutoUpdateEnabled}
-              onCheckedChange={setAgentAutoUpdateEnabled}
-            />
-          </div>
-        </CardContent>
-      </Card>
+          <Switch
+            checked={agentAutoUpdateEnabled}
+            onCheckedChange={setAgentAutoUpdateEnabled}
+          />
+        </div>
+      </NodeFormSection>
 
       <div className="flex gap-2 pt-2">
         <Button type="submit" className="flex-1">
