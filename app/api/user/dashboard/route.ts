@@ -168,7 +168,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     data: {
-      subscriptionPath: `/api/sub/${userRow.auth_token}`,
+      subscriptionPath: `/api/sub?token=${encodeURIComponent(userRow.auth_token)}`,
       subscriptions,
       traffic: {
         date: localDate,
