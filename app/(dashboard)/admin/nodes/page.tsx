@@ -17,9 +17,11 @@ import {
   useSortable,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import { toast } from "sonner"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import {
   Activity,
+  ArrowUpDown,
   Bot,
   Copy,
   Eye,
@@ -1687,6 +1689,7 @@ export default function AdminNodesPage() {
   const [rows, setRows] = useState<NodeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [sortingMode, setSortingMode] = useState(false)
   const [draggingNodeId, setDraggingNodeId] = useState<number | null>(null)
   const [savingOrder, setSavingOrder] = useState(false)
   const rowsRef = useRef<NodeRow[]>([])
@@ -1964,7 +1967,7 @@ export default function AdminNodesPage() {
         const nextRows =
           json?.ok && Array.isArray(json.data) ? (json.data as NodeRow[]) : []
 
-        if (draggingNodeId === null && !savingOrder) {
+        if (!sortingMode && draggingNodeId === null && !savingOrder) {
           setNodeRows(nextRows)
         }
         void loadDnsStatus()
@@ -1984,7 +1987,7 @@ export default function AdminNodesPage() {
       mounted = false
       clearInterval(timer)
     }
-  }, [draggingNodeId, savingOrder])
+  }, [draggingNodeId, savingOrder, sortingMode])
 
   // 解析 acmeDnsConfig
   function buildAcmeDnsConfig(
@@ -2085,6 +2088,21 @@ export default function AdminNodesPage() {
       await refreshNodes().catch(() => undefined)
       return false
     }
+  }
+
+  function toggleSortingMode() {
+    if (sortingMode) {
+      setSortingMode(false)
+      toast.success("已退出排序模式", {
+        description: "节点顺序已保存",
+      })
+      void refreshNodes()
+      return
+    }
+    setSortingMode(true)
+    toast.info("排序模式已开启", {
+      description: "拖动卡片调整节点顺序，完成后再次点击排序图标。",
+    })
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -2747,11 +2765,26 @@ export default function AdminNodesPage() {
               )}
             </Button>
             <Button
+              variant={sortingMode ? "default" : "outline"}
+              size="icon-sm"
+              onClick={toggleSortingMode}
+              disabled={loading || rows.length < 2 || savingOrder}
+              title={sortingMode ? "完成排序" : "进入排序模式"}
+            >
+              <ArrowUpDown className="h-4 w-4" />
+            </Button>
+            <Button
               variant="outline"
               size="icon-sm"
               onClick={() => void handleRefresh()}
-              disabled={refreshing || savingOrder}
-              title={savingOrder ? "正在保存排序" : "刷新节点数据"}
+              disabled={refreshing || savingOrder || sortingMode}
+              title={
+                sortingMode
+                  ? "排序模式下暂不刷新"
+                  : savingOrder
+                    ? "正在保存排序"
+                    : "刷新节点数据"
+              }
             >
               <RefreshCw
                 className={cn(
@@ -2760,7 +2793,10 @@ export default function AdminNodesPage() {
                 )}
               />
             </Button>
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button
+              onClick={() => setCreateOpen(true)}
+              disabled={sortingMode || savingOrder}
+            >
               <Plus className="mr-1.5 h-4 w-4" />
               添加节点
             </Button>
@@ -2797,7 +2833,7 @@ export default function AdminNodesPage() {
             <p className="text-sm">暂无节点</p>
             <p className="mt-1 text-xs">点击右上角「添加节点」创建第一个节点</p>
           </Card>
-        ) : (
+        ) : sortingMode ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -2846,6 +2882,37 @@ export default function AdminNodesPage() {
               </div>
             </SortableContext>
           </DndContext>
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {rows.map((row) => {
+              const displayRow = {
+                ...row,
+                dns_status: dnsStatusMap[row.id]?.status ?? "skip",
+                dns_status_detail: dnsStatusMap[row.id]?.detail ?? null,
+              }
+
+              return (
+                <NodeCard
+                  key={row.id}
+                  row={displayRow}
+                  hourly={historyByNode[row.id] ?? buildEmptyHourly()}
+                  hideIp={hideIp}
+                  onEdit={startEdit}
+                  onRemove={removeNode}
+                  onToggleStatus={(r) =>
+                    void updateNode(r.id, {
+                      status: r.status === "enabled" ? "disabled" : "enabled",
+                    })
+                  }
+                  onShowAgentConfig={(r) => void showAgentConfig(r)}
+                  onShowDeployCommand={(r) => void showDeployCommand(r)}
+                  onDnsResolve={(r) => void resolveDns(r)}
+                  onQueueAgentTask={(r, type) => void queueAgentTask(r, type)}
+                  onShowAgentDetail={(r) => void loadAgentDetail(r)}
+                />
+              )
+            })}
+          </div>
         )}
 
         {/* 创建节点 - 右侧滑出面板 */}
