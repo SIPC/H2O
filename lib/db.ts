@@ -12,6 +12,59 @@ function ensureDbDirectory(filePath: string) {
   mkdirSync(dir, { recursive: true })
 }
 
+function ensureForwardCompatibleColumns(database: DatabaseSync) {
+  // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）
+  // 不是多版本迁移链，仅是单次向前兼容
+  for (const alter of [
+    `ALTER TABLE nodes ADD COLUMN remark TEXT`,
+    `ALTER TABLE nodes ADD COLUMN port_hopping TEXT`,
+    `ALTER TABLE plans ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE plans ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE nodes ADD COLUMN node_ip TEXT`,
+    `ALTER TABLE nodes ADD COLUMN node_port INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN node_port_hopping TEXT`,
+    `ALTER TABLE nodes ADD COLUMN cert_mode TEXT NOT NULL DEFAULT 'self-signed'`,
+    `ALTER TABLE nodes ADD COLUMN cert_path TEXT`,
+    `ALTER TABLE nodes ADD COLUMN key_path TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_domains TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_email TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_dns_provider TEXT`,
+    `ALTER TABLE nodes ADD COLUMN acme_dns_config TEXT`,
+    `ALTER TABLE nodes ADD COLUMN masquerade_type TEXT`,
+    `ALTER TABLE nodes ADD COLUMN masquerade_config TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_interval INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN agent_auto_update_enabled INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE nodes ADD COLUMN hy2_stats_secret TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_secret TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_control_enabled INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE nodes ADD COLUMN agent_config_revision INTEGER NOT NULL DEFAULT 1`,
+    `ALTER TABLE nodes ADD COLUMN agent_desired_config_hash TEXT`,
+    `ALTER TABLE nodes ADD COLUMN agent_last_config_built_at TEXT`,
+    `ALTER TABLE plans ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE plans ADD COLUMN renewal_period_days INTEGER`,
+    `ALTER TABLE subscriptions ADD COLUMN renewal_anchor TEXT`,
+    `ALTER TABLE node_stats ADD COLUMN agent_version TEXT`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_limit_bytes INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_used_bytes INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_billing_mode TEXT NOT NULL DEFAULT 'tx_rx'`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_cycle TEXT NOT NULL DEFAULT 'monthly'`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_interval_days INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_anchor TEXT`,
+    `ALTER TABLE nodes ADD COLUMN host_traffic_last_reset_at TEXT`,
+    `ALTER TABLE nodes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
+  ]) {
+    try {
+      database.exec(alter)
+    } catch {
+      // 字段已存在
+    }
+  }
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_nodes_sort_order ON nodes(sort_order, id);
+  `)
+}
+
 function migrate(database: DatabaseSync) {
   // 仅维护当前版本 schema，不做旧版本兼容迁移
   database.exec(`
@@ -70,6 +123,7 @@ function migrate(database: DatabaseSync) {
       host_traffic_reset_interval_days INTEGER,
       host_traffic_reset_anchor TEXT,
       host_traffic_last_reset_at TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -254,55 +308,14 @@ function migrate(database: DatabaseSync) {
       ON agent_request_nonces(expires_at);
   `)
 
-  // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）
-  // 不是多版本迁移链，仅是单次向前兼容
-  for (const alter of [
-    `ALTER TABLE nodes ADD COLUMN remark TEXT`,
-    `ALTER TABLE nodes ADD COLUMN port_hopping TEXT`,
-    `ALTER TABLE plans ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE plans ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE nodes ADD COLUMN node_ip TEXT`,
-    `ALTER TABLE nodes ADD COLUMN node_port INTEGER`,
-    `ALTER TABLE nodes ADD COLUMN node_port_hopping TEXT`,
-    `ALTER TABLE nodes ADD COLUMN cert_mode TEXT NOT NULL DEFAULT 'self-signed'`,
-    `ALTER TABLE nodes ADD COLUMN cert_path TEXT`,
-    `ALTER TABLE nodes ADD COLUMN key_path TEXT`,
-    `ALTER TABLE nodes ADD COLUMN acme_domains TEXT`,
-    `ALTER TABLE nodes ADD COLUMN acme_email TEXT`,
-    `ALTER TABLE nodes ADD COLUMN acme_dns_provider TEXT`,
-    `ALTER TABLE nodes ADD COLUMN acme_dns_config TEXT`,
-    `ALTER TABLE nodes ADD COLUMN masquerade_type TEXT`,
-    `ALTER TABLE nodes ADD COLUMN masquerade_config TEXT`,
-    `ALTER TABLE nodes ADD COLUMN agent_interval INTEGER`,
-    `ALTER TABLE nodes ADD COLUMN agent_auto_update_enabled INTEGER NOT NULL DEFAULT 1`,
-    `ALTER TABLE nodes ADD COLUMN hy2_stats_secret TEXT`,
-    `ALTER TABLE nodes ADD COLUMN agent_secret TEXT`,
-    `ALTER TABLE nodes ADD COLUMN agent_control_enabled INTEGER NOT NULL DEFAULT 1`,
-    `ALTER TABLE nodes ADD COLUMN agent_config_revision INTEGER NOT NULL DEFAULT 1`,
-    `ALTER TABLE nodes ADD COLUMN agent_desired_config_hash TEXT`,
-    `ALTER TABLE nodes ADD COLUMN agent_last_config_built_at TEXT`,
-    `ALTER TABLE plans ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE plans ADD COLUMN renewal_period_days INTEGER`,
-    `ALTER TABLE subscriptions ADD COLUMN renewal_anchor TEXT`,
-    `ALTER TABLE node_stats ADD COLUMN agent_version TEXT`,
-    `ALTER TABLE nodes ADD COLUMN host_traffic_limit_bytes INTEGER`,
-    `ALTER TABLE nodes ADD COLUMN host_traffic_used_bytes INTEGER NOT NULL DEFAULT 0`,
-    `ALTER TABLE nodes ADD COLUMN host_traffic_billing_mode TEXT NOT NULL DEFAULT 'tx_rx'`,
-    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_cycle TEXT NOT NULL DEFAULT 'monthly'`,
-    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_interval_days INTEGER`,
-    `ALTER TABLE nodes ADD COLUMN host_traffic_reset_anchor TEXT`,
-    `ALTER TABLE nodes ADD COLUMN host_traffic_last_reset_at TEXT`,
-  ]) {
-    try {
-      database.exec(alter)
-    } catch {
-      // 字段已存在
-    }
-  }
+  ensureForwardCompatibleColumns(database)
 }
 
 export function getDb() {
-  if (db) return db
+  if (db) {
+    ensureForwardCompatibleColumns(db)
+    return db
+  }
   ensureDbDirectory(DB_PATH)
   db = new DatabaseSync(DB_PATH)
   migrate(db)

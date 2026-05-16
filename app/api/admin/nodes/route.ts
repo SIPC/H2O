@@ -65,7 +65,7 @@ export async function GET(request: Request) {
   const rows = db
     .prepare(
       `SELECT n.id, n.name, n.remark, n.ip, n.port, n.port_hopping, n.auth_path, n.status, n.sni, n.obfs,
-              n.obfs_password, n.insecure, n.pin_sha256, n.created_at,
+              n.obfs_password, n.insecure, n.pin_sha256, n.sort_order, n.created_at,
               n.node_ip, n.node_port, n.node_port_hopping,
               n.cert_mode, n.cert_path, n.key_path,
               n.acme_domains, n.acme_email, n.acme_dns_provider, n.acme_dns_config,
@@ -86,7 +86,7 @@ export async function GET(request: Request) {
        FROM nodes n
        LEFT JOIN node_stats ns ON ns.node_id = n.id
        LEFT JOIN node_agent_state nas ON nas.node_id = n.id
-       ORDER BY n.id DESC`
+       ORDER BY n.sort_order ASC, n.id DESC`
     )
     .all() as Array<Record<string, unknown>>
 
@@ -377,6 +377,10 @@ export async function POST(request: Request) {
 
   const hy2StatsSecret = createHy2StatsSecret()
   const agentSecret = createAgentSecret()
+  const sortRow = db
+    .prepare(`SELECT COALESCE(MAX(sort_order), 0) + 1 AS sort_order FROM nodes`)
+    .get() as { sort_order: number } | undefined
+  const sortOrder = sortRow?.sort_order ?? 1
 
   try {
     const result = db
@@ -387,8 +391,9 @@ export async function POST(request: Request) {
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
            hy2_stats_secret, agent_secret, agent_control_enabled,
            host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
-           host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor,
+           sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
@@ -424,7 +429,8 @@ export async function POST(request: Request) {
         hostTrafficBillingMode.value,
         hostTrafficCycle.value,
         hostTrafficInterval.value,
-        hostTrafficAnchorValue
+        hostTrafficAnchorValue,
+        sortOrder
       )
 
     const newNodeId = Number(result.lastInsertRowid)

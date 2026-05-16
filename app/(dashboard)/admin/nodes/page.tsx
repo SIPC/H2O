@@ -1,6 +1,22 @@
 "use client"
 
-import { FormEvent, useEffect, useRef, useState } from "react"
+import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react"
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core"
+import {
+  arrayMove,
+  rectSortingStrategy,
+  SortableContext,
+  useSortable,
+} from "@dnd-kit/sortable"
+import { CSS } from "@dnd-kit/utilities"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import {
   Activity,
@@ -153,6 +169,7 @@ type AgentDetail = {
 
 type NodeRow = {
   id: number
+  sort_order: number
   name: string
   remark: string | null
   ip: string
@@ -591,6 +608,42 @@ function NodeTrafficChart({ hourly }: { hourly: HourPoint[] }) {
   )
 }
 
+function SortableNodeCard({
+  row,
+  children,
+}: {
+  row: NodeRow
+  children: React.ReactNode
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.id })
+  const style: CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "cursor-grab touch-none rounded-xl active:cursor-grabbing",
+        isDragging && "z-50 opacity-70 shadow-lg"
+      )}
+      {...attributes}
+      {...listeners}
+    >
+      {children}
+    </div>
+  )
+}
+
 // 节点卡片组件
 function NodeCard({
   row,
@@ -633,7 +686,7 @@ function NodeCard({
   const hostTrafficOverLimit = row.host_traffic_over_limit
 
   return (
-    <Card className="relative h-48 overflow-hidden">
+    <Card className="relative h-48 overflow-hidden select-none">
       {/* 流量图 - 作为卡片背景 */}
       <NodeTrafficChart hourly={hourly} />
 
@@ -1634,6 +1687,9 @@ export default function AdminNodesPage() {
   const [rows, setRows] = useState<NodeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [draggingNodeId, setDraggingNodeId] = useState<number | null>(null)
+  const [savingOrder, setSavingOrder] = useState(false)
+  const rowsRef = useRef<NodeRow[]>([])
   const [historyByNode, setHistoryByNode] = useState<
     Record<number, HourPoint[]>
   >({})
@@ -1748,19 +1804,29 @@ export default function AdminNodesPage() {
   const [agentDetailRow, setAgentDetailRow] = useState<NodeRow | null>(null)
   const [agentDetail, setAgentDetail] = useState<AgentDetail | null>(null)
   const [agentDetailLoading, setAgentDetailLoading] = useState(false)
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  )
+
+  function setNodeRows(nextRows: NodeRow[]) {
+    rowsRef.current = nextRows
+    setRows(nextRows)
+  }
 
   async function refreshNodes() {
     const response = await fetch("/api/admin/nodes")
     const json = await response.json()
 
     if (!json?.ok || !Array.isArray(json.data)) {
-      setRows([])
+      setNodeRows([])
       setHistoryByNode({})
       return
     }
 
     const nextRows = json.data as NodeRow[]
-    setRows(nextRows)
+    setNodeRows(nextRows)
     await Promise.all([
       loadDnsStatus(),
       loadHistory(nextRows.map((row) => row.id)),
@@ -1898,7 +1964,9 @@ export default function AdminNodesPage() {
         const nextRows =
           json?.ok && Array.isArray(json.data) ? (json.data as NodeRow[]) : []
 
-        setRows(nextRows)
+        if (draggingNodeId === null && !savingOrder) {
+          setNodeRows(nextRows)
+        }
         void loadDnsStatus()
         await loadHistory(
           nextRows.map((row) => row.id),
@@ -1916,7 +1984,7 @@ export default function AdminNodesPage() {
       mounted = false
       clearInterval(timer)
     }
-  }, [])
+  }, [draggingNodeId, savingOrder])
 
   // 解析 acmeDnsConfig
   function buildAcmeDnsConfig(
@@ -2017,6 +2085,63 @@ export default function AdminNodesPage() {
       await refreshNodes().catch(() => undefined)
       return false
     }
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    const id = Number(event.active.id)
+    setDraggingNodeId(Number.isInteger(id) ? id : null)
+  }
+
+  async function handleDragEnd(event: DragEndEvent) {
+    setDraggingNodeId(null)
+
+    const activeId = Number(event.active.id)
+    const overId = event.over ? Number(event.over.id) : null
+    if (!overId || activeId === overId) return
+
+    const currentRows = rowsRef.current
+    const oldIndex = currentRows.findIndex((row) => row.id === activeId)
+    const newIndex = currentRows.findIndex((row) => row.id === overId)
+    if (oldIndex < 0 || newIndex < 0) return
+
+    const previousRows = currentRows
+    const nextRows = arrayMove(currentRows, oldIndex, newIndex).map(
+      (row, index) => ({ ...row, sort_order: index + 1 })
+    )
+
+    setNodeRows(nextRows)
+    setSavingOrder(true)
+    try {
+      const response = await fetch("/api/admin/nodes/order", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ids: nextRows.map((row) => row.id) }),
+      })
+      const json = await response.json()
+
+      if (!response.ok || !json?.ok) {
+        setNodeRows(previousRows)
+        await alert({
+          title: "排序保存失败",
+          description: json?.error?.message ?? "请稍后重试",
+          variant: "destructive",
+        })
+        return
+      }
+    } catch {
+      setNodeRows(previousRows)
+      await alert({
+        title: "排序保存失败",
+        description: "网络错误，请稍后重试",
+        variant: "destructive",
+      })
+    } finally {
+      setSavingOrder(false)
+    }
+  }
+
+  function handleDragCancel() {
+    setDraggingNodeId(null)
   }
 
   async function create(event: FormEvent<HTMLFormElement>) {
@@ -2625,11 +2750,14 @@ export default function AdminNodesPage() {
               variant="outline"
               size="icon-sm"
               onClick={() => void handleRefresh()}
-              disabled={refreshing}
-              title="刷新节点数据"
+              disabled={refreshing || savingOrder}
+              title={savingOrder ? "正在保存排序" : "刷新节点数据"}
             >
               <RefreshCw
-                className={cn("h-4 w-4", refreshing && "animate-spin")}
+                className={cn(
+                  "h-4 w-4",
+                  (refreshing || savingOrder) && "animate-spin"
+                )}
               />
             </Button>
             <Button onClick={() => setCreateOpen(true)}>
@@ -2670,32 +2798,54 @@ export default function AdminNodesPage() {
             <p className="mt-1 text-xs">点击右上角「添加节点」创建第一个节点</p>
           </Card>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {rows.map((row) => (
-              <NodeCard
-                key={row.id}
-                row={{
-                  ...row,
-                  dns_status: dnsStatusMap[row.id]?.status ?? "skip",
-                  dns_status_detail: dnsStatusMap[row.id]?.detail ?? null,
-                }}
-                hourly={historyByNode[row.id] ?? buildEmptyHourly()}
-                hideIp={hideIp}
-                onEdit={startEdit}
-                onRemove={removeNode}
-                onToggleStatus={(r) =>
-                  void updateNode(r.id, {
-                    status: r.status === "enabled" ? "disabled" : "enabled",
-                  })
-                }
-                onShowAgentConfig={(r) => void showAgentConfig(r)}
-                onShowDeployCommand={(r) => void showDeployCommand(r)}
-                onDnsResolve={(r) => void resolveDns(r)}
-                onQueueAgentTask={(r, type) => void queueAgentTask(r, type)}
-                onShowAgentDetail={(r) => void loadAgentDetail(r)}
-              />
-            ))}
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            autoScroll={false}
+            onDragStart={handleDragStart}
+            onDragEnd={(event) => void handleDragEnd(event)}
+            onDragCancel={handleDragCancel}
+          >
+            <SortableContext
+              items={rows.map((row) => row.id)}
+              strategy={rectSortingStrategy}
+            >
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {rows.map((row) => {
+                  const displayRow = {
+                    ...row,
+                    dns_status: dnsStatusMap[row.id]?.status ?? "skip",
+                    dns_status_detail: dnsStatusMap[row.id]?.detail ?? null,
+                  }
+
+                  return (
+                    <SortableNodeCard key={row.id} row={row}>
+                      <NodeCard
+                        row={displayRow}
+                        hourly={historyByNode[row.id] ?? buildEmptyHourly()}
+                        hideIp={hideIp}
+                        onEdit={startEdit}
+                        onRemove={removeNode}
+                        onToggleStatus={(r) =>
+                          void updateNode(r.id, {
+                            status:
+                              r.status === "enabled" ? "disabled" : "enabled",
+                          })
+                        }
+                        onShowAgentConfig={(r) => void showAgentConfig(r)}
+                        onShowDeployCommand={(r) => void showDeployCommand(r)}
+                        onDnsResolve={(r) => void resolveDns(r)}
+                        onQueueAgentTask={(r, type) =>
+                          void queueAgentTask(r, type)
+                        }
+                        onShowAgentDetail={(r) => void loadAgentDetail(r)}
+                      />
+                    </SortableNodeCard>
+                  )
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
 
         {/* 创建节点 - 右侧滑出面板 */}

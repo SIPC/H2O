@@ -165,7 +165,7 @@ export async function GET(
          AND s.expire_time > datetime('now')
          AND n.status = 'enabled'
        GROUP BY n.id
-       ORDER BY n.id ASC`
+       ORDER BY n.sort_order ASC, n.id ASC`
     )
     .all(user.id) as NodeRow[]
 
