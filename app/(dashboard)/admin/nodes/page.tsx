@@ -2805,7 +2805,7 @@ export default function AdminNodesPage() {
 
         {/* 节点卡片网格 */}
         {loading ? (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {Array.from({ length: 8 }).map((_, index) => (
               <Card key={index} className="h-48 overflow-hidden">
                 <CardContent className="flex h-full flex-col justify-between p-3">
@@ -2846,7 +2846,7 @@ export default function AdminNodesPage() {
               items={rows.map((row) => row.id)}
               strategy={rectSortingStrategy}
             >
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {rows.map((row) => {
                   const displayRow = {
                     ...row,
@@ -2883,7 +2883,7 @@ export default function AdminNodesPage() {
             </SortableContext>
           </DndContext>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {rows.map((row) => {
               const displayRow = {
                 ...row,
