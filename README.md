@@ -13,11 +13,10 @@ Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 # TODO
 
 - [ ] DNS 解析 可视化配置
-- [ ] ACL 流控 可视化配置
-- [ ] 出站规则  可视化配置
 
-- [ ] 面板防探测模式（无 cookie 全部 endpoint 返回 404）
 
+- [x] ACL 流控 可视化配置
+- [x] Outbound 可视化配置
 - [x] 远程控制 Hysteria2
-- [x] 全局流量统计页（Beta）
-- [x] 用户端流量统计卡片（Releases）
+- [x] 全局流量统计页
+- [x] 用户端流量统计卡片
