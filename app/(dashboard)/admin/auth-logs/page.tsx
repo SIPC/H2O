@@ -15,6 +15,7 @@ import {
   CommandList,
 } from "@/components/ui/command"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Popover,
@@ -133,6 +134,7 @@ export default function AdminLogsPage() {
   const [pageSize, setPageSize] = useState(50)
   const [username, setUsername] = useState("")
   const [nodeName, setNodeName] = useState("")
+  const [ip, setIp] = useState("")
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>("all")
   const [users, setUsers] = useState<UserRow[]>([])
   const [nodes, setNodes] = useState<NodeRow[]>([])
@@ -146,6 +148,7 @@ export default function AdminLogsPage() {
       filter?: SuccessFilter
       username?: string
       nodeName?: string
+      ip?: string
     } = {}
   ) {
     const nextPage = opts.page ?? page
@@ -153,11 +156,13 @@ export default function AdminLogsPage() {
     const nextFilter = opts.filter ?? successFilter
     const nextUsername = opts.username ?? username
     const nextNodeName = opts.nodeName ?? nodeName
+    const nextIp = opts.ip ?? ip
 
     const params = new URLSearchParams()
     if (nextFilter !== "all") params.set("success", nextFilter)
     if (nextUsername.trim()) params.set("username", nextUsername.trim())
     if (nextNodeName.trim()) params.set("nodeName", nextNodeName.trim())
+    if (nextIp.trim()) params.set("ip", nextIp.trim())
     params.set("page", String(nextPage))
     params.set("pageSize", String(nextPageSize))
 
@@ -306,7 +311,7 @@ export default function AdminLogsPage() {
       </div>
 
       {/* 筛选条件 */}
-      <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
+      <form className="grid gap-3 md:grid-cols-5" onSubmit={submit}>
         <div className="space-y-1">
           <Label>账号</Label>
           <NamedEntityCombobox
@@ -331,6 +336,14 @@ export default function AdminLogsPage() {
             clearLabel="全部节点"
             emptyText="无匹配节点"
             className="w-full"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>IP</Label>
+          <Input
+            value={ip}
+            onChange={(event) => setIp(event.target.value)}
+            placeholder="搜索 IP"
           />
         </div>
         <div className="space-y-1">
@@ -362,7 +375,7 @@ export default function AdminLogsPage() {
             </Button>
           </div>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex items-end justify-end gap-2">
           <Button type="submit">查询</Button>
           <Button
             type="button"
@@ -370,12 +383,14 @@ export default function AdminLogsPage() {
             onClick={() => {
               setUsername("")
               setNodeName("")
+              setIp("")
               setSuccessFilter("all")
               void load({
                 page: 1,
                 filter: "all",
                 username: "",
                 nodeName: "",
+                ip: "",
               })
             }}
           >

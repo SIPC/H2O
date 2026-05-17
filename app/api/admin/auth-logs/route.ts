@@ -17,6 +17,7 @@ export async function GET(request: Request) {
   const successParam = url.searchParams.get("success")
   const username = url.searchParams.get("username")?.trim()
   const nodeName = url.searchParams.get("nodeName")?.trim()
+  const ip = url.searchParams.get("ip")?.trim()
 
   // 按条件拼 WHERE，全部可选
   const conditions: string[] = []
@@ -35,6 +36,11 @@ export async function GET(request: Request) {
   if (nodeName) {
     conditions.push("node_name LIKE ?")
     values.push(`%${nodeName}%`)
+  }
+
+  if (ip) {
+    conditions.push("ip LIKE ?")
+    values.push(`%${ip}%`)
   }
 
   const whereClause = conditions.length

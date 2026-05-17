@@ -86,8 +86,8 @@ const adminSubMenus: AdminSubMenu[] = [
     title: "节点与路由",
     items: [
       { title: "节点管理", href: "/admin/nodes" },
-      { title: "出站配置", href: "/admin/routing/outbounds" },
       { title: "ACL 策略", href: "/admin/routing/acls" },
+      { title: "出站配置", href: "/admin/routing/outbounds" },
     ],
   },
   {
@@ -103,10 +103,7 @@ const adminSubMenus: AdminSubMenu[] = [
       { title: "Agent 队列", href: "/admin/agent-tasks" },
     ],
   },
-  {
-    title: "系统设置",
-    items: [{ title: "站点设置", href: "/admin/settings" }],
-  },
+  { title: "站点设置", href: "/admin/settings" },
 ]
 
 function isRouteActive(pathname: string, href: string) {

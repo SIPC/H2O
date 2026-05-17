@@ -324,51 +324,67 @@ function OutboundForm({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <Label>出站模式</Label>
-                      <Select
-                        value={outbound.direct?.mode ?? "auto"}
-                        onValueChange={(value) =>
-                          updateOutbound(index, {
-                            ...outbound,
-                            direct: {
-                              ...(outbound.direct ?? { mode: "auto" }),
-                              mode: value as DirectOutboundMode,
-                            },
-                          })
-                        }
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent position="popper">
-                          {Object.entries(DIRECT_MODE_LABEL).map(
-                            ([value, label]) => (
-                              <SelectItem key={value} value={value}>
+                      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                        {Object.entries(DIRECT_MODE_LABEL).map(
+                          ([value, label]) => {
+                            const checked =
+                              (outbound.direct?.mode ?? "auto") === value
+                            return (
+                              <Button
+                                key={value}
+                                type="button"
+                                variant={checked ? "default" : "outline"}
+                                size="sm"
+                                className="justify-center"
+                                onClick={() =>
+                                  updateOutbound(index, {
+                                    ...outbound,
+                                    direct: {
+                                      ...(outbound.direct ?? { mode: "auto" }),
+                                      mode: value as DirectOutboundMode,
+                                    },
+                                  })
+                                }
+                              >
                                 {label}
-                              </SelectItem>
+                              </Button>
                             )
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center justify-between rounded-md border p-3">
-                      <div>
-                        <Label>TCP Fast Open</Label>
-                        <p className="text-[11px] text-muted-foreground">
-                          开启 direct.fastOpen
-                        </p>
+                          }
+                        )}
                       </div>
-                      <Switch
-                        checked={outbound.direct?.fastOpen === true}
-                        onCheckedChange={(checked) =>
-                          updateOutbound(index, {
-                            ...outbound,
-                            direct: {
-                              ...(outbound.direct ?? { mode: "auto" }),
-                              fastOpen: checked,
-                            },
-                          })
-                        }
-                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>TCP Fast Open</Label>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {[
+                          { label: "关闭", value: false },
+                          { label: "开启", value: true },
+                        ].map((option) => {
+                          const checked =
+                            (outbound.direct?.fastOpen === true) ===
+                            option.value
+                          return (
+                            <Button
+                              key={option.label}
+                              type="button"
+                              variant={checked ? "default" : "outline"}
+                              size="sm"
+                              className="justify-center"
+                              onClick={() =>
+                                updateOutbound(index, {
+                                  ...outbound,
+                                  direct: {
+                                    ...(outbound.direct ?? { mode: "auto" }),
+                                    fastOpen: option.value,
+                                  },
+                                })
+                              }
+                            >
+                              {option.label}
+                            </Button>
+                          )
+                        })}
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <Label>绑定 IPv4</Label>

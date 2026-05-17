@@ -422,7 +422,19 @@ function AclForm({
                       从上到下匹配，首个命中规则生效。
                     </p>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    <Switch
+                      size="sm"
+                      className="mr-2"
+                      checked={rule.enabled !== false}
+                      aria-label="切换规则启用状态"
+                      title={
+                        rule.enabled === false ? "规则已停用" : "规则已启用"
+                      }
+                      onCheckedChange={(checked) =>
+                        updateRule(index, { ...rule, enabled: checked })
+                      }
+                    />
                     <Button
                       type="button"
                       variant="outline"
@@ -455,7 +467,7 @@ function AclForm({
                 </div>
               </CardHeader>
               <CardContent className="space-y-3 p-3">
-                <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label>规则 ID</Label>
                     <Input
@@ -482,15 +494,6 @@ function AclForm({
                         <SelectItem value="raw">原始规则</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="flex items-end justify-between gap-2 rounded-md border p-2">
-                    <Label>启用</Label>
-                    <Switch
-                      checked={rule.enabled !== false}
-                      onCheckedChange={(checked) =>
-                        updateRule(index, { ...rule, enabled: checked })
-                      }
-                    />
                   </div>
                 </div>
 

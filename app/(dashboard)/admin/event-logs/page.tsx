@@ -21,6 +21,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Popover,
@@ -135,6 +136,7 @@ const reasonLabel: Record<string, string> = {
   CREATE_FAILED: "创建失败",
   UPDATE_FAILED: "更新失败",
   DELETE_FAILED: "删除失败",
+  ORDER_UPDATE: "更新节点排序",
   PLAN_IN_USE: "套餐仍被引用",
   PLAN_NOT_FOUND: "套餐不存在",
   CANNOT_DELETE_SELF: "不能删除自己",
@@ -332,6 +334,7 @@ export default function AdminEventLogsPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [username, setUsername] = useState("")
+  const [ip, setIp] = useState("")
   const [successFilter, setSuccessFilter] = useState<SuccessFilter>("all")
   const [eventFilter, setEventFilter] = useState<EventFilter>("all")
   const [users, setUsers] = useState<UserRow[]>([])
@@ -346,6 +349,7 @@ export default function AdminEventLogsPage() {
       success?: SuccessFilter
       event?: EventFilter
       username?: string
+      ip?: string
     } = {}
   ) {
     const nextPage = opts.page ?? page
@@ -353,11 +357,13 @@ export default function AdminEventLogsPage() {
     const nextSuccess = opts.success ?? successFilter
     const nextEvent = opts.event ?? eventFilter
     const nextUsername = opts.username ?? username
+    const nextIp = opts.ip ?? ip
 
     const params = new URLSearchParams()
     if (nextSuccess !== "all") params.set("success", nextSuccess)
     if (nextEvent !== "all") params.set("event", nextEvent)
     if (nextUsername.trim()) params.set("username", nextUsername.trim())
+    if (nextIp.trim()) params.set("ip", nextIp.trim())
     params.set("page", String(nextPage))
     params.set("pageSize", String(nextPageSize))
 
@@ -518,7 +524,7 @@ export default function AdminEventLogsPage() {
       </div>
 
       {/* 筛选条件 */}
-      <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
+      <form className="grid gap-3 md:grid-cols-5" onSubmit={submit}>
         <div className="space-y-1">
           <Label>账号</Label>
           <UserFilterCombobox
@@ -534,6 +540,14 @@ export default function AdminEventLogsPage() {
             value={eventFilter}
             onChange={(next) => void switchEvent(next)}
             className="w-full"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label>IP</Label>
+          <Input
+            value={ip}
+            onChange={(event) => setIp(event.target.value)}
+            placeholder="搜索 IP"
           />
         </div>
         <div className="space-y-1">
@@ -565,13 +579,14 @@ export default function AdminEventLogsPage() {
             </Button>
           </div>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex items-end justify-end gap-2">
           <Button type="submit">查询</Button>
           <Button
             type="button"
             variant="outline"
             onClick={() => {
               setUsername("")
+              setIp("")
               setSuccessFilter("all")
               setEventFilter("all")
               void load({
@@ -579,6 +594,7 @@ export default function AdminEventLogsPage() {
                 success: "all",
                 event: "all",
                 username: "",
+                ip: "",
               })
             }}
           >

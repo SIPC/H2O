@@ -50,6 +50,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const successParam = url.searchParams.get("success")
   const username = url.searchParams.get("username")?.trim()
+  const ip = url.searchParams.get("ip")?.trim()
   const eventParam = url.searchParams.get("event")?.trim()
 
   const conditions: string[] = []
@@ -63,6 +64,11 @@ export async function GET(request: Request) {
   if (username) {
     conditions.push("username LIKE ?")
     values.push(`%${username}%`)
+  }
+
+  if (ip) {
+    conditions.push("ip LIKE ?")
+    values.push(`%${ip}%`)
   }
 
   if (eventParam && VALID_EVENTS.has(eventParam)) {
