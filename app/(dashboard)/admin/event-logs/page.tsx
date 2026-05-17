@@ -55,6 +55,13 @@ type EventName =
   | "SUBSCRIPTION_DELETE"
   | "SUBSCRIPTION_FETCH"
   | "SETTINGS_UPDATE"
+  | "OUTBOUND_PROFILE_CREATE"
+  | "OUTBOUND_PROFILE_UPDATE"
+  | "OUTBOUND_PROFILE_DELETE"
+  | "ACL_PROFILE_CREATE"
+  | "ACL_PROFILE_UPDATE"
+  | "ACL_PROFILE_DELETE"
+  | "ACL_NODE_BINDING_UPDATE"
 
 type EventRow = {
   id: number
@@ -98,6 +105,13 @@ const eventLabel: Record<EventName, string> = {
   SUBSCRIPTION_DELETE: "删除订阅",
   SUBSCRIPTION_FETCH: "拉取订阅",
   SETTINGS_UPDATE: "修改设置",
+  OUTBOUND_PROFILE_CREATE: "创建出站配置",
+  OUTBOUND_PROFILE_UPDATE: "更新出站配置",
+  OUTBOUND_PROFILE_DELETE: "删除出站配置",
+  ACL_PROFILE_CREATE: "创建 ACL 策略",
+  ACL_PROFILE_UPDATE: "更新 ACL 策略",
+  ACL_PROFILE_DELETE: "删除 ACL 策略",
+  ACL_NODE_BINDING_UPDATE: "更新 ACL 节点绑定",
 }
 
 const reasonLabel: Record<string, string> = {
@@ -157,6 +171,13 @@ const eventOptions: Array<{ label: string; value: EventFilter }> = [
   { label: "删除订阅", value: "SUBSCRIPTION_DELETE" },
   { label: "拉取订阅", value: "SUBSCRIPTION_FETCH" },
   { label: "修改设置", value: "SETTINGS_UPDATE" },
+  { label: "创建出站配置", value: "OUTBOUND_PROFILE_CREATE" },
+  { label: "更新出站配置", value: "OUTBOUND_PROFILE_UPDATE" },
+  { label: "删除出站配置", value: "OUTBOUND_PROFILE_DELETE" },
+  { label: "创建 ACL 策略", value: "ACL_PROFILE_CREATE" },
+  { label: "更新 ACL 策略", value: "ACL_PROFILE_UPDATE" },
+  { label: "删除 ACL 策略", value: "ACL_PROFILE_DELETE" },
+  { label: "更新 ACL 节点绑定", value: "ACL_NODE_BINDING_UPDATE" },
 ]
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]

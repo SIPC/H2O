@@ -62,7 +62,42 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
   }
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS outbound_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      remark TEXT,
+      config TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      config_hash TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS acl_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      remark TEXT,
+      outbound_profile_id INTEGER,
+      config TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      config_hash TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(outbound_profile_id) REFERENCES outbound_profiles(id) ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS node_acl_bindings (
+      node_id INTEGER PRIMARY KEY,
+      acl_profile_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY(acl_profile_id) REFERENCES acl_profiles(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_nodes_sort_order ON nodes(sort_order, id);
+    CREATE INDEX IF NOT EXISTS idx_acl_profiles_outbound ON acl_profiles(outbound_profile_id);
+    CREATE INDEX IF NOT EXISTS idx_node_acl_bindings_acl ON node_acl_bindings(acl_profile_id);
   `)
 }
 
@@ -127,6 +162,42 @@ function migrate(database: DatabaseSync) {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS outbound_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      remark TEXT,
+      config TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      config_hash TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS acl_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      remark TEXT,
+      outbound_profile_id INTEGER,
+      config TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      config_hash TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(outbound_profile_id) REFERENCES outbound_profiles(id) ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS node_acl_bindings (
+      node_id INTEGER PRIMARY KEY,
+      acl_profile_id INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY(acl_profile_id) REFERENCES acl_profiles(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_acl_profiles_outbound ON acl_profiles(outbound_profile_id);
+    CREATE INDEX IF NOT EXISTS idx_node_acl_bindings_acl ON node_acl_bindings(acl_profile_id);
 
     CREATE TABLE IF NOT EXISTS plans (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

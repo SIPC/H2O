@@ -31,6 +31,8 @@ type InstallParams = {
   acmeDnsConfig: Record<string, string>
   masqueradeType: string
   masqueradeConfig: Record<string, unknown>
+  outboundsBlock: string | null
+  aclBlock: string | null
 }
 
 function errorJson(code: string, message: string, status = 400) {
@@ -70,6 +72,24 @@ function parsePayloadQuery(payload: string): URLSearchParams | null {
   } catch {
     return null
   }
+}
+
+function parseOptionalYamlBlock(
+  query: URLSearchParams,
+  key: string,
+  prefix: string
+): string | null | "INVALID" {
+  const value = query.get(key)
+  if (value == null || value === "") return null
+  if (
+    value.length > 200_000 ||
+    !value.startsWith(prefix) ||
+    value.includes("H2O_HY2_CONFIG") ||
+    /\u0000/.test(value)
+  ) {
+    return "INVALID"
+  }
+  return value
 }
 
 function buildScript(params: InstallParams) {
@@ -730,6 +750,20 @@ export async function GET(request: Request) {
     }
   }
 
+  const outboundsBlock = parseOptionalYamlBlock(
+    query,
+    "outbounds_block",
+    "outbounds:"
+  )
+  if (outboundsBlock === "INVALID") {
+    return errorJson("INVALID_PAYLOAD", "outbounds_block 不合法")
+  }
+
+  const aclBlock = parseOptionalYamlBlock(query, "acl_block", "acl:")
+  if (aclBlock === "INVALID") {
+    return errorJson("INVALID_PAYLOAD", "acl_block 不合法")
+  }
+
   const script = buildScript({
     panelUrl,
     authPath,
@@ -751,6 +785,8 @@ export async function GET(request: Request) {
     acmeDnsConfig,
     masqueradeType,
     masqueradeConfig,
+    outboundsBlock,
+    aclBlock,
   })
 
   return new NextResponse(script, {

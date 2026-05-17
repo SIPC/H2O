@@ -74,13 +74,28 @@ type AdminSubMenu =
   | { title: string; items: { title: string; href: string }[] }
 
 const adminSubMenus: AdminSubMenu[] = [
-  { title: "用户管理", href: "/admin/users" },
-  { title: "节点管理", href: "/admin/nodes" },
-  { title: "套餐管理", href: "/admin/plans" },
-  { title: "订阅管理", href: "/admin/subscriptions" },
-  { title: "流量分析", href: "/admin/traffic-analysis" },
   {
-    title: "日志",
+    title: "业务管理",
+    items: [
+      { title: "用户管理", href: "/admin/users" },
+      { title: "套餐管理", href: "/admin/plans" },
+      { title: "订阅管理", href: "/admin/subscriptions" },
+    ],
+  },
+  {
+    title: "节点与路由",
+    items: [
+      { title: "节点管理", href: "/admin/nodes" },
+      { title: "出站配置", href: "/admin/routing/outbounds" },
+      { title: "ACL 策略", href: "/admin/routing/acls" },
+    ],
+  },
+  {
+    title: "数据分析",
+    items: [{ title: "流量分析", href: "/admin/traffic-analysis" }],
+  },
+  {
+    title: "日志审计",
     items: [
       { title: "事件日志", href: "/admin/event-logs" },
       { title: "认证日志", href: "/admin/auth-logs" },
@@ -88,7 +103,10 @@ const adminSubMenus: AdminSubMenu[] = [
       { title: "Agent 队列", href: "/admin/agent-tasks" },
     ],
   },
-  { title: "站点设置", href: "/admin/settings" },
+  {
+    title: "系统设置",
+    items: [{ title: "站点设置", href: "/admin/settings" }],
+  },
 ]
 
 function isRouteActive(pathname: string, href: string) {
@@ -98,7 +116,7 @@ function isRouteActive(pathname: string, href: string) {
 
 type Crumb = { title: string; href?: string }
 
-// 根据当前路径生成面包屑：admin 二级页先挂"管理概览"再挂子页标题；有分组的日志再补一层
+// 根据当前路径生成面包屑：admin 二级页先挂"管理概览"，再按菜单分组补齐层级
 function getBreadcrumbs(pathname: string): Crumb[] {
   if (pathname.startsWith("/admin")) {
     const crumbs: Crumb[] = [{ title: "管理概览", href: "/admin" }]
@@ -132,12 +150,17 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   const [adminMenuOpen, setAdminMenuOpen] = useState(
     pathname.startsWith("/admin")
   )
-  const [logsMenuOpen, setLogsMenuOpen] = useState(() =>
-    adminSubMenus.some(
-      (item) =>
-        "items" in item &&
-        item.items.some((child) => isRouteActive(pathname, child.href))
-    )
+  const [groupMenuOpen, setGroupMenuOpen] = useState<Record<string, boolean>>(
+    () =>
+      Object.fromEntries(
+        adminSubMenus
+          .filter((item) => "items" in item)
+          .map((item) => [
+            item.title,
+            "items" in item &&
+              item.items.some((child) => isRouteActive(pathname, child.href)),
+          ])
+      )
   )
   const { resolvedTheme, setTheme } = useTheme()
 
@@ -321,9 +344,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                                     <Collapsible
                                       key={item.title}
                                       asChild
-                                      open={logsMenuOpen}
-                                      onOpenChange={setLogsMenuOpen}
-                                      className="group/logs-collapsible"
+                                      open={groupMenuOpen[item.title] ?? false}
+                                      onOpenChange={(open) =>
+                                        setGroupMenuOpen((current) => ({
+                                          ...current,
+                                          [item.title]: open,
+                                        }))
+                                      }
+                                      className="group/sub-collapsible"
                                     >
                                       <SidebarMenuSubItem>
                                         <CollapsibleTrigger asChild>
@@ -338,7 +366,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                                               <span className="flex-1 text-left">
                                                 {item.title}
                                               </span>
-                                              <ChevronRight className="ml-auto size-3.5 transition-transform duration-200 group-data-[state=open]/logs-collapsible:rotate-90" />
+                                              <ChevronRight className="ml-auto size-3.5 transition-transform duration-200 group-data-[state=open]/sub-collapsible:rotate-90" />
                                             </button>
                                           </SidebarMenuSubButton>
                                         </CollapsibleTrigger>

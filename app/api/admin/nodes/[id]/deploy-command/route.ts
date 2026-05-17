@@ -3,6 +3,7 @@ import { NextResponse } from "next/server"
 import { ensureNodeAgentSecrets } from "@/lib/agent-control"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { resolveNodeRoutingConfig } from "@/lib/hysteria-routing"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
 type NodeRow = {
@@ -225,6 +226,11 @@ export async function GET(
     }
   }
 
+  const routingConfig = resolveNodeRoutingConfig({
+    nodeId: node.id,
+    database: db,
+  })
+
   const rawParams = new URLSearchParams()
   rawParams.set("panel_url", panelUrl)
   rawParams.set("auth_path", node.auth_path)
@@ -296,6 +302,13 @@ export async function GET(
     rawParams.set("masquerade_config", JSON.stringify(masqueradeConfig))
   }
 
+  if (routingConfig?.outboundsBlock) {
+    rawParams.set("outbounds_block", routingConfig.outboundsBlock)
+  }
+  if (routingConfig?.aclBlock) {
+    rawParams.set("acl_block", routingConfig.aclBlock)
+  }
+
   // 将原始 query 整体做 base64url 编码，避免命令里明文展开所有参数
   const payloadBase64 = toBase64Url(rawParams.toString())
 
@@ -328,6 +341,15 @@ export async function GET(
         acme_domains: acmeDomains,
         acme_email: acmeEmail || null,
         acme_dns_provider: node.acme_dns_provider || null,
+        routing: routingConfig
+          ? {
+              acl_profile_id: routingConfig.aclProfile.id,
+              acl_profile_name: routingConfig.aclProfile.name,
+              outbound_profile_id: routingConfig.outboundProfile?.id ?? null,
+              outbound_profile_name:
+                routingConfig.outboundProfile?.name ?? null,
+            }
+          : null,
       },
     },
   })

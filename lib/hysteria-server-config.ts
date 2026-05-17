@@ -24,6 +24,8 @@ export type HysteriaServerConfigInput = {
   acmeDnsConfig: Record<string, string>
   masqueradeType: string | null
   masqueradeConfig: Record<string, unknown>
+  outboundsBlock?: string | null
+  aclBlock?: string | null
 }
 
 export function yamlString(value: string) {
@@ -207,6 +209,8 @@ export function buildHysteriaServerConfig(params: HysteriaServerConfigInput) {
     "trafficStats:",
     "  listen: 127.0.0.1:9999",
     `  secret: ${yamlString(params.statsSecret)}`,
+    params.outboundsBlock,
+    params.aclBlock,
     buildMasqueradeBlock(params),
     params.obfs === "salamander" && params.obfsPassword
       ? [

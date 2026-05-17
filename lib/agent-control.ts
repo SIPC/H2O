@@ -13,6 +13,7 @@ import {
   hashHysteriaServerConfig,
   normalizeCertMode,
 } from "@/lib/hysteria-server-config"
+import { resolveNodeRoutingConfig } from "@/lib/hysteria-routing"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
 export const AGENT_TASK_TYPES = [
@@ -51,6 +52,12 @@ export type NodeDesiredConfig = {
     acmeDomains: string[]
     acmeEmail: string | null
     acmeDnsProvider: string | null
+    routing: {
+      aclProfileId: number
+      aclProfileName: string
+      outboundProfileId: number | null
+      outboundProfileName: string | null
+    } | null
   }
 }
 
@@ -237,6 +244,10 @@ export function buildNodeDesiredConfig(params: {
   }
 
   const masqueradeConfig = parseJsonRecord(node.masquerade_config)
+  const routingConfig = resolveNodeRoutingConfig({
+    nodeId: node.id,
+    database,
+  })
 
   const baseRevision = node.agent_config_revision ?? 1
   const provisionalConfig = buildHysteriaServerConfig({
@@ -256,6 +267,8 @@ export function buildNodeDesiredConfig(params: {
     acmeDnsConfig,
     masqueradeType: node.masquerade_type,
     masqueradeConfig,
+    outboundsBlock: routingConfig?.outboundsBlock,
+    aclBlock: routingConfig?.aclBlock,
   })
   let revision = baseRevision
   let revisionedConfig = `# h2o-agent-revision: ${revision}\n${provisionalConfig}`
@@ -310,6 +323,14 @@ export function buildNodeDesiredConfig(params: {
       acmeDomains,
       acmeEmail: acmeEmail || null,
       acmeDnsProvider: node.acme_dns_provider || null,
+      routing: routingConfig
+        ? {
+            aclProfileId: routingConfig.aclProfile.id,
+            aclProfileName: routingConfig.aclProfile.name,
+            outboundProfileId: routingConfig.outboundProfile?.id ?? null,
+            outboundProfileName: routingConfig.outboundProfile?.name ?? null,
+          }
+        : null,
     },
   }
 }

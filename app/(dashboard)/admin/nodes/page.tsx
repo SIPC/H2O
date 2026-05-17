@@ -248,6 +248,10 @@ type NodeRow = {
   host_traffic_usage_ratio: number | null
   host_traffic_next_reset_at: string | null
   host_traffic_over_limit: boolean
+  acl_profile_id: number | null
+  acl_profile_name: string | null
+  outbound_profile_id: number | null
+  outbound_profile_name: string | null
   dns_status: DnsStatus
   dns_status_detail?: string | null
 }
@@ -1179,6 +1183,18 @@ function NodeCard({
                 )}
               >
                 {getHy2StatusLabel(row.hy2_status)}
+              </Badge>
+            )}
+            {row.acl_profile_name && (
+              <Badge
+                className="bg-purple-500/15 px-1.5 py-0 text-[10px] text-purple-700 dark:text-purple-300"
+                title={
+                  row.outbound_profile_name
+                    ? `出站配置：${row.outbound_profile_name}`
+                    : "仅使用内置出口"
+                }
+              >
+                ACL: {row.acl_profile_name}
               </Badge>
             )}
           </div>

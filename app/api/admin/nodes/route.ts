@@ -82,10 +82,15 @@ export async function GET(request: Request) {
               nas.hostname, nas.os, nas.arch, nas.service_manager,
               nas.hy2_status, nas.hy2_version, nas.hysteria_config_path,
               nas.hysteria_config_hash, nas.applied_config_revision,
-              nas.last_config_apply_at, nas.last_error, nas.capabilities
+              nas.last_config_apply_at, nas.last_error, nas.capabilities,
+              nab.acl_profile_id, ap.name AS acl_profile_name,
+              ap.outbound_profile_id, op.name AS outbound_profile_name
        FROM nodes n
        LEFT JOIN node_stats ns ON ns.node_id = n.id
        LEFT JOIN node_agent_state nas ON nas.node_id = n.id
+       LEFT JOIN node_acl_bindings nab ON nab.node_id = n.id
+       LEFT JOIN acl_profiles ap ON ap.id = nab.acl_profile_id
+       LEFT JOIN outbound_profiles op ON op.id = ap.outbound_profile_id
        ORDER BY n.sort_order ASC, n.id DESC`
     )
     .all() as Array<Record<string, unknown>>
