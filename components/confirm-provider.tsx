@@ -26,6 +26,7 @@ type ConfirmOptions = {
   confirmText?: string
   cancelText?: string
   variant?: Variant
+  contentClassName?: string
 }
 
 type AlertOptions = {
@@ -33,6 +34,7 @@ type AlertOptions = {
   description?: ReactNode
   confirmText?: string
   variant?: Variant
+  contentClassName?: string
 }
 
 type ConfirmContextValue = {
@@ -90,7 +92,7 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           if (!next) close(false)
         }}
       >
-        <DialogContent>
+        <DialogContent className={opts?.contentClassName}>
           <DialogHeader>
             <DialogTitle>{opts?.title ?? ""}</DialogTitle>
             {opts?.description ? (

@@ -167,6 +167,10 @@ func runOnce(ctx context.Context, cfg *Config, pending []control.TaskResult) []c
 		}, Version, pending)
 		if err != nil {
 			log.Printf("同步控制面失败: %v", err)
+			if len(results) > 0 {
+				pending = results
+				log.Printf("控制面任务结果将在下次同步重试: %d", len(results))
+			}
 		} else {
 			pending = results
 			if len(results) > 0 {

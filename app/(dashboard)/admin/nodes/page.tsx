@@ -1,6 +1,14 @@
 "use client"
 
-import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react"
+import {
+  CSSProperties,
+  FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import {
   closestCenter,
   DndContext,
@@ -462,7 +470,7 @@ function formatBytes(bytes: number): string {
   return `${sign}${value.toFixed(decimals)} ${units[idx]}`
 }
 
-function formatLocalDateTimeInput(value: string | null): string {
+function formatLocalDateTime(value: string | null): string {
   if (!value) return ""
   const date = new Date(value)
   if (!Number.isFinite(date.getTime())) return ""
@@ -473,7 +481,44 @@ function formatLocalDateTimeInput(value: string | null): string {
   const hour = String(date.getHours()).padStart(2, "0")
   const minute = String(date.getMinutes()).padStart(2, "0")
   const second = String(date.getSeconds()).padStart(2, "0")
-  return `${year}-${month}-${day}T${hour}:${minute}:${second}`
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+}
+
+function formatLocalDateTimeInput(value: string | null): string {
+  return formatLocalDateTime(value).replace(" ", "T")
+}
+
+function certModeLabel(value: string | undefined) {
+  if (value === "acme-http") return "ACME HTTP"
+  if (value === "acme-dns" || value === "acme") return "ACME DNS"
+  if (value === "custom") return "自定义证书"
+  return "自签证书"
+}
+
+function DeployInfoItem({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string
+  value: ReactNode
+  mono?: boolean
+}) {
+  return (
+    <div className="rounded-lg border bg-background/60 p-3">
+      <div className="text-[11px] font-medium text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className={cn(
+          "mt-1 min-h-5 text-sm font-medium break-all text-foreground",
+          mono && "font-mono text-xs"
+        )}
+      >
+        {value || "-"}
+      </div>
+    </div>
+  )
 }
 
 function serializeLocalDateTimeInput(value: string): string | null {
@@ -2893,26 +2938,41 @@ export default function AdminNodesPage() {
     }
   }
 
-  async function loadAgentDetail(row: NodeRow) {
-    setAgentDetailRow(row)
-    setAgentDetail(null)
-    setAgentDetailLoading(true)
-    try {
-      const response = await fetch(`/api/admin/nodes/${row.id}/agent`)
-      const json = await response.json()
-      if (!response.ok || !json?.ok) {
-        await alert({
-          title: "获取 Agent 状态失败",
-          description: json?.error?.message ?? "请稍后重试",
-          variant: "destructive",
-        })
-        return
+  const loadAgentDetail = useCallback(
+    async (row: NodeRow, opts?: { silent?: boolean }) => {
+      setAgentDetailRow(row)
+      if (!opts?.silent) {
+        setAgentDetail(null)
+        setAgentDetailLoading(true)
       }
-      setAgentDetail(json.data as AgentDetail)
-    } finally {
-      setAgentDetailLoading(false)
-    }
-  }
+      try {
+        const response = await fetch(`/api/admin/nodes/${row.id}/agent`)
+        const json = await response.json()
+        if (!response.ok || !json?.ok) {
+          if (!opts?.silent) {
+            await alert({
+              title: "获取 Agent 状态失败",
+              description: json?.error?.message ?? "请稍后重试",
+              variant: "destructive",
+            })
+          }
+          return
+        }
+        setAgentDetail(json.data as AgentDetail)
+      } finally {
+        if (!opts?.silent) setAgentDetailLoading(false)
+      }
+    },
+    [alert]
+  )
+
+  useEffect(() => {
+    if (!agentDetailRow) return
+    const timer = setInterval(() => {
+      void loadAgentDetail(agentDetailRow, { silent: true })
+    }, 5_000)
+    return () => clearInterval(timer)
+  }, [agentDetailRow, loadAgentDetail])
 
   async function showDeployCommand(row: NodeRow) {
     // ACME 节点先检查 DNS 解析状态
@@ -2966,6 +3026,11 @@ export default function AdminNodesPage() {
       copied = false
     }
 
+    const tokenExpiresAt =
+      typeof json.data?.deploy_token_expires_at === "string"
+        ? json.data.deploy_token_expires_at
+        : null
+
     const meta = json.data?.meta as
       | {
           cert_mode?: string
@@ -2985,50 +3050,128 @@ export default function AdminNodesPage() {
       meta?.cert_mode === "acme-http" ||
       meta?.cert_mode === "acme-dns" ||
       meta?.cert_mode === "acme"
+    const expireText = tokenExpiresAt
+      ? formatLocalDateTime(tokenExpiresAt)
+      : "30 分钟内有效"
+    const portText = meta?.deploy_port_hopping
+      ? `${meta?.deploy_port ?? 443} / ${meta.deploy_port_hopping}`
+      : String(meta?.deploy_port ?? 443)
 
     await alert({
-      title: `${row.name} 的一键部署命令${copied ? "（已复制）" : ""}`,
+      title: `${row.name} 的一键部署命令`,
+      confirmText: "我知道了",
+      contentClassName: "sm:max-w-2xl",
       description: (
-        <div className="space-y-3">
-          <div className="space-y-1 text-xs text-muted-foreground">
-            <p>在节点服务器以 root 执行（将自动安装/配置 hy2 与 agent）。</p>
-          </div>
-          <pre className="max-h-[260px] min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
-            {command}
-          </pre>
-          <div className="space-y-1 text-xs text-muted-foreground">
-            <p>
-              端口：{meta?.deploy_port ?? 443}
-              {meta?.deploy_port_hopping &&
-                `（端口跳跃：${meta.deploy_port_hopping}）`}
+        <div className="space-y-4 text-left">
+          <div className="rounded-xl border bg-muted/35 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                {copied ? "已自动复制" : "请手动复制"}
+              </Badge>
+              <Badge className="bg-blue-500/15 text-blue-700 dark:text-blue-400">
+                Token 部署
+              </Badge>
+              <Badge className="bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
+                {expireText} 过期
+              </Badge>
+            </div>
+            <p className="mt-3 text-sm text-foreground">
+              在节点服务器以 <span className="font-mono">root</span>{" "}
+              执行下面命令，将自动安装并配置 Hysteria2 与 H2O Agent。
             </p>
-            {meta?.obfs === "salamander" && <p>混淆：Salamander</p>}
-            <p>上报间隔：{meta?.interval_seconds ?? 120} 秒</p>
-            {isAcme ? (
-              <>
-                <p>
-                  ACME 域名：
-                  {meta?.acme_domains?.length
-                    ? meta.acme_domains.join("，")
-                    : "未设置"}
-                </p>
-                {meta?.acme_email && <p>ACME 邮箱：{meta.acme_email}</p>}
-                {meta?.cert_mode === "acme-dns" && (
-                  <p>DNS 服务商：{meta?.acme_dns_provider ?? "未设置"}</p>
-                )}
-              </>
-            ) : (
-              <>
-                <p>
-                  证书路径：
-                  {meta?.cert_path ?? "/etc/hysteria/server.crt"}
-                </p>
-                <p>
-                  私钥路径：
-                  {meta?.key_path ?? "/etc/hysteria/server.key"}
-                </p>
-              </>
-            )}
+            <p className="mt-1 text-xs text-muted-foreground">
+              命令只携带短期部署 token，完整节点密钥和配置会由服务端按 token
+              获取。
+            </p>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border">
+            <div className="flex items-center justify-between gap-3 border-b bg-muted/50 px-3 py-2">
+              <div>
+                <div className="text-xs font-medium text-foreground">
+                  一键部署命令
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  粘贴到目标节点终端执行
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigator.clipboard.writeText(command).then(
+                    () => toast.success("部署命令已复制"),
+                    () => toast.error("复制失败，请手动复制")
+                  )
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+                复制
+              </Button>
+            </div>
+            <pre className="max-h-[220px] min-w-0 overflow-auto bg-background p-4 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground">
+              {command}
+            </pre>
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-xs font-medium text-foreground">部署摘要</div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <DeployInfoItem label="节点" value={`#${row.id} ${row.name}`} />
+              <DeployInfoItem label="部署端口" value={portText} mono />
+              <DeployInfoItem
+                label="证书模式"
+                value={certModeLabel(meta?.cert_mode)}
+              />
+              <DeployInfoItem
+                label="上报间隔"
+                value={`${meta?.interval_seconds ?? 120} 秒`}
+              />
+              {meta?.obfs === "salamander" && (
+                <DeployInfoItem label="混淆" value="Salamander" />
+              )}
+              {isAcme ? (
+                <>
+                  <DeployInfoItem
+                    label="ACME 域名"
+                    value={
+                      meta?.acme_domains?.length
+                        ? meta.acme_domains.join("，")
+                        : "未设置"
+                    }
+                  />
+                  <DeployInfoItem
+                    label="ACME 邮箱"
+                    value={meta?.acme_email ?? "未设置"}
+                  />
+                  {meta?.cert_mode === "acme-dns" && (
+                    <DeployInfoItem
+                      label="DNS 服务商"
+                      value={meta?.acme_dns_provider ?? "未设置"}
+                    />
+                  )}
+                </>
+              ) : (
+                <>
+                  <DeployInfoItem
+                    label="证书路径"
+                    value={meta?.cert_path ?? "/etc/hysteria/server.crt"}
+                    mono
+                  />
+                  <DeployInfoItem
+                    label="私钥路径"
+                    value={meta?.key_path ?? "/etc/hysteria/server.key"}
+                    mono
+                  />
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-800 dark:text-yellow-200">
+            如果命令过期或泄露，请回到节点管理页重新生成；新命令会使该节点旧部署
+            token 失效。
           </div>
         </div>
       ),

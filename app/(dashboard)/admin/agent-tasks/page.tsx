@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
+import { FormEvent, useCallback, useEffect, useState } from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { ChevronsUpDown, X } from "lucide-react"
 
@@ -305,44 +305,48 @@ export default function AdminAgentTasksPage() {
   const [loading, setLoading] = useState(true)
   const [activeRow, setActiveRow] = useState<AgentTaskRow | null>(null)
 
-  async function load(
-    opts: {
-      page?: number
-      pageSize?: number
-      nodeName?: string
-      type?: TaskTypeFilter
-      status?: StatusFilter
-    } = {}
-  ) {
-    const nextPage = opts.page ?? page
-    const nextPageSize = opts.pageSize ?? pageSize
-    const nextNodeName = opts.nodeName ?? nodeName
-    const nextType = opts.type ?? typeFilter
-    const nextStatus = opts.status ?? statusFilter
+  const load = useCallback(
+    async (
+      opts: {
+        page?: number
+        pageSize?: number
+        nodeName?: string
+        type?: TaskTypeFilter
+        status?: StatusFilter
+        silent?: boolean
+      } = {}
+    ) => {
+      const nextPage = opts.page ?? page
+      const nextPageSize = opts.pageSize ?? pageSize
+      const nextNodeName = opts.nodeName ?? nodeName
+      const nextType = opts.type ?? typeFilter
+      const nextStatus = opts.status ?? statusFilter
 
-    const params = new URLSearchParams()
-    if (nextNodeName.trim()) params.set("nodeName", nextNodeName.trim())
-    if (nextType !== "all") params.set("type", nextType)
-    if (nextStatus !== "all") params.set("status", nextStatus)
-    params.set("page", String(nextPage))
-    params.set("pageSize", String(nextPageSize))
+      const params = new URLSearchParams()
+      if (nextNodeName.trim()) params.set("nodeName", nextNodeName.trim())
+      if (nextType !== "all") params.set("type", nextType)
+      if (nextStatus !== "all") params.set("status", nextStatus)
+      params.set("page", String(nextPage))
+      params.set("pageSize", String(nextPageSize))
 
-    setLoading(true)
-    try {
-      const response = await fetch(
-        `/api/admin/agent-tasks?${params.toString()}`
-      )
-      const json = await response.json()
-      if (!json?.ok) return
+      if (!opts.silent) setLoading(true)
+      try {
+        const response = await fetch(
+          `/api/admin/agent-tasks?${params.toString()}`
+        )
+        const json = await response.json()
+        if (!json?.ok) return
 
-      setRows(json.data.rows)
-      setTotal(json.data.total)
-      setPage(json.data.page)
-      setPageSize(json.data.pageSize)
-    } finally {
-      setLoading(false)
-    }
-  }
+        setRows(json.data.rows)
+        setTotal(json.data.total)
+        setPage(json.data.page)
+        setPageSize(json.data.pageSize)
+      } finally {
+        if (!opts.silent) setLoading(false)
+      }
+    },
+    [nodeName, page, pageSize, statusFilter, typeFilter]
+  )
 
   useEffect(() => {
     let mounted = true
@@ -373,6 +377,13 @@ export default function AdminAgentTasksPage() {
       mounted = false
     }
   }, [])
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void load({ silent: true })
+    }, 5_000)
+    return () => clearInterval(timer)
+  }, [load])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
