@@ -80,6 +80,45 @@ function stringifyDetail(detail: Record<string, unknown>) {
   return JSON.stringify(detail)
 }
 
+function parseTrafficSnapshot(
+  value: string | null | undefined
+): Map<string, { tx: number; rx: number }> {
+  const out = new Map<string, { tx: number; rx: number }>()
+  if (!value) return out
+
+  try {
+    const parsed = JSON.parse(value) as unknown
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return out
+    }
+
+    for (const [username, stat] of Object.entries(parsed)) {
+      if (!stat || typeof stat !== "object") continue
+      const tx = (stat as { tx?: unknown }).tx
+      const rx = (stat as { rx?: unknown }).rx
+      if (
+        typeof tx !== "number" ||
+        typeof rx !== "number" ||
+        !Number.isFinite(tx) ||
+        !Number.isFinite(rx) ||
+        tx < 0 ||
+        rx < 0
+      ) {
+        continue
+      }
+      out.set(username, { tx: Math.floor(tx), rx: Math.floor(rx) })
+    }
+  } catch {
+    return out
+  }
+
+  return out
+}
+
+function getCounterDelta(current: number, last: number) {
+  return current < last ? current : current - last
+}
+
 // 日志写入失败不影响 Agent 上报主流程
 function writeAgentTrafficLogsSafely(params: {
   report: AgentTrafficReportLogFields
@@ -243,11 +282,68 @@ export async function POST(
   let processed = 0
   let skipped = 0
   let blocked = 0
-  let hourlyTxDelta = 0
-  let hourlyRxDelta = 0
+  let subscriptionTxDelta = 0
+  let subscriptionRxDelta = 0
+  let nodeTxDelta = 0
+  let nodeRxDelta = 0
+  let nodeDeltaUsers = 0
+  let nodeCounterResetUsers = 0
+  let nodeSnapshotFallbackUsers = 0
 
   try {
     db.exec("BEGIN")
+
+    const previousSnapshotRow = db
+      .prepare(
+        `SELECT traffic_snapshot
+         FROM node_stats
+         WHERE node_id = ?
+         LIMIT 1`
+      )
+      .get(node.id) as { traffic_snapshot: string | null } | undefined
+    const previousSnapshot = parseTrafficSnapshot(
+      previousSnapshotRow?.traffic_snapshot
+    )
+    const selectReportedLast = db.prepare(
+      `SELECT last_tx_bytes, last_rx_bytes
+       FROM node_reported_user_traffic
+       WHERE node_id = ? AND username = ?
+       LIMIT 1`
+    )
+    const upsertReportedLast = db.prepare(
+      `INSERT INTO node_reported_user_traffic(node_id, username, last_tx_bytes, last_rx_bytes, last_updated_at)
+       VALUES (?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(node_id, username) DO UPDATE SET
+         last_tx_bytes = excluded.last_tx_bytes,
+         last_rx_bytes = excluded.last_rx_bytes,
+         last_updated_at = datetime('now')`
+    )
+
+    for (const [username, stat] of traffic) {
+      const reportedLast = selectReportedLast.get(node.id, username) as
+        | { last_tx_bytes: number; last_rx_bytes: number }
+        | undefined
+      const fallbackStat = previousSnapshot.get(username)
+      const lastTx = reportedLast?.last_tx_bytes ?? fallbackStat?.tx ?? 0
+      const lastRx = reportedLast?.last_rx_bytes ?? fallbackStat?.rx ?? 0
+      const deltaTx = getCounterDelta(stat.tx, lastTx)
+      const deltaRx = getCounterDelta(stat.rx, lastRx)
+
+      if (!reportedLast && fallbackStat) nodeSnapshotFallbackUsers++
+      if (
+        (reportedLast || fallbackStat) &&
+        (stat.tx < lastTx || stat.rx < lastRx)
+      ) {
+        nodeCounterResetUsers++
+      }
+      if (deltaTx > 0 || deltaRx > 0) {
+        nodeDeltaUsers++
+        nodeTxDelta += deltaTx
+        nodeRxDelta += deltaRx
+      }
+
+      upsertReportedLast.run(node.id, username, stat.tx, stat.rx)
+    }
 
     const selectUser = db.prepare(
       `SELECT id, username, status FROM users WHERE username = ? LIMIT 1`
@@ -470,8 +566,8 @@ export async function POST(
       const counterReset = stat.tx < lastTx || stat.rx < lastRx
 
       if (!activeSub) {
-        const ignoredDeltaTx = stat.tx < lastTx ? stat.tx : stat.tx - lastTx
-        const ignoredDeltaRx = stat.rx < lastRx ? stat.rx : stat.rx - lastRx
+        const ignoredDeltaTx = getCounterDelta(stat.tx, lastTx)
+        const ignoredDeltaRx = getCounterDelta(stat.rx, lastRx)
         skipped++
         agentUserLogs.push({
           node_id: node.id,
@@ -509,8 +605,8 @@ export async function POST(
       }
 
       // Hy2 重启会导致 /traffic 计数归零：分别对 tx/rx 做差值，若回退则按当前累计值记增量
-      const deltaTx = stat.tx < lastTx ? stat.tx : stat.tx - lastTx
-      const deltaRx = stat.rx < lastRx ? stat.rx : stat.rx - lastRx
+      const deltaTx = getCounterDelta(stat.tx, lastTx)
+      const deltaRx = getCounterDelta(stat.rx, lastRx)
       const delta = deltaTx + deltaRx
       const billableDelta = getBillableTrafficBytes(
         activeSub.traffic_billing_mode,
@@ -537,8 +633,8 @@ export async function POST(
       if (nextUsage > activeSub.traffic_limit_bytes) {
         blockSub.run(nextUsage, activeSub.id)
         if (delta > 0) {
-          hourlyTxDelta += deltaTx
-          hourlyRxDelta += deltaRx
+          subscriptionTxDelta += deltaTx
+          subscriptionRxDelta += deltaRx
           upsertSubscriptionHourly.run(activeSub.id, deltaTx, deltaRx)
         }
         blocked++
@@ -566,8 +662,8 @@ export async function POST(
         })
       } else if (delta > 0) {
         updateSubUsage.run(nextUsage, activeSub.id)
-        hourlyTxDelta += deltaTx
-        hourlyRxDelta += deltaRx
+        subscriptionTxDelta += deltaTx
+        subscriptionRxDelta += deltaRx
         upsertSubscriptionHourly.run(activeSub.id, deltaTx, deltaRx)
         processed++
         agentUserLogs.push({
@@ -593,11 +689,12 @@ export async function POST(
       upsertLast.run(node.id, user.id, stat.tx, stat.rx)
     }
 
-    // 汇总到“今日小时桶”全局 + 节点维度流量统计
-    if (hourlyTxDelta > 0 || hourlyRxDelta > 0) {
-      upsertHourlyStats.run(hourlyTxDelta, hourlyRxDelta)
-      upsertNodeHourly.run(node.id, hourlyTxDelta, hourlyRxDelta)
-      addNodeHostTrafficUsage(db, node.id, hourlyTxDelta, hourlyRxDelta)
+    // 全局/节点/宿主机统计按 Agent 原始快照差值累计，避免漏掉无订阅或已封禁但仍在跑的真实节点流量。
+    // 订阅用量仍只在上面的有效订阅分支中按套餐计费口径累计。
+    if (nodeTxDelta > 0 || nodeRxDelta > 0) {
+      upsertHourlyStats.run(nodeTxDelta, nodeRxDelta)
+      upsertNodeHourly.run(node.id, nodeTxDelta, nodeRxDelta)
+      addNodeHostTrafficUsage(db, node.id, nodeTxDelta, nodeRxDelta)
     } else {
       ensureNodeHostTrafficPeriod(db, node.id)
     }
@@ -618,7 +715,7 @@ export async function POST(
          traffic_snapshot = excluded.traffic_snapshot`
     ).run(
       node.id,
-      online.size,
+      totalOnlineCount,
       JSON.stringify(onlineObj),
       JSON.stringify(trafficObj)
     )
@@ -674,9 +771,18 @@ export async function POST(
       online_count: totalOnlineCount,
       total_tx_bytes: totalTxBytes,
       total_rx_bytes: totalRxBytes,
-      delta_tx_bytes: hourlyTxDelta,
-      delta_rx_bytes: hourlyRxDelta,
-      detail: stringifyDetail({ processed, skipped, blocked }),
+      delta_tx_bytes: nodeTxDelta,
+      delta_rx_bytes: nodeRxDelta,
+      detail: stringifyDetail({
+        processed,
+        skipped,
+        blocked,
+        node_delta_users: nodeDeltaUsers,
+        node_counter_reset_users: nodeCounterResetUsers,
+        node_snapshot_fallback_users: nodeSnapshotFallbackUsers,
+        subscription_delta_tx_bytes: subscriptionTxDelta,
+        subscription_delta_rx_bytes: subscriptionRxDelta,
+      }),
     },
     userLogs: agentUserLogs,
   })

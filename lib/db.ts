@@ -108,6 +108,16 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
       FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS node_reported_user_traffic (
+      node_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      last_tx_bytes INTEGER NOT NULL DEFAULT 0,
+      last_rx_bytes INTEGER NOT NULL DEFAULT 0,
+      last_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (node_id, username),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_nodes_sort_order ON nodes(sort_order, id);
     CREATE INDEX IF NOT EXISTS idx_acl_profiles_outbound ON acl_profiles(outbound_profile_id);
     CREATE INDEX IF NOT EXISTS idx_node_acl_bindings_acl ON node_acl_bindings(acl_profile_id);
@@ -293,7 +303,7 @@ function migrate(database: DatabaseSync) {
       FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
     );
 
-    -- 每 (节点, 用户) 维度记录上次上报的累计 tx/rx，用于差值法计算增量
+    -- 每 (节点, 用户) 维度记录上次上报的累计 tx/rx，用于订阅计费差值法
     CREATE TABLE IF NOT EXISTS node_user_traffic (
       node_id INTEGER NOT NULL,
       user_id INTEGER NOT NULL,
@@ -303,6 +313,17 @@ function migrate(database: DatabaseSync) {
       PRIMARY KEY (node_id, user_id),
       FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    -- 每 (节点, 用户名) 维度记录 Agent 上次原始累计 tx/rx，用于节点/宿主机真实流量统计
+    CREATE TABLE IF NOT EXISTS node_reported_user_traffic (
+      node_id INTEGER NOT NULL,
+      username TEXT NOT NULL,
+      last_tx_bytes INTEGER NOT NULL DEFAULT 0,
+      last_rx_bytes INTEGER NOT NULL DEFAULT 0,
+      last_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (node_id, username),
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
     );
 
     -- 全局小时流量统计：按天+小时聚合总出/总入流量

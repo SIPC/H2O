@@ -1876,7 +1876,8 @@ function NodeForm({
           <div>
             <Label>显示剩余流量</Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              基于 Agent 流量统计宿主机额度与剩余量。
+              基于 Agent
+              上报的节点实际流量统计额度与剩余量，套餐用量仍按订阅计费口径计算。
             </p>
           </div>
           <Switch
@@ -1951,7 +1952,8 @@ function NodeForm({
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                仅用于宿主机额度统计口径，不参与用户套餐流量计算。
+                仅用于节点宿主机额度统计，不参与用户套餐流量计算；VPS
+                厂商面板通常还会包含系统、更新、回源等非 Hy2 流量。
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
