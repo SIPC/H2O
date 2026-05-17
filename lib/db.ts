@@ -95,9 +95,24 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
       FOREIGN KEY(acl_profile_id) REFERENCES acl_profiles(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS node_deploy_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      node_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      payload TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_nodes_sort_order ON nodes(sort_order, id);
     CREATE INDEX IF NOT EXISTS idx_acl_profiles_outbound ON acl_profiles(outbound_profile_id);
     CREATE INDEX IF NOT EXISTS idx_node_acl_bindings_acl ON node_acl_bindings(acl_profile_id);
+    CREATE INDEX IF NOT EXISTS idx_node_deploy_tokens_expires ON node_deploy_tokens(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_node_deploy_tokens_node_created ON node_deploy_tokens(node_id, created_at);
   `)
 }
 
@@ -198,6 +213,24 @@ function migrate(database: DatabaseSync) {
 
     CREATE INDEX IF NOT EXISTS idx_acl_profiles_outbound ON acl_profiles(outbound_profile_id);
     CREATE INDEX IF NOT EXISTS idx_node_acl_bindings_acl ON node_acl_bindings(acl_profile_id);
+
+    CREATE TABLE IF NOT EXISTS node_deploy_tokens (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      node_id INTEGER NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      payload TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_used_at TEXT,
+      FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY(created_by) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_node_deploy_tokens_expires
+      ON node_deploy_tokens(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_node_deploy_tokens_node_created
+      ON node_deploy_tokens(node_id, created_at);
 
     CREATE TABLE IF NOT EXISTS plans (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

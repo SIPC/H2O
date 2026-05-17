@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto"
+
 import { NextResponse } from "next/server"
 
 import { ensureNodeAgentSecrets } from "@/lib/agent-control"
@@ -92,8 +94,49 @@ function normalizeAgentBundleUrl(raw: string): string | null {
   return value
 }
 
-function toBase64Url(value: string): string {
-  return Buffer.from(value, "utf8").toString("base64url")
+const DEPLOY_TOKEN_TTL_MINUTES = 30
+
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function toSqliteDateTime(date: Date) {
+  return date.toISOString().replace("T", " ").slice(0, 19)
+}
+
+function createDeployToken(params: {
+  nodeId: number
+  payload: string
+  createdBy: number
+}) {
+  const token = randomBytes(32).toString("base64url")
+  const tokenHash = sha256(token)
+  const expiresAt = toSqliteDateTime(
+    new Date(Date.now() + DEPLOY_TOKEN_TTL_MINUTES * 60 * 1000)
+  )
+
+  const db = getDb()
+  db.exec("BEGIN")
+  try {
+    db.prepare(
+      `DELETE FROM node_deploy_tokens
+       WHERE expires_at <= datetime('now') OR node_id = ?`
+    ).run(params.nodeId)
+    db.prepare(
+      `INSERT INTO node_deploy_tokens(node_id, token_hash, payload, expires_at, created_by)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(params.nodeId, tokenHash, params.payload, expiresAt, params.createdBy)
+    db.exec("COMMIT")
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK")
+    } catch {
+      // 事务未开启或已结束
+    }
+    throw error
+  }
+
+  return { token, expiresAt }
 }
 
 export async function GET(
@@ -309,11 +352,15 @@ export async function GET(
     rawParams.set("acl_block", routingConfig.aclBlock)
   }
 
-  // 将原始 query 整体做 base64url 编码，避免命令里明文展开所有参数
-  const payloadBase64 = toBase64Url(rawParams.toString())
+  // 将完整部署参数保存在服务端，仅在命令里暴露短期 token，避免 URL 携带密钥明文或可逆 payload。
+  const deployToken = createDeployToken({
+    nodeId: node.id,
+    payload: rawParams.toString(),
+    createdBy: auth.user.id,
+  })
 
   const scriptUrl = new URL("/api/deploy/node-install", panelUrl)
-  scriptUrl.searchParams.set("payload", payloadBase64)
+  scriptUrl.searchParams.set("token", deployToken.token)
 
   const command = `curl -A "Mozilla/5.0" -fsSL "${scriptUrl.toString()}" | bash`
 
@@ -328,7 +375,7 @@ export async function GET(
       },
       command,
       script_url: `${scriptUrl.origin}${scriptUrl.pathname}`,
-      payload_base64: payloadBase64,
+      deploy_token_expires_at: deployToken.expiresAt,
       meta: {
         cert_mode: node.cert_mode || "self-signed",
         cert_path: certPath,

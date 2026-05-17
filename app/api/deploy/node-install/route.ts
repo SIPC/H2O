@@ -1,7 +1,8 @@
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 
 import { NextResponse } from "next/server"
 
+import { getDb } from "@/lib/db"
 import {
   buildHysteriaServerConfig,
   buildHy2ListenValue,
@@ -64,14 +65,36 @@ function parsePositiveInt(
   return n
 }
 
-function parsePayloadQuery(payload: string): URLSearchParams | null {
-  try {
-    const decoded = Buffer.from(payload, "base64url").toString("utf8")
-    if (!decoded || /[\r\n]/.test(decoded)) return null
-    return new URLSearchParams(decoded)
-  } catch {
-    return null
-  }
+function sha256(value: string) {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function parseDeployTokenQuery(token: string): URLSearchParams | null {
+  if (!/^[A-Za-z0-9_-]{32,128}$/.test(token)) return null
+
+  const db = getDb()
+  db.prepare(
+    `DELETE FROM node_deploy_tokens WHERE expires_at <= datetime('now')`
+  ).run()
+
+  const row = db
+    .prepare(
+      `SELECT id, payload
+       FROM node_deploy_tokens
+       WHERE token_hash = ? AND expires_at > datetime('now')
+       LIMIT 1`
+    )
+    .get(sha256(token)) as { id: number; payload: string } | undefined
+
+  if (!row || /[\r\n]/.test(row.payload)) return null
+
+  db.prepare(
+    `UPDATE node_deploy_tokens
+     SET last_used_at = datetime('now')
+     WHERE id = ?`
+  ).run(row.id)
+
+  return new URLSearchParams(row.payload)
 }
 
 function parseOptionalYamlBlock(
@@ -592,12 +615,12 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const inputQuery = url.searchParams
 
-  const payload = inputQuery.get("payload")?.trim() ?? ""
-  const query = payload ? parsePayloadQuery(payload) : inputQuery
+  const token = inputQuery.get("token")?.trim() ?? ""
+  const query = parseDeployTokenQuery(token)
   if (!query) {
     return errorJson(
-      "INVALID_PAYLOAD",
-      "payload 不合法（必须为 base64url 编码的查询字符串）"
+      "INVALID_TOKEN",
+      "部署 token 无效或已过期，请在节点页面重新生成一键部署命令"
     )
   }
 
