@@ -1,12 +1,24 @@
 # H2O
 Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
-
 [安装教程](docs/0-pre-list.md) | [交流群](https://t.me/h2o_msg) | [LinuxDO](https://linux.do/)
 
 ---
 
-![Dashboard](docs/imge/dashboard.png)
-![Nodes](docs/imge/node.png)
+- 订阅链接
+
+![Dashboard](docs\imge\md\dashboard.png)
+
+- 节点管理
+
+![Nodes](docs\imge\md\nodes.png)
+
+- 流量统计
+
+![Analysis](docs\imge\md\analysis.png)
+
+- 分流策略
+
+![Acls](docs\imge\md\acls.png)
 
 ---
 
