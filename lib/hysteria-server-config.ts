@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 
+import { resolveGeckoPacketSizes } from "@/lib/hysteria-obfs"
+
 export type HysteriaCertMode =
   | "self-signed"
   | "acme-http"
@@ -17,6 +19,8 @@ export type HysteriaServerConfigInput = {
   statsSecret: string
   obfs: string | null
   obfsPassword: string | null
+  obfsMinPacketSize?: number | null
+  obfsMaxPacketSize?: number | null
   certMode: HysteriaCertMode | string
   acmeDomains: string[]
   acmeEmail: string
@@ -187,6 +191,38 @@ export function buildMasqueradeBlock(
   })
 }
 
+function buildObfsBlock(params: HysteriaServerConfigInput) {
+  if (!params.obfsPassword) return ""
+
+  if (params.obfs === "salamander") {
+    return [
+      "",
+      "obfs:",
+      "  type: salamander",
+      "  salamander:",
+      `    password: ${yamlString(params.obfsPassword)}`,
+    ].join("\n")
+  }
+
+  if (params.obfs === "gecko") {
+    const packetSizes = resolveGeckoPacketSizes({
+      minPacketSize: params.obfsMinPacketSize,
+      maxPacketSize: params.obfsMaxPacketSize,
+    })
+    return [
+      "",
+      "obfs:",
+      "  type: gecko",
+      "  gecko:",
+      `    password: ${yamlString(params.obfsPassword)}`,
+      `    minPacketSize: ${packetSizes.minPacketSize}`,
+      `    maxPacketSize: ${packetSizes.maxPacketSize}`,
+    ].join("\n")
+  }
+
+  return ""
+}
+
 export function buildHysteriaServerConfig(params: HysteriaServerConfigInput) {
   const authUrl = `${params.panelUrl}/api/node/auth/${encodeURIComponent(params.authPath)}`
   const tlsOrAcme = buildTlsOrAcmeBlock(params)
@@ -212,15 +248,7 @@ export function buildHysteriaServerConfig(params: HysteriaServerConfigInput) {
     params.outboundsBlock,
     params.aclBlock,
     buildMasqueradeBlock(params),
-    params.obfs === "salamander" && params.obfsPassword
-      ? [
-          "",
-          "obfs:",
-          "  type: salamander",
-          "  salamander:",
-          `    password: ${yamlString(params.obfsPassword)}`,
-        ].join("\n")
-      : "",
+    buildObfsBlock(params),
   ]
     .filter(Boolean)
     .join("\n")

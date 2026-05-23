@@ -11,6 +11,8 @@ export type NodeForUri = {
   sni?: string | null
   obfs?: string | null
   obfs_password?: string | null
+  obfs_min_packet_size?: number | null
+  obfs_max_packet_size?: number | null
   insecure?: 0 | 1 | null
   pin_sha256?: string | null
   // 以下两个由订阅聚合阶段注入（从用户的套餐里按节点取最宽松值）
@@ -34,6 +36,13 @@ export function buildHysteriaUri(token: string, node: NodeForUri): string {
   if (node.sni) params.set("sni", node.sni)
   if (node.obfs) params.set("obfs", node.obfs)
   if (node.obfs_password) params.set("obfs-password", node.obfs_password)
+  if (node.obfs === "gecko") {
+    params.set("obfs-min-packet-size", String(node.obfs_min_packet_size ?? 512))
+    params.set(
+      "obfs-max-packet-size",
+      String(node.obfs_max_packet_size ?? 1200)
+    )
+  }
   if (node.insecure === 1) params.set("insecure", "1")
   if (node.pin_sha256) params.set("pinSHA256", node.pin_sha256)
   // v2rayN 通过 mport 参数识别端口跳跃

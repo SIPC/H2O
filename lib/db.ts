@@ -18,6 +18,8 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
   for (const alter of [
     `ALTER TABLE nodes ADD COLUMN remark TEXT`,
     `ALTER TABLE nodes ADD COLUMN port_hopping TEXT`,
+    `ALTER TABLE nodes ADD COLUMN obfs_min_packet_size INTEGER`,
+    `ALTER TABLE nodes ADD COLUMN obfs_max_packet_size INTEGER`,
     `ALTER TABLE plans ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN traffic_billing_mode TEXT NOT NULL DEFAULT 'tx_rx' CHECK(traffic_billing_mode IN ('tx_rx','tx','rx'))`,
@@ -155,6 +157,8 @@ function migrate(database: DatabaseSync) {
       sni TEXT,
       obfs TEXT,
       obfs_password TEXT,
+      obfs_min_packet_size INTEGER,
+      obfs_max_packet_size INTEGER,
       insecure INTEGER NOT NULL DEFAULT 0 CHECK(insecure IN (0,1)),
       pin_sha256 TEXT,
       node_ip TEXT,

@@ -83,8 +83,10 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `auth_path` | `TEXT` | `NOT NULL UNIQUE`（节点认证路径；Agent 流量上报也用它标识节点） |
 | `status` | `TEXT` | `NOT NULL DEFAULT 'enabled'`, `CHECK(status IN ('enabled','disabled'))` |
 | `sni` | `TEXT` | nullable |
-| `obfs` | `TEXT` | nullable（当前一键部署只支持空或 `salamander`） |
+| `obfs` | `TEXT` | nullable（当前一键部署支持空、`salamander` 或 `gecko`） |
 | `obfs_password` | `TEXT` | nullable |
+| `obfs_min_packet_size` | `INTEGER` | nullable（Gecko 握手分片最小包大小，空则默认 512） |
+| `obfs_max_packet_size` | `INTEGER` | nullable（Gecko 握手分片最大包大小，空则默认 1200，最大 2048） |
 | `insecure` | `INTEGER` | `NOT NULL DEFAULT 0`, `CHECK(insecure IN (0,1))` |
 | `pin_sha256` | `TEXT` | nullable |
 | `node_ip` | `TEXT` | nullable（实际部署节点 IP；DNS 管理写入 A/AAAA 的目标） |

@@ -4,6 +4,10 @@ import { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
 import {
+  isSupportedHysteriaObfs,
+  validateGeckoPacketSizes,
+} from "@/lib/hysteria-obfs"
+import {
   buildHysteriaServerConfig,
   buildHy2ListenValue,
   getPortHoppingFallbackWarning,
@@ -20,8 +24,10 @@ type InstallParams = {
   keyPath: string
   statsSecret: string
   agentSecret: string
-  obfs: "" | "salamander"
+  obfs: "" | "salamander" | "gecko"
   obfsPassword: string | null
+  obfsMinPacketSize: number | null
+  obfsMaxPacketSize: number | null
   intervalSeconds: number
   agentAutoUpdateEnabled: boolean
   agentBundleUrl: string
@@ -684,18 +690,30 @@ export async function GET(request: Request) {
   }
 
   const obfsRaw = query.get("obfs")?.trim() ?? ""
-  if (obfsRaw !== "" && obfsRaw !== "salamander") {
-    return errorJson("UNSUPPORTED_OBFS", "当前仅支持 obfs=salamander")
+  if (obfsRaw !== "" && !isSupportedHysteriaObfs(obfsRaw)) {
+    return errorJson(
+      "UNSUPPORTED_OBFS",
+      "当前仅支持 obfs 为空、salamander 或 gecko"
+    )
   }
-  const obfs = obfsRaw as "" | "salamander"
+  const obfs = obfsRaw as "" | "salamander" | "gecko"
 
   const obfsPasswordRaw = query.get("obfs_password")?.trim() ?? ""
   const obfsPassword = obfsPasswordRaw.length > 0 ? obfsPasswordRaw : null
-  if (obfs === "salamander" && !obfsPassword) {
+  if (obfs && !obfsPassword) {
     return errorJson(
       "INVALID_OBFS_PASSWORD",
-      "obfs=salamander 时必须提供 obfs_password"
+      `obfs=${obfs} 时必须提供 obfs_password`
     )
+  }
+
+  const geckoPacketSizes = validateGeckoPacketSizes({
+    obfs,
+    minPacketSize: query.get("obfs_min_packet_size"),
+    maxPacketSize: query.get("obfs_max_packet_size"),
+  })
+  if (!geckoPacketSizes.ok) {
+    return errorJson("INVALID_PAYLOAD", geckoPacketSizes.message)
   }
 
   const intervalSeconds = parsePositiveInt(
@@ -798,6 +816,8 @@ export async function GET(request: Request) {
     agentSecret,
     obfs,
     obfsPassword,
+    obfsMinPacketSize: geckoPacketSizes.minPacketSize,
+    obfsMaxPacketSize: geckoPacketSizes.maxPacketSize,
     intervalSeconds,
     agentAutoUpdateEnabled,
     agentBundleUrl,

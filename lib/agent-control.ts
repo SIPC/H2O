@@ -71,6 +71,8 @@ export type NodeRuntimeRow = {
   status: string
   obfs: string | null
   obfs_password: string | null
+  obfs_min_packet_size: number | null
+  obfs_max_packet_size: number | null
   node_port: number | null
   node_port_hopping: string | null
   cert_mode: string
@@ -193,7 +195,8 @@ function getNodeRuntimeRow(nodeId: number, database: DatabaseSync) {
   return database
     .prepare(
       `SELECT id, name, ip, port, port_hopping, auth_path, status, obfs,
-              obfs_password, node_port, node_port_hopping,
+              obfs_password, obfs_min_packet_size, obfs_max_packet_size,
+              node_port, node_port_hopping,
               cert_mode, cert_path, key_path,
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
               masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
@@ -260,6 +263,8 @@ export function buildNodeDesiredConfig(params: {
     statsSecret: hy2StatsSecret,
     obfs: node.obfs,
     obfsPassword: node.obfs_password,
+    obfsMinPacketSize: node.obfs_min_packet_size,
+    obfsMaxPacketSize: node.obfs_max_packet_size,
     certMode,
     acmeDomains,
     acmeEmail,
