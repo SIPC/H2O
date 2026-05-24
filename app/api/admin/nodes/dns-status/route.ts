@@ -13,7 +13,6 @@ const DNS_SOURCES: Array<{ name: string; servers?: string[] }> = [
   { name: "系统 DNS" },
   { name: "Cloudflare", servers: ["1.1.1.1", "1.0.0.1"] },
   { name: "Google", servers: ["8.8.8.8", "8.8.4.4"] },
-  { name: "AliDNS", servers: ["223.5.5.5", "223.6.6.6"] },
   { name: "DNSPod", servers: ["119.29.29.29"] },
 ]
 
