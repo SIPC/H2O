@@ -208,6 +208,8 @@ type NodeRow = {
   sni: string | null
   obfs: string | null
   obfs_password: string | null
+  obfs_min_packet_size: number | null
+  obfs_max_packet_size: number | null
   insecure: 0 | 1
   pin_sha256: string | null
   last_report_at: string | null
@@ -579,6 +581,10 @@ function generateAcmeEmail(domain: string | null): string {
   const mailboxDomain = domain ?? "example.com"
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789-_"
   return `acme-${pickRandomChars(12, alphabet).toLowerCase()}@${mailboxDomain}`
+}
+
+function obfsRequiresPassword(obfs: string): boolean {
+  return obfs === "salamander" || obfs === "gecko"
 }
 
 function generateStrongObfsPassword(): string {
@@ -1291,6 +1297,10 @@ function NodeForm({
   setObfs,
   obfsPassword,
   setObfsPassword,
+  obfsMinPacketSize,
+  setObfsMinPacketSize,
+  obfsMaxPacketSize,
+  setObfsMaxPacketSize,
   insecure,
   setInsecure,
   pinSha256,
@@ -1376,6 +1386,10 @@ function NodeForm({
   setObfs: (v: string) => void
   obfsPassword: string
   setObfsPassword: (v: string) => void
+  obfsMinPacketSize: string
+  setObfsMinPacketSize: (v: string) => void
+  obfsMaxPacketSize: string
+  setObfsMaxPacketSize: (v: string) => void
   insecure: boolean
   setInsecure: (v: boolean) => void
   pinSha256: string
@@ -1720,8 +1734,8 @@ function NodeForm({
           <div>
             <p className="text-sm font-medium">Obfs 混淆</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              配置 Hysteria2 Salamander
-              混淆参数，服务端配置与订阅配置将保持一致。
+              配置 Hysteria2 Salamander / Gecko 混淆参数。Gecko
+              为实验性功能，节点端与客户端均需支持。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
@@ -1738,6 +1752,7 @@ function NodeForm({
                   <SelectGroup>
                     <SelectItem value="none">不使用</SelectItem>
                     <SelectItem value="salamander">Salamander</SelectItem>
+                    <SelectItem value="gecko">Gecko（实验性）</SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
@@ -1748,7 +1763,12 @@ function NodeForm({
                 <Input
                   value={obfsPassword}
                   onChange={(e) => setObfsPassword(e.target.value)}
-                  placeholder="可选"
+                  placeholder={
+                    obfsRequiresPassword(obfs)
+                      ? "启用 obfs 时必填"
+                      : "不使用 obfs 时可留空"
+                  }
+                  required={obfsRequiresPassword(obfs)}
                 />
                 <Button
                   type="button"
@@ -1760,6 +1780,38 @@ function NodeForm({
               </div>
             </div>
           </div>
+          {obfs === "gecko" && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label>minPacketSize</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={2048}
+                  step={1}
+                  value={obfsMinPacketSize}
+                  onChange={(e) => setObfsMinPacketSize(e.target.value)}
+                  placeholder="512"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>maxPacketSize</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={2048}
+                  step={1}
+                  value={obfsMaxPacketSize}
+                  onChange={(e) => setObfsMaxPacketSize(e.target.value)}
+                  placeholder="1200"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                留空使用 Hy2 默认值 512 / 1200；maxPacketSize 必须大于等于
+                minPacketSize，且不超过 2048。
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="space-y-3 rounded-lg border p-3">
@@ -2107,6 +2159,8 @@ export default function AdminNodesPage() {
   const [sni, setSni] = useState("")
   const [obfs, setObfs] = useState("")
   const [obfsPassword, setObfsPassword] = useState("")
+  const [obfsMinPacketSize, setObfsMinPacketSize] = useState("")
+  const [obfsMaxPacketSize, setObfsMaxPacketSize] = useState("")
   const [insecure, setInsecure] = useState(false)
   const [pinSha256, setPinSha256] = useState("")
   const [nodeIp, setNodeIp] = useState("")
@@ -2153,6 +2207,8 @@ export default function AdminNodesPage() {
   const [editSni, setEditSni] = useState("")
   const [editObfs, setEditObfs] = useState("")
   const [editObfsPassword, setEditObfsPassword] = useState("")
+  const [editObfsMinPacketSize, setEditObfsMinPacketSize] = useState("")
+  const [editObfsMaxPacketSize, setEditObfsMaxPacketSize] = useState("")
   const [editInsecure, setEditInsecure] = useState(false)
   const [editPinSha256, setEditPinSha256] = useState("")
   const [editNodeIp, setEditNodeIp] = useState("")
@@ -2554,6 +2610,13 @@ export default function AdminNodesPage() {
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (obfsRequiresPassword(obfs) && !obfsPassword.trim()) {
+      toast.error("无法创建节点", {
+        description: "启用 obfs 时必须填写 Obfs 密码",
+      })
+      return
+    }
+
     const acmeDomains =
       certMode === "acme-http" || certMode === "acme-dns"
         ? parseAcmeDomainsInput(acmeDomainsInput)
@@ -2569,6 +2632,8 @@ export default function AdminNodesPage() {
         sni: sni || null,
         obfs: obfs || null,
         obfsPassword: obfsPassword || null,
+        obfsMinPacketSize: obfs === "gecko" ? obfsMinPacketSize || null : null,
+        obfsMaxPacketSize: obfs === "gecko" ? obfsMaxPacketSize || null : null,
         insecure,
         pinSha256: pinSha256 || null,
         nodeIp: nodeIp || null,
@@ -2614,6 +2679,8 @@ export default function AdminNodesPage() {
     setSni("")
     setObfs("")
     setObfsPassword("")
+    setObfsMinPacketSize("")
+    setObfsMaxPacketSize("")
     setInsecure(false)
     setPinSha256("")
     setNodeIp("")
@@ -2695,6 +2762,12 @@ export default function AdminNodesPage() {
     setEditSni(row.sni ?? "")
     setEditObfs(row.obfs ?? "")
     setEditObfsPassword(row.obfs_password ?? "")
+    setEditObfsMinPacketSize(
+      row.obfs_min_packet_size != null ? String(row.obfs_min_packet_size) : ""
+    )
+    setEditObfsMaxPacketSize(
+      row.obfs_max_packet_size != null ? String(row.obfs_max_packet_size) : ""
+    )
     setEditInsecure(row.insecure === 1)
     setEditPinSha256(row.pin_sha256 ?? "")
     // 节点配置
@@ -2811,6 +2884,13 @@ export default function AdminNodesPage() {
   async function submitEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!editingRow) return
+    if (obfsRequiresPassword(editObfs) && !editObfsPassword.trim()) {
+      toast.error("无法保存节点", {
+        description: "启用 obfs 时必须填写 Obfs 密码",
+      })
+      return
+    }
+
     const editAcmeDomains =
       editCertMode === "acme-http" || editCertMode === "acme-dns"
         ? parseAcmeDomainsInput(editAcmeDomainsInput)
@@ -2823,6 +2903,10 @@ export default function AdminNodesPage() {
       sni: editSni,
       obfs: editObfs,
       obfsPassword: editObfsPassword,
+      obfsMinPacketSize:
+        editObfs === "gecko" ? editObfsMinPacketSize || null : null,
+      obfsMaxPacketSize:
+        editObfs === "gecko" ? editObfsMaxPacketSize || null : null,
       insecure: editInsecure,
       pinSha256: editPinSha256,
       nodeIp: editNodeIp || null,
@@ -3413,6 +3497,10 @@ export default function AdminNodesPage() {
                 setObfs={setObfs}
                 obfsPassword={obfsPassword}
                 setObfsPassword={setObfsPassword}
+                obfsMinPacketSize={obfsMinPacketSize}
+                setObfsMinPacketSize={setObfsMinPacketSize}
+                obfsMaxPacketSize={obfsMaxPacketSize}
+                setObfsMaxPacketSize={setObfsMaxPacketSize}
                 insecure={insecure}
                 setInsecure={setInsecure}
                 pinSha256={pinSha256}
@@ -3717,6 +3805,10 @@ export default function AdminNodesPage() {
                 setObfs={setEditObfs}
                 obfsPassword={editObfsPassword}
                 setObfsPassword={setEditObfsPassword}
+                obfsMinPacketSize={editObfsMinPacketSize}
+                setObfsMinPacketSize={setEditObfsMinPacketSize}
+                obfsMaxPacketSize={editObfsMaxPacketSize}
+                setObfsMaxPacketSize={setEditObfsMaxPacketSize}
                 insecure={editInsecure}
                 setInsecure={setEditInsecure}
                 pinSha256={editPinSha256}

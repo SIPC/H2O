@@ -143,7 +143,8 @@ export async function PATCH(request: Request) {
         { status: 400 }
       )
     }
-    const expected = typeof SETTING_DEFAULTS[key as SettingKey]
+    const settingKey = key as keyof typeof SETTING_DEFAULTS
+    const expected = typeof SETTING_DEFAULTS[settingKey]
     if (typeof body[key] !== expected) {
       writeAdminEvent({
         event: "SETTINGS_UPDATE",
@@ -165,7 +166,7 @@ export async function PATCH(request: Request) {
       )
     }
 
-    if (key === SETTING_KEYS.statsRetentionDays) {
+    if (settingKey === SETTING_KEYS.statsRetentionDays) {
       const value = body[key]
       if (
         typeof value !== "number" ||

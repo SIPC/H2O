@@ -3,20 +3,20 @@
 // AI 走内联 DOMAIN 规则（OpenAI/Anthropic/Gemini），省一个 rule-provider
 
 import type { ClashHysteria2Proxy } from "./node-proxy"
+import {
+  buildClashPolicyGroup,
+  clashTarget,
+  compileClashPolicyGroups,
+  compileClashSubscriptionRules,
+  getBuiltinRuleTarget,
+  isBuiltinRuleEnabled,
+  type SubscriptionRuleConfig,
+} from "./rule-config"
+
+type SubscriptionNodeRef = { id?: number | null; name: string }
 
 const ACL4SSR_BASE =
   "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Providers/Ruleset"
-
-// 代理组名字（带 emoji 便于客户端识别）
-const GROUP_SELECT = "🚀 节点选择"
-const GROUP_AUTO = "♻️ 自动选择"
-const GROUP_AI = "🤖 AI"
-const GROUP_MEDIA = "📺 国际媒体"
-const GROUP_TELEGRAM = "📲 Telegram"
-const GROUP_APPLE = "🍎 苹果服务"
-const GROUP_MICROSOFT = "Ⓜ️ 微软服务"
-const GROUP_ADS = "🛑 广告拦截"
-const GROUP_FALLBACK = "🐟 漏网之鱼"
 
 type RuleBehavior = "domain" | "ipcidr" | "classical"
 
@@ -44,14 +44,93 @@ export type ClashConfig = {
   rules: string[]
 }
 
-export function buildClashBase(nodeNames: string[]): ClashConfig {
-  // url-test 必须至少有一个成员，空节点列表时会在调用处被提前 404 拦截
-  const autoPool = nodeNames.length > 0 ? nodeNames : ["DIRECT"]
-  const selectPool = [GROUP_AUTO, ...nodeNames, "DIRECT"]
-  const proxyPool = [GROUP_SELECT, GROUP_AUTO, ...nodeNames]
-  const directFirst = ["DIRECT", GROUP_SELECT, ...nodeNames]
+function applyCustomRules(
+  config: ClashConfig,
+  ruleConfig: SubscriptionRuleConfig | undefined,
+  nodeRefs: SubscriptionNodeRef[]
+) {
+  if (!ruleConfig?.enabled) return
 
-  return {
+  config["proxy-groups"].push(...compileClashPolicyGroups(ruleConfig, nodeRefs))
+
+  const compiled = compileClashSubscriptionRules(ruleConfig)
+  config["rule-providers"] = {
+    ...config["rule-providers"],
+    ...compiled.providers,
+  }
+
+  const finalRule = `MATCH,${clashTarget(ruleConfig.finalTarget, ruleConfig)}`
+  const matchIndex = config.rules.findIndex((rule) => rule.startsWith("MATCH,"))
+  const builtinRules =
+    matchIndex >= 0 ? config.rules.slice(0, matchIndex) : config.rules
+
+  if (ruleConfig.mode === "replace") {
+    config.rules = [...compiled.rules, finalRule]
+    return
+  }
+
+  if (ruleConfig.mode === "append") {
+    config.rules = [...builtinRules, ...compiled.rules, finalRule]
+    return
+  }
+
+  config.rules = [...compiled.rules, ...builtinRules, finalRule]
+}
+
+export function buildClashBase(
+  nodeNames: string[],
+  options: {
+    ruleConfig?: SubscriptionRuleConfig
+    nodeRefs?: SubscriptionNodeRef[]
+  } = {}
+): ClashConfig {
+  // url-test 必须至少有一个成员，空节点列表时会在调用处被提前 404 拦截
+  const ruleConfig = options.ruleConfig
+  const groupSelect = clashTarget("proxy", ruleConfig)
+  const groupAuto = clashTarget("auto", ruleConfig)
+  const groupAi = clashTarget("ai", ruleConfig)
+  const groupMedia = clashTarget("media", ruleConfig)
+  const groupTelegram = clashTarget("telegram", ruleConfig)
+  const groupApple = clashTarget("apple", ruleConfig)
+  const groupMicrosoft = clashTarget("microsoft", ruleConfig)
+  const groupAds = clashTarget("reject", ruleConfig)
+  const groupFallback = clashTarget("fallback", ruleConfig)
+  const ruleSelect = clashTarget(
+    getBuiltinRuleTarget(ruleConfig, "proxy"),
+    ruleConfig
+  )
+  const ruleAi = clashTarget(getBuiltinRuleTarget(ruleConfig, "ai"), ruleConfig)
+  const ruleMedia = clashTarget(
+    getBuiltinRuleTarget(ruleConfig, "media"),
+    ruleConfig
+  )
+  const ruleTelegram = clashTarget(
+    getBuiltinRuleTarget(ruleConfig, "telegram"),
+    ruleConfig
+  )
+  const ruleApple = clashTarget(
+    getBuiltinRuleTarget(ruleConfig, "apple"),
+    ruleConfig
+  )
+  const ruleMicrosoft = clashTarget(
+    getBuiltinRuleTarget(ruleConfig, "microsoft"),
+    ruleConfig
+  )
+  const ruleAds = clashTarget(
+    getBuiltinRuleTarget(ruleConfig, "reject"),
+    ruleConfig
+  )
+  const ruleDirect = clashTarget(
+    getBuiltinRuleTarget(ruleConfig, "direct"),
+    ruleConfig
+  )
+
+  const autoPool = nodeNames.length > 0 ? nodeNames : ["DIRECT"]
+  const selectPool = [groupAuto, ...nodeNames, "DIRECT"]
+  const proxyPool = [groupSelect]
+  const directFirst = [groupSelect]
+
+  const config: ClashConfig = {
     "mixed-port": 7890,
     "allow-lan": false,
     "bind-address": "*",
@@ -68,16 +147,13 @@ export function buildClashBase(nodeNames: string[]): ClashConfig {
       // bootstrap 解析器：用来解析下面 DoT 域名的 IP，必须纯 IP
       "default-nameserver": ["223.5.5.5", "119.29.29.29", "114.114.114.114"],
       // 代理服务器地址专用解析器，不绕回代理自己；走国内 DoT 加密，ISP 看不到代理服务器域名
-      "proxy-server-nameserver": [
-        "tls://dns.alidns.com",
-        "tls://dot.pub",
-      ],
+      "proxy-server-nameserver": ["tls://dns.alidns.com", "tls://dot.pub"],
       // 国内域名走 DoT 直连加密
       nameserver: ["tls://dns.alidns.com", "tls://dot.pub"],
       // 境外域名走 DoH 并**通过代理**出去，避免明文 UDP 53 泄漏查询内容
       fallback: [
-        `https://1.1.1.1/dns-query#${GROUP_SELECT}`,
-        `https://dns.google/dns-query#${GROUP_SELECT}`,
+        `https://1.1.1.1/dns-query#${groupSelect}`,
+        `https://dns.google/dns-query#${groupSelect}`,
       ],
       "fallback-filter": {
         geoip: true,
@@ -86,29 +162,29 @@ export function buildClashBase(nodeNames: string[]): ClashConfig {
     },
     proxies: [],
     "proxy-groups": [
-      { name: GROUP_SELECT, type: "select", proxies: selectPool },
+      { name: groupSelect, type: "select", proxies: selectPool },
       {
-        name: GROUP_AUTO,
+        name: groupAuto,
         type: "url-test",
         proxies: autoPool,
         url: "http://www.gstatic.com/generate_204",
         interval: 300,
         tolerance: 50,
       },
-      { name: GROUP_AI, type: "select", proxies: proxyPool },
-      { name: GROUP_MEDIA, type: "select", proxies: proxyPool },
-      { name: GROUP_TELEGRAM, type: "select", proxies: proxyPool },
-      { name: GROUP_APPLE, type: "select", proxies: directFirst },
-      { name: GROUP_MICROSOFT, type: "select", proxies: directFirst },
+      { name: groupAi, type: "select", proxies: proxyPool },
+      { name: groupMedia, type: "select", proxies: proxyPool },
+      { name: groupTelegram, type: "select", proxies: proxyPool },
+      { name: groupApple, type: "select", proxies: directFirst },
+      { name: groupMicrosoft, type: "select", proxies: directFirst },
       {
-        name: GROUP_ADS,
+        name: groupAds,
         type: "select",
-        proxies: ["REJECT", "DIRECT", GROUP_SELECT],
+        proxies: ["REJECT"],
       },
       {
-        name: GROUP_FALLBACK,
+        name: groupFallback,
         type: "select",
-        proxies: [GROUP_SELECT, "DIRECT", ...nodeNames],
+        proxies: [groupSelect],
       },
     ],
     "rule-providers": {
@@ -127,28 +203,73 @@ export function buildClashBase(nodeNames: string[]): ClashConfig {
     },
     rules: [
       // AI 内联规则（不依赖外部 rule-provider）
-      `DOMAIN-KEYWORD,openai,${GROUP_AI}`,
-      `DOMAIN-SUFFIX,chatgpt.com,${GROUP_AI}`,
-      `DOMAIN-SUFFIX,oaistatic.com,${GROUP_AI}`,
-      `DOMAIN-SUFFIX,anthropic.com,${GROUP_AI}`,
-      `DOMAIN-SUFFIX,claude.ai,${GROUP_AI}`,
-      `DOMAIN-SUFFIX,gemini.google.com,${GROUP_AI}`,
+      ...(isBuiltinRuleEnabled(ruleConfig, "ai")
+        ? [
+            `DOMAIN-KEYWORD,openai,${ruleAi}`,
+            `DOMAIN-SUFFIX,chatgpt.com,${ruleAi}`,
+            `DOMAIN-SUFFIX,oaistatic.com,${ruleAi}`,
+            `DOMAIN-SUFFIX,anthropic.com,${ruleAi}`,
+            `DOMAIN-SUFFIX,claude.ai,${ruleAi}`,
+            `DOMAIN-SUFFIX,gemini.google.com,${ruleAi}`,
+          ]
+        : []),
       // 规则集分流
-      `RULE-SET,reject,${GROUP_ADS}`,
-      `RULE-SET,icloud,${GROUP_APPLE}`,
-      `RULE-SET,apple,${GROUP_APPLE}`,
-      `RULE-SET,microsoft,${GROUP_MICROSOFT}`,
-      `RULE-SET,proxymedia,${GROUP_MEDIA}`,
-      `RULE-SET,telegram,${GROUP_TELEGRAM}`,
-      `RULE-SET,telegramcidr,${GROUP_TELEGRAM},no-resolve`,
-      `RULE-SET,proxy,${GROUP_SELECT}`,
-      "RULE-SET,lan,DIRECT",
-      "RULE-SET,chinadomain,DIRECT",
-      "RULE-SET,chinacompanyip,DIRECT,no-resolve",
-      "RULE-SET,chinaip,DIRECT,no-resolve",
-      "GEOIP,LAN,DIRECT,no-resolve",
-      "GEOIP,CN,DIRECT,no-resolve",
-      `MATCH,${GROUP_FALLBACK}`,
+      ...(isBuiltinRuleEnabled(ruleConfig, "reject")
+        ? [`RULE-SET,reject,${ruleAds}`]
+        : []),
+      ...(isBuiltinRuleEnabled(ruleConfig, "apple")
+        ? [`RULE-SET,icloud,${ruleApple}`, `RULE-SET,apple,${ruleApple}`]
+        : []),
+      ...(isBuiltinRuleEnabled(ruleConfig, "microsoft")
+        ? [`RULE-SET,microsoft,${ruleMicrosoft}`]
+        : []),
+      ...(isBuiltinRuleEnabled(ruleConfig, "media")
+        ? [`RULE-SET,proxymedia,${ruleMedia}`]
+        : []),
+      ...(isBuiltinRuleEnabled(ruleConfig, "telegram")
+        ? [
+            `RULE-SET,telegram,${ruleTelegram}`,
+            `RULE-SET,telegramcidr,${ruleTelegram},no-resolve`,
+          ]
+        : []),
+      ...(isBuiltinRuleEnabled(ruleConfig, "proxy")
+        ? [`RULE-SET,proxy,${ruleSelect}`]
+        : []),
+      ...(isBuiltinRuleEnabled(ruleConfig, "direct")
+        ? [
+            `RULE-SET,lan,${ruleDirect}`,
+            `RULE-SET,chinadomain,${ruleDirect}`,
+            `RULE-SET,chinacompanyip,${ruleDirect},no-resolve`,
+            `RULE-SET,chinaip,${ruleDirect},no-resolve`,
+            `GEOIP,LAN,${ruleDirect},no-resolve`,
+            `GEOIP,CN,${ruleDirect},no-resolve`,
+          ]
+        : []),
+      `MATCH,${groupFallback}`,
     ],
   }
+
+  const nodeRefs = options.nodeRefs ?? nodeNames.map((name) => ({ name }))
+  if (options.ruleConfig?.enabled) {
+    for (const [target, group] of Object.entries(
+      options.ruleConfig.builtinPolicyOverrides
+    )) {
+      if (!group?.enabled) continue
+      const name = clashTarget(target, options.ruleConfig)
+      const nextGroup = buildClashPolicyGroup(
+        group,
+        nodeRefs,
+        name,
+        options.ruleConfig
+      )
+      const index = config["proxy-groups"].findIndex(
+        (item) => item.name === name
+      )
+      if (index >= 0) config["proxy-groups"][index] = nextGroup
+      else config["proxy-groups"].push(nextGroup)
+    }
+  }
+
+  applyCustomRules(config, options.ruleConfig, nodeRefs)
+  return config
 }

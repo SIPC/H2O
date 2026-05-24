@@ -11,13 +11,14 @@ export const SETTING_KEYS = {
   statsRetentionDays: "stats_retention_days",
   cloudflareApiToken: "cloudflare_api_token",
   acmeEmail: "acme_email",
+  subscriptionRuleConfig: "subscription_rule_config",
 } as const
 
 export type SettingKey = (typeof SETTING_KEYS)[keyof typeof SETTING_KEYS]
 
 // 默认值，未写入 DB 时使用；同时也是白名单（只允许这些 key 被读写）
 // 校验请求体时按每个 key 的默认值类型（boolean / string / number）决定允许的类型
-export const SETTING_DEFAULTS: Record<SettingKey, unknown> = {
+export const SETTING_DEFAULTS = {
   [SETTING_KEYS.registrationEnabled]: true,
   [SETTING_KEYS.loginEnabled]: true,
   [SETTING_KEYS.newUserDefaultActive]: true,
@@ -27,7 +28,7 @@ export const SETTING_DEFAULTS: Record<SettingKey, unknown> = {
   [SETTING_KEYS.statsRetentionDays]: 30,
   [SETTING_KEYS.cloudflareApiToken]: "",
   [SETTING_KEYS.acmeEmail]: "",
-}
+} satisfies Partial<Record<SettingKey, unknown>>
 
 export const SENSITIVE_SETTING_KEYS: SettingKey[] = [
   SETTING_KEYS.turnstileSecretKey,
@@ -70,7 +71,7 @@ export function setSetting(key: SettingKey, value: unknown): void {
 }
 
 // 读所有设置，DB 里没写入的 key 用默认值补齐
-export function getAllSettings(): Record<SettingKey, unknown> {
+export function getAllSettings(): Record<string, unknown> {
   const db = getDb()
   const rows = db.prepare(`SELECT key, value FROM settings`).all() as Array<{
     key: string
@@ -78,15 +79,13 @@ export function getAllSettings(): Record<SettingKey, unknown> {
   }>
   const merged: Record<string, unknown> = { ...SETTING_DEFAULTS }
   for (const row of rows) {
-    // 只接受白名单内的 key，避免历史脏数据污染响应
+    // 只接受通用设置白名单内的 key，复杂配置走各自专用 API
     if (row.key in SETTING_DEFAULTS) {
-      merged[row.key] = parseValue(
-        row.value,
-        SETTING_DEFAULTS[row.key as SettingKey]
-      )
+      const key = row.key as keyof typeof SETTING_DEFAULTS
+      merged[row.key] = parseValue(row.value, SETTING_DEFAULTS[key])
     }
   }
-  return merged as Record<SettingKey, unknown>
+  return merged
 }
 
 // 只返回公开白名单里的设置，供未登录前端使用

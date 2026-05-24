@@ -20,6 +20,10 @@ Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 
 ![Acls](docs/imge/md/acls.png)
 
+- 订阅分流
+
+![Rules](docs/imge/md/rules.png)
+
 ---
 
 # TODO
@@ -27,6 +31,7 @@ Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 - [ ] DNS 解析 可视化配置
 
 
+- [x] 订阅分流 可视化配置（Beta）
 - [x] ACL 流控 可视化配置
 - [x] Outbound 可视化配置
 - [x] 远程控制 Hysteria2

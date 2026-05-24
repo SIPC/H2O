@@ -2,6 +2,12 @@ import { NextResponse } from "next/server"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import {
+  isSupportedHysteriaObfs,
+  normalizeHysteriaObfs,
+  requiresObfsPassword,
+  validateGeckoPacketSizes,
+} from "@/lib/hysteria-obfs"
 import { writeAdminEvent } from "@/lib/logs-db"
 import {
   isHostTrafficResetCycle,
@@ -42,6 +48,8 @@ type UpdateNodeBody = {
   sni?: string | null
   obfs?: string | null
   obfsPassword?: string | null
+  obfsMinPacketSize?: number | string | null
+  obfsMaxPacketSize?: number | string | null
   insecure?: boolean
   pinSha256?: string | null
   // 节点配置
@@ -156,8 +164,29 @@ export async function PATCH(
   }
 
   if (body.obfs !== undefined) {
+    const obfsInput = body.obfs?.trim() || null
+    if (obfsInput && !isSupportedHysteriaObfs(obfsInput)) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "UNSUPPORTED_OBFS",
+        detail: { nodeId, obfs: obfsInput },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "UNSUPPORTED_OBFS",
+            message: "当前仅支持 obfs 为空、salamander 或 gecko",
+          },
+        },
+        { status: 400 }
+      )
+    }
     updates.push("obfs = ?")
-    values.push(body.obfs && body.obfs.trim() ? body.obfs.trim() : null)
+    values.push(normalizeHysteriaObfs(obfsInput))
     changedFields.push("obfs")
   }
 
@@ -306,7 +335,8 @@ export async function PATCH(
   const db = getDb()
   const currentNode = db
     .prepare(
-      `SELECT port, port_hopping, obfs, obfs_password, node_port, node_port_hopping,
+      `SELECT port, port_hopping, obfs, obfs_password, obfs_min_packet_size,
+              obfs_max_packet_size, node_port, node_port_hopping,
               cert_mode, cert_path, key_path, acme_domains, acme_email,
               acme_dns_provider, acme_dns_config, masquerade_type,
               masquerade_config, agent_interval, agent_auto_update_enabled,
@@ -332,6 +362,94 @@ export async function PATCH(
       { ok: false, error: { code: "NOT_FOUND", message: "节点不存在" } },
       { status: 404 }
     )
+  }
+
+  const nextObfs =
+    body.obfs !== undefined
+      ? normalizeHysteriaObfs(body.obfs)
+      : typeof currentNode.obfs === "string"
+        ? normalizeHysteriaObfs(currentNode.obfs)
+        : null
+  const nextObfsPassword =
+    body.obfsPassword !== undefined
+      ? body.obfsPassword?.trim() || null
+      : typeof currentNode.obfs_password === "string" &&
+          currentNode.obfs_password.trim()
+        ? currentNode.obfs_password.trim()
+        : null
+
+  if (
+    (body.obfs !== undefined ||
+      body.obfsPassword !== undefined ||
+      body.obfsMinPacketSize !== undefined ||
+      body.obfsMaxPacketSize !== undefined) &&
+    requiresObfsPassword(nextObfs) &&
+    !nextObfsPassword
+  ) {
+    writeAdminEvent({
+      event: "NODE_UPDATE",
+      actor: auth.user,
+      ip: clientIp,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { nodeId, obfs: nextObfs },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message: "启用 obfs 时必须填写 Obfs 密码",
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (
+    body.obfs !== undefined ||
+    body.obfsMinPacketSize !== undefined ||
+    body.obfsMaxPacketSize !== undefined
+  ) {
+    const geckoPacketSizes = validateGeckoPacketSizes({
+      obfs: nextObfs,
+      minPacketSize:
+        body.obfsMinPacketSize !== undefined
+          ? body.obfsMinPacketSize
+          : currentNode.obfs_min_packet_size,
+      maxPacketSize:
+        body.obfsMaxPacketSize !== undefined
+          ? body.obfsMaxPacketSize
+          : currentNode.obfs_max_packet_size,
+    })
+    if (!geckoPacketSizes.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId, obfs: nextObfs },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: "INVALID_PAYLOAD",
+            message: geckoPacketSizes.message,
+          },
+        },
+        { status: 400 }
+      )
+    }
+
+    updates.push("obfs_min_packet_size = ?")
+    values.push(geckoPacketSizes.minPacketSize)
+    changedFields.push("obfs_min_packet_size")
+
+    updates.push("obfs_max_packet_size = ?")
+    values.push(geckoPacketSizes.maxPacketSize)
+    changedFields.push("obfs_max_packet_size")
   }
 
   if (body.agentInterval !== undefined) {
@@ -670,6 +788,8 @@ export async function PATCH(
     "port_hopping",
     "obfs",
     "obfs_password",
+    "obfs_min_packet_size",
+    "obfs_max_packet_size",
     "node_port",
     "node_port_hopping",
     "cert_mode",

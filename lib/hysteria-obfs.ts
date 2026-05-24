@@ -25,8 +25,7 @@ export function requiresObfsPassword(value: string | null | undefined) {
 }
 
 function parseOptionalInteger(value: unknown): number | null | undefined {
-  if (value === undefined) return undefined
-  if (value === null) return null
+  if (value === undefined || value === null) return null
   if (typeof value === "number") {
     if (!Number.isInteger(value)) return undefined
     return value

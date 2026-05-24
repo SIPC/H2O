@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
+import { useConfirm } from "@/components/confirm-provider"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -80,6 +81,7 @@ function ToggleRow({
 }
 
 export default function AdminSettingsPage() {
+  const { confirm } = useConfirm()
   const [loaded, setLoaded] = useState(false)
   const [saved, setSaved] = useState<Settings>(DEFAULTS)
   const [draft, setDraft] = useState<Settings>(DEFAULTS)
@@ -193,6 +195,38 @@ export default function AdminSettingsPage() {
       if (requestSeq === turnstileVerifySeq.current) {
         setTurnstileVerifying(false)
       }
+    }
+  }
+
+  async function resetSubscriptionRules() {
+    const ok = await confirm({
+      title: "重置订阅分流策略",
+      description:
+        "确定要重置订阅分流策略吗？所有自定义规则、远程规则、策略组和内置策略修改都会恢复默认。",
+      confirmText: "重置",
+    })
+    if (!ok) return
+
+    try {
+      const response = await fetch("/api/admin/subscription-rules", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      const json = await response.json()
+      if (!response.ok || !json.ok) {
+        toast.error("重置失败", {
+          description: json?.error?.message ?? "请稍后重试",
+        })
+        return
+      }
+      toast.success("已重置", {
+        description: "订阅分流策略已恢复默认",
+      })
+    } catch {
+      toast.error("重置失败", {
+        description: "网络错误，请稍后重试",
+      })
     }
   }
 
@@ -546,6 +580,26 @@ export default function AdminSettingsPage() {
                 }
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* === 订阅分流 === */}
+        <Card className="md:col-span-2">
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-base leading-none font-semibold">
+              订阅分流
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              一键恢复默认订阅分流策略，包括被删除的内置策略、规则、远程规则和策略组。
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => void resetSubscriptionRules()}
+            >
+              重置策略
+            </Button>
           </CardContent>
         </Card>
       </div>

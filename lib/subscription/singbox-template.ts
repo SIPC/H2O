@@ -2,6 +2,17 @@
 // 规则集来源：SagerNet 官方 sing-geosite / sing-geoip binary (.srs)
 
 import type { SingboxHysteria2Outbound } from "./node-proxy"
+import {
+  buildSingboxPolicyGroup,
+  compileSingboxPolicyGroups,
+  compileSingboxSubscriptionRules,
+  getBuiltinRuleTarget,
+  isBuiltinRuleEnabled,
+  singboxTarget,
+  type SubscriptionRuleConfig,
+} from "./rule-config"
+
+type SubscriptionNodeRef = { id?: number | null; name: string }
 
 const GEOSITE_BASE =
   "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set"
@@ -36,14 +47,84 @@ export type SingboxConfig = {
   experimental: Record<string, unknown>
 }
 
-export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
+function applyCustomRules(
+  config: SingboxConfig,
+  ruleConfig: SubscriptionRuleConfig | undefined,
+  protectedRuleCount: number,
+  nodeRefs: SubscriptionNodeRef[]
+) {
+  if (!ruleConfig?.enabled) return
+
+  config.outbounds.push(...compileSingboxPolicyGroups(ruleConfig, nodeRefs))
+
+  const compiled = compileSingboxSubscriptionRules(ruleConfig)
+  const route = config.route
+  const rules = Array.isArray(route.rules) ? route.rules : []
+  const ruleSets = Array.isArray(route.rule_set) ? route.rule_set : []
+  route.rule_set = [...ruleSets, ...compiled.ruleSets]
+  route.final = singboxTarget(ruleConfig.finalTarget, ruleConfig)
+
+  const protectedRules = rules.slice(0, protectedRuleCount)
+  const builtinRules = rules.slice(protectedRuleCount)
+
+  if (ruleConfig.mode === "replace") {
+    route.rules = [...protectedRules, ...compiled.rules]
+    return
+  }
+
+  if (ruleConfig.mode === "append") {
+    route.rules = [...protectedRules, ...builtinRules, ...compiled.rules]
+    return
+  }
+
+  route.rules = [...protectedRules, ...compiled.rules, ...builtinRules]
+}
+
+export function buildSingboxBase(
+  nodeTags: string[],
+  options: {
+    ruleConfig?: SubscriptionRuleConfig
+    nodeRefs?: SubscriptionNodeRef[]
+  } = {}
+): SingboxConfig {
   // urltest 至少需要一个成员，空节点会在调用处被提前 404 拦截
+  const ruleConfig = options.ruleConfig
+  const aiTarget = singboxTarget(
+    getBuiltinRuleTarget(ruleConfig, "ai"),
+    ruleConfig
+  )
+  const mediaTarget = singboxTarget(
+    getBuiltinRuleTarget(ruleConfig, "media"),
+    ruleConfig
+  )
+  const telegramTarget = singboxTarget(
+    getBuiltinRuleTarget(ruleConfig, "telegram"),
+    ruleConfig
+  )
+  const appleTarget = singboxTarget(
+    getBuiltinRuleTarget(ruleConfig, "apple"),
+    ruleConfig
+  )
+  const microsoftTarget = singboxTarget(
+    getBuiltinRuleTarget(ruleConfig, "microsoft"),
+    ruleConfig
+  )
+  const rejectTarget = singboxTarget(
+    getBuiltinRuleTarget(ruleConfig, "reject"),
+    ruleConfig
+  )
+
+  const directTarget = singboxTarget(
+    getBuiltinRuleTarget(ruleConfig, "direct"),
+    ruleConfig
+  )
   const autoPool = nodeTags.length > 0 ? nodeTags : ["direct"]
   const selectPool = ["auto", "direct", ...nodeTags]
-  const proxyPool = ["proxy", "auto", ...nodeTags]
-  const directFirst = ["direct", "proxy", ...nodeTags]
+  const proxyPool = ["proxy"]
+  const directFirst = ["proxy"]
 
-  return {
+  const protectedRouteRuleCount = 5
+  const config: SingboxConfig = {
     log: { level: "info", timestamp: true },
     dns: {
       servers: [
@@ -104,7 +185,13 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
       { type: "selector", tag: "telegram", outbounds: proxyPool },
       { type: "selector", tag: "apple", outbounds: directFirst },
       { type: "selector", tag: "microsoft", outbounds: directFirst },
+      {
+        type: "selector",
+        tag: "fallback",
+        outbounds: ["proxy"],
+      },
       { type: "direct", tag: "direct", domain_resolver: "local" },
+      { type: "block", tag: "reject" },
     ],
     http_clients: [{ tag: "direct-http", detour: "direct" }],
     route: {
@@ -114,28 +201,45 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
         { protocol: "dns", action: "hijack-dns" },
         { clash_mode: "direct", outbound: "direct" },
         { clash_mode: "global", outbound: "proxy" },
-        { rule_set: "geosite-category-ads-all", action: "reject" },
-        { rule_set: "geosite-openai", outbound: "ai" },
-        {
-          rule_set: [
-            "geosite-youtube",
-            "geosite-netflix",
-            "geosite-disney",
-            "geosite-spotify",
-          ],
-          outbound: "media",
-        },
-        {
-          rule_set: ["geosite-telegram"],
-          outbound: "telegram",
-        },
-        {
-          rule_set: ["geosite-apple", "geosite-icloud"],
-          outbound: "apple",
-        },
-        { rule_set: "geosite-microsoft", outbound: "microsoft" },
-        { rule_set: ["geosite-cn", "geoip-cn"], outbound: "direct" },
-        { ip_is_private: true, outbound: "direct" },
+        ...(isBuiltinRuleEnabled(ruleConfig, "reject")
+          ? [{ rule_set: "geosite-category-ads-all", outbound: rejectTarget }]
+          : []),
+        ...(isBuiltinRuleEnabled(ruleConfig, "ai")
+          ? [{ rule_set: "geosite-openai", outbound: aiTarget }]
+          : []),
+        ...(isBuiltinRuleEnabled(ruleConfig, "media")
+          ? [
+              {
+                rule_set: [
+                  "geosite-youtube",
+                  "geosite-netflix",
+                  "geosite-disney",
+                  "geosite-spotify",
+                ],
+                outbound: mediaTarget,
+              },
+            ]
+          : []),
+        ...(isBuiltinRuleEnabled(ruleConfig, "telegram")
+          ? [{ rule_set: ["geosite-telegram"], outbound: telegramTarget }]
+          : []),
+        ...(isBuiltinRuleEnabled(ruleConfig, "apple")
+          ? [
+              {
+                rule_set: ["geosite-apple", "geosite-icloud"],
+                outbound: appleTarget,
+              },
+            ]
+          : []),
+        ...(isBuiltinRuleEnabled(ruleConfig, "microsoft")
+          ? [{ rule_set: "geosite-microsoft", outbound: microsoftTarget }]
+          : []),
+        ...(isBuiltinRuleEnabled(ruleConfig, "direct")
+          ? [
+              { rule_set: ["geosite-cn", "geoip-cn"], outbound: directTarget },
+              { ip_is_private: true, outbound: directTarget },
+            ]
+          : []),
       ],
       rule_set: [
         geositeRule("geosite-category-ads-all"),
@@ -153,11 +257,34 @@ export function buildSingboxBase(nodeTags: string[]): SingboxConfig {
       ],
       default_http_client: "direct-http",
       default_domain_resolver: "local",
-      final: "proxy",
+      final: "fallback",
       auto_detect_interface: true,
     },
     experimental: {
       cache_file: { enabled: true, path: "cache.db" },
     },
   }
+
+  const nodeRefs = options.nodeRefs ?? nodeTags.map((name) => ({ name }))
+  if (options.ruleConfig?.enabled) {
+    for (const [target, group] of Object.entries(
+      options.ruleConfig.builtinPolicyOverrides
+    )) {
+      if (!group?.enabled) continue
+      const nextOutbound = buildSingboxPolicyGroup(group, nodeRefs, target)
+      const index = config.outbounds.findIndex(
+        (item) => "tag" in item && item.tag === target
+      )
+      if (index >= 0) config.outbounds[index] = nextOutbound
+      else config.outbounds.push(nextOutbound)
+    }
+  }
+
+  applyCustomRules(
+    config,
+    options.ruleConfig,
+    protectedRouteRuleCount,
+    nodeRefs
+  )
+  return config
 }

@@ -88,6 +88,7 @@ const adminSubMenus: AdminSubMenu[] = [
       { title: "节点管理", href: "/admin/nodes" },
       { title: "ACL 策略", href: "/admin/routing/acls" },
       { title: "出站配置", href: "/admin/routing/outbounds" },
+      { title: "订阅分流", href: "/admin/subscription-rules" },
     ],
   },
   {

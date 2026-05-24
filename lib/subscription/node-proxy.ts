@@ -64,8 +64,8 @@ export function nodeToClashProxy(
   if (clashPorts) proxy.ports = clashPorts
   if (node.sni) proxy.sni = node.sni
   if (shouldSkipCertVerify(node)) proxy["skip-cert-verify"] = true
-  // mihomo 只认 salamander 这一种 obfs；必须同时有密码才启用
-  if (node.obfs && node.obfs_password) {
+  // mihomo 当前仅按 salamander 输出；避免把 gecko 错误下发成 salamander
+  if (node.obfs === "salamander" && node.obfs_password) {
     proxy.obfs = "salamander"
     proxy["obfs-password"] = node.obfs_password
   }
@@ -100,7 +100,7 @@ export function nodeToSingboxOutbound(
   }
   if (node.sni) outbound.tls.server_name = node.sni
   if (shouldSkipCertVerify(node)) outbound.tls.insecure = true
-  if (node.obfs && node.obfs_password) {
+  if (node.obfs === "salamander" && node.obfs_password) {
     outbound.obfs = { type: "salamander", password: node.obfs_password }
   }
   if (typeof node.up_mbps === "number" && node.up_mbps > 0) {

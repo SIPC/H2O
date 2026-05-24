@@ -5,6 +5,12 @@ import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth"
 import { createAgentSecret, createHy2StatsSecret } from "@/lib/agent-control"
 import { getDb } from "@/lib/db"
+import {
+  isSupportedHysteriaObfs,
+  normalizeHysteriaObfs,
+  requiresObfsPassword,
+  validateGeckoPacketSizes,
+} from "@/lib/hysteria-obfs"
 import { writeAdminEvent } from "@/lib/logs-db"
 import {
   buildNodeHostTrafficSummary,
@@ -29,6 +35,8 @@ type CreateNodeBody = {
   sni?: string | null
   obfs?: string | null
   obfsPassword?: string | null
+  obfsMinPacketSize?: number | string | null
+  obfsMaxPacketSize?: number | string | null
   insecure?: boolean
   pinSha256?: string | null
   // 节点配置
@@ -65,7 +73,8 @@ export async function GET(request: Request) {
   const rows = db
     .prepare(
       `SELECT n.id, n.name, n.remark, n.ip, n.port, n.port_hopping, n.auth_path, n.status, n.sni, n.obfs,
-              n.obfs_password, n.insecure, n.pin_sha256, n.sort_order, n.created_at,
+              n.obfs_password, n.obfs_min_packet_size, n.obfs_max_packet_size,
+              n.insecure, n.pin_sha256, n.sort_order, n.created_at,
               n.node_ip, n.node_port, n.node_port_hopping,
               n.cert_mode, n.cert_path, n.key_path,
               n.acme_domains, n.acme_email, n.acme_dns_provider, n.acme_dns_config,
@@ -134,8 +143,71 @@ export async function POST(request: Request) {
 
   const remark = body.remark?.trim() || null
   const sni = body.sni?.trim() || null
-  const obfs = body.obfs?.trim() || null
+  const obfsInput = body.obfs?.trim() || null
+  if (obfsInput && !isSupportedHysteriaObfs(obfsInput)) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "UNSUPPORTED_OBFS",
+      detail: { name: body.name ?? null, obfs: obfsInput },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "UNSUPPORTED_OBFS",
+          message: "当前仅支持 obfs 为空、salamander 或 gecko",
+        },
+      },
+      { status: 400 }
+    )
+  }
+  const obfs = normalizeHysteriaObfs(obfsInput)
   const obfsPassword = body.obfsPassword?.trim() || null
+  if (requiresObfsPassword(obfs) && !obfsPassword) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null, obfs },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message: "启用 obfs 时必须填写 Obfs 密码",
+        },
+      },
+      { status: 400 }
+    )
+  }
+  const geckoPacketSizes = validateGeckoPacketSizes({
+    obfs,
+    minPacketSize: body.obfsMinPacketSize,
+    maxPacketSize: body.obfsMaxPacketSize,
+  })
+  if (!geckoPacketSizes.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null, obfs },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: geckoPacketSizes.message },
+      },
+      { status: 400 }
+    )
+  }
   const pinSha256 = body.pinSha256?.trim() || null
   const insecure = body.insecure ? 1 : 0
 
@@ -390,7 +462,8 @@ export async function POST(request: Request) {
   try {
     const result = db
       .prepare(
-        `INSERT INTO nodes(name, remark, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password, insecure, pin_sha256,
+        `INSERT INTO nodes(name, remark, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password,
+           obfs_min_packet_size, obfs_max_packet_size, insecure, pin_sha256,
            node_ip, node_port, node_port_hopping, cert_mode, cert_path, key_path,
            acme_domains, acme_email, acme_dns_provider, acme_dns_config,
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
@@ -398,7 +471,7 @@ export async function POST(request: Request) {
            host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
            host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor,
            sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
@@ -410,6 +483,8 @@ export async function POST(request: Request) {
         sni,
         obfs,
         obfsPassword,
+        geckoPacketSizes.minPacketSize,
+        geckoPacketSizes.maxPacketSize,
         insecure,
         pinSha256,
         nodeIp,

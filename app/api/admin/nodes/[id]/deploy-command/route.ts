@@ -5,6 +5,7 @@ import { NextResponse } from "next/server"
 import { ensureNodeAgentSecrets } from "@/lib/agent-control"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { isSupportedHysteriaObfs } from "@/lib/hysteria-obfs"
 import { resolveNodeRoutingConfig } from "@/lib/hysteria-routing"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
@@ -18,6 +19,8 @@ type NodeRow = {
   status: "enabled" | "disabled"
   obfs: string | null
   obfs_password: string | null
+  obfs_min_packet_size: number | null
+  obfs_max_packet_size: number | null
   node_ip: string | null
   node_port: number | null
   node_port_hopping: string | null
@@ -156,6 +159,7 @@ export async function GET(
   const node = db
     .prepare(
       `SELECT id, name, ip, port, port_hopping, auth_path, status, obfs, obfs_password,
+              obfs_min_packet_size, obfs_max_packet_size,
               node_ip, node_port, node_port_hopping,
               cert_mode, cert_path, key_path,
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
@@ -213,18 +217,18 @@ export async function GET(
   const deployPortHopping =
     node.node_port != null ? node.node_port_hopping : node.port_hopping
 
-  if (node.obfs && node.obfs !== "salamander") {
+  if (node.obfs && !isSupportedHysteriaObfs(node.obfs)) {
     return jsonError(
       "UNSUPPORTED_OBFS",
-      "当前一键部署仅支持 obfs 为空或 salamander",
+      "当前一键部署仅支持 obfs 为空、salamander 或 gecko",
       400
     )
   }
 
-  if (node.obfs === "salamander" && !node.obfs_password) {
+  if (node.obfs && !node.obfs_password) {
     return jsonError(
       "INVALID_NODE_CONFIG",
-      "节点 obfs=salamander 但 obfs_password 为空，请先补全节点配置",
+      `节点 obfs=${node.obfs} 但 obfs_password 为空，请先补全节点配置`,
       400
     )
   }
@@ -296,9 +300,17 @@ export async function GET(
     node.cert_mode === "acme" ? "acme-dns" : node.cert_mode || "self-signed"
   )
 
-  if (node.obfs === "salamander") {
-    rawParams.set("obfs", "salamander")
+  if (node.obfs && isSupportedHysteriaObfs(node.obfs)) {
+    rawParams.set("obfs", node.obfs)
     rawParams.set("obfs_password", node.obfs_password ?? "")
+    if (node.obfs === "gecko") {
+      if (node.obfs_min_packet_size != null) {
+        rawParams.set("obfs_min_packet_size", String(node.obfs_min_packet_size))
+      }
+      if (node.obfs_max_packet_size != null) {
+        rawParams.set("obfs_max_packet_size", String(node.obfs_max_packet_size))
+      }
+    }
   }
 
   // ACME 配置：acme-http 和 acme-dns 都需要域名和邮箱
@@ -385,6 +397,8 @@ export async function GET(
         deploy_port: deployPort,
         deploy_port_hopping: deployPortHopping,
         obfs: node.obfs || null,
+        obfs_min_packet_size: node.obfs_min_packet_size,
+        obfs_max_packet_size: node.obfs_max_packet_size,
         acme_domains: acmeDomains,
         acme_email: acmeEmail || null,
         acme_dns_provider: node.acme_dns_provider || null,
