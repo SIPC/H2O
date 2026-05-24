@@ -22,6 +22,7 @@ export const AGENT_TASK_TYPES = [
   "HY2_STOP",
   "HY2_RESTART",
   "HY2_LOGS",
+  "HY2_SELF_UPDATE",
   "AGENT_LOGS",
   "AGENT_RESTART",
   "APPLY_CONFIG",
@@ -86,6 +87,7 @@ export type NodeRuntimeRow = {
   masquerade_config: string | null
   agent_interval: number | null
   agent_auto_update_enabled: 0 | 1 | null
+  hy2_auto_update_enabled: 0 | 1 | null
   hy2_stats_secret: string | null
   agent_secret: string | null
   agent_control_enabled: 0 | 1 | null
@@ -200,7 +202,7 @@ function getNodeRuntimeRow(nodeId: number, database: DatabaseSync) {
               cert_mode, cert_path, key_path,
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
               masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
-              hy2_stats_secret, agent_secret, agent_control_enabled,
+              hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
               agent_config_revision, agent_desired_config_hash
        FROM nodes
        WHERE id = ?
@@ -452,7 +454,13 @@ export function rememberAgentNonce(params: {
 
 export function getTaskLeaseSeconds(type: AgentTaskType) {
   if (type === "HY2_LOGS" || type === "AGENT_LOGS") return 60
-  if (type === "AGENT_RESTART" || type === "AGENT_SELF_UPDATE") return 10 * 60
+  if (
+    type === "AGENT_RESTART" ||
+    type === "AGENT_SELF_UPDATE" ||
+    type === "HY2_SELF_UPDATE"
+  ) {
+    return 10 * 60
+  }
   if (type === "APPLY_CONFIG") return 5 * 60
   return 2 * 60
 }

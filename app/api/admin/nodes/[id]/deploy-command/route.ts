@@ -35,6 +35,7 @@ type NodeRow = {
   masquerade_config: string | null
   agent_interval: number | null
   agent_auto_update_enabled: 0 | 1 | null
+  hy2_auto_update_enabled: 0 | 1 | null
   hy2_stats_secret: string | null
   agent_secret: string | null
   agent_control_enabled: 0 | 1 | null
@@ -164,7 +165,7 @@ export async function GET(
               cert_mode, cert_path, key_path,
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
               masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
-              hy2_stats_secret, agent_secret, agent_control_enabled
+              hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -296,6 +297,10 @@ export async function GET(
     node.agent_auto_update_enabled !== 0 ? "true" : "false"
   )
   rawParams.set(
+    "hy2_auto_update_enabled",
+    node.hy2_auto_update_enabled !== 0 ? "true" : "false"
+  )
+  rawParams.set(
     "cert_mode",
     node.cert_mode === "acme" ? "acme-dns" : node.cert_mode || "self-signed"
   )
@@ -394,6 +399,7 @@ export async function GET(
         key_path: keyPath,
         interval_seconds: node.agent_interval ?? 120,
         agent_auto_update_enabled: node.agent_auto_update_enabled !== 0,
+        hy2_auto_update_enabled: node.hy2_auto_update_enabled !== 0,
         deploy_port: deployPort,
         deploy_port_hopping: deployPortHopping,
         obfs: node.obfs || null,

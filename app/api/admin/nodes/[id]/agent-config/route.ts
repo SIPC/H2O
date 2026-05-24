@@ -59,6 +59,7 @@ export async function GET(
     hysteria_stats_secret: desired.hy2StatsSecret,
     interval_seconds: desired.intervalSeconds,
     auto_update_enabled: desired.node.agent_auto_update_enabled !== 0,
+    hy2_auto_update_enabled: desired.node.hy2_auto_update_enabled !== 0,
     hysteria_config_path: desired.configPath,
     hysteria_service_name: desired.serviceName,
     agent_config_path: "/etc/h2o-agent/config.json",

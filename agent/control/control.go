@@ -14,22 +14,26 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"h2o-agent/hy2update"
 )
 
 type Config struct {
-	H2OURL              string
-	AuthPath            string
-	AgentSecret         string
-	HysteriaConfigPath  string
-	HysteriaServiceName string
-	AgentConfigPath     string
-	AutoUpdateEnabled   bool
-	IntervalSeconds     int
-	HysteriaStatsURL    string
-	HysteriaStatsSecret string
+	H2OURL               string
+	AuthPath             string
+	AgentSecret          string
+	HysteriaConfigPath   string
+	HysteriaServiceName  string
+	AgentConfigPath      string
+	AutoUpdateEnabled    bool
+	Hy2AutoUpdateEnabled bool
+	IntervalSeconds      int
+	HysteriaStatsURL     string
+	HysteriaStatsSecret  string
 }
 
 type TaskResult struct {
@@ -47,6 +51,7 @@ type SyncRequest struct {
 	Arch                  string       `json:"arch"`
 	ServiceManager        string       `json:"service_manager,omitempty"`
 	AutoUpdateEnabled     bool         `json:"auto_update_enabled"`
+	Hy2AutoUpdateEnabled  bool         `json:"hy2_auto_update_enabled"`
 	IntervalSeconds       int          `json:"interval_seconds,omitempty"`
 	Hy2Status             string       `json:"hy2_status,omitempty"`
 	Hy2Version            string       `json:"hy2_version,omitempty"`
@@ -73,10 +78,11 @@ type SyncResponse struct {
 			ServiceName string `json:"service_name"`
 		} `json:"desired_config"`
 		AgentConfig struct {
-			IntervalSeconds     int    `json:"interval_seconds"`
-			AutoUpdateEnabled   bool   `json:"auto_update_enabled"`
-			HysteriaStatsURL    string `json:"hysteria_stats_url"`
-			HysteriaStatsSecret string `json:"hysteria_stats_secret"`
+			IntervalSeconds      int    `json:"interval_seconds"`
+			AutoUpdateEnabled    bool   `json:"auto_update_enabled"`
+			Hy2AutoUpdateEnabled *bool  `json:"hy2_auto_update_enabled,omitempty"`
+			HysteriaStatsURL     string `json:"hysteria_stats_url"`
+			HysteriaStatsSecret  string `json:"hysteria_stats_secret"`
 		} `json:"agent_config"`
 		Tasks []Task `json:"tasks"`
 	} `json:"data"`
@@ -135,6 +141,7 @@ func Sync(
 		Arch:                  runtime.GOARCH,
 		ServiceManager:        detectServiceManager(),
 		AutoUpdateEnabled:     cfg.AutoUpdateEnabled,
+		Hy2AutoUpdateEnabled:  cfg.Hy2AutoUpdateEnabled,
 		IntervalSeconds:       cfg.IntervalSeconds,
 		Hy2Status:             status,
 		Hy2Version:            hy2Version,
@@ -151,6 +158,7 @@ func Sync(
 			"apply-config",
 			"agent-restart",
 			"self-update",
+			"hy2-update",
 		},
 		TaskResults: pending,
 	}
@@ -188,7 +196,9 @@ func Sync(
 	}
 
 	for _, task := range resp.Data.Tasks {
-		results = append(results, ExecuteTask(requestCtx, cfg, task, version))
+		// 任务可能包含下载更新等长耗时操作，使用自身 taskTimeout 控制，
+		// 不复用控制面请求的短超时。
+		results = append(results, ExecuteTask(ctx, cfg, task, version))
 	}
 
 	restartAgent := deliveredPendingRestart || shouldRestartAgent(results)
@@ -205,7 +215,7 @@ func Sync(
 	}
 	if restartAgent {
 		if err := restartAgentService(ctx); err != nil {
-			return resp, results, fmt.Errorf("自更新已完成但重启 agent 服务失败: %w", err)
+			return resp, results, fmt.Errorf("更新 Agent 已完成但重启 agent 服务失败: %w", err)
 		}
 	}
 
@@ -231,6 +241,7 @@ func submitTaskResults(ctx context.Context, cfg Config, version string, results 
 		Arch:                  runtime.GOARCH,
 		ServiceManager:        detectServiceManager(),
 		AutoUpdateEnabled:     cfg.AutoUpdateEnabled,
+		Hy2AutoUpdateEnabled:  cfg.Hy2AutoUpdateEnabled,
 		IntervalSeconds:       cfg.IntervalSeconds,
 		Hy2Status:             status,
 		Hy2Version:            hy2Version,
@@ -247,6 +258,7 @@ func submitTaskResults(ctx context.Context, cfg Config, version string, results 
 			"apply-config",
 			"agent-restart",
 			"self-update",
+			"hy2-update",
 		},
 		TaskResults: results,
 	}
@@ -273,6 +285,9 @@ func withPanelAgentConfig(cfg Config, resp *SyncResponse) Config {
 		cfg.IntervalSeconds = resp.Data.AgentConfig.IntervalSeconds
 	}
 	cfg.AutoUpdateEnabled = resp.Data.AgentConfig.AutoUpdateEnabled
+	if resp.Data.AgentConfig.Hy2AutoUpdateEnabled != nil {
+		cfg.Hy2AutoUpdateEnabled = *resp.Data.AgentConfig.Hy2AutoUpdateEnabled
+	}
 	if resp.Data.AgentConfig.HysteriaStatsURL != "" {
 		cfg.HysteriaStatsURL = resp.Data.AgentConfig.HysteriaStatsURL
 	}
@@ -302,6 +317,11 @@ func updateLocalAgentConfig(cfg Config, resp *SyncResponse) error {
 	}
 	if resp.Data.AgentConfig.AutoUpdateEnabled != cfg.AutoUpdateEnabled {
 		raw["auto_update_enabled"] = resp.Data.AgentConfig.AutoUpdateEnabled
+		changed = true
+	}
+	if resp.Data.AgentConfig.Hy2AutoUpdateEnabled != nil &&
+		*resp.Data.AgentConfig.Hy2AutoUpdateEnabled != cfg.Hy2AutoUpdateEnabled {
+		raw["hy2_auto_update_enabled"] = *resp.Data.AgentConfig.Hy2AutoUpdateEnabled
 		changed = true
 	}
 	if resp.Data.AgentConfig.HysteriaStatsURL != "" &&
@@ -427,6 +447,8 @@ func ExecuteTask(ctx context.Context, cfg Config, task Task, version string) Tas
 		return runServiceTask(taskCtx, task.ID, "restart", cfg.HysteriaServiceName)
 	case "HY2_LOGS":
 		return readLogsTask(taskCtx, task.ID, cfg.HysteriaServiceName, task.Payload)
+	case "HY2_SELF_UPDATE":
+		return hy2SelfUpdateTask(taskCtx, task.ID, cfg.HysteriaServiceName)
 	case "AGENT_LOGS":
 		return readLogsTask(taskCtx, task.ID, "h2o-agent", task.Payload)
 	case "AGENT_RESTART":
@@ -460,11 +482,87 @@ func taskTimeout(taskType string) time.Duration {
 		return time.Minute
 	case "APPLY_CONFIG":
 		return 5 * time.Minute
-	case "AGENT_RESTART", "AGENT_SELF_UPDATE":
+	case "AGENT_RESTART", "AGENT_SELF_UPDATE", "HY2_SELF_UPDATE":
 		return 10 * time.Minute
 	default:
 		return 2 * time.Minute
 	}
+}
+
+const hy2AutoUpdateInterval = 24 * time.Hour
+
+type hy2UpdateState struct {
+	LastCheckAt string `json:"last_check_at"`
+}
+
+func MaybeAutoUpdateHy2(ctx context.Context, cfg Config) (*hy2update.Result, error) {
+	if !cfg.Hy2AutoUpdateEnabled {
+		return nil, nil
+	}
+	statePath := hy2UpdateStatePath(cfg.AgentConfigPath)
+	if !shouldCheckHy2Update(statePath, time.Now()) {
+		return nil, nil
+	}
+	_ = writeHy2UpdateState(statePath, time.Now())
+	currentVersion, _ := hysteriaVersion(ctx)
+	return runHy2Update(ctx, currentVersion, cfg.HysteriaServiceName)
+}
+
+func hy2SelfUpdateTask(ctx context.Context, id int64, serviceName string) TaskResult {
+	currentVersion, _ := hysteriaVersion(ctx)
+	result, err := runHy2Update(ctx, currentVersion, serviceName)
+	if err != nil {
+		return failedTask(id, err)
+	}
+	payload := map[string]interface{}{
+		"current_version":  result.CurrentVersion,
+		"latest_version":   result.LatestVersion,
+		"updated":          result.Updated,
+		"restart_required": result.Updated,
+	}
+	if result.SkippedReason != "" {
+		payload["skipped_reason"] = result.SkippedReason
+	}
+	return succeededTask(id, payload)
+}
+
+func runHy2Update(ctx context.Context, currentVersion, serviceName string) (*hy2update.Result, error) {
+	return hy2update.CheckAndUpdate(ctx, currentVersion, func(restartCtx context.Context) error {
+		return serviceCommand(restartCtx, "restart", serviceName)
+	})
+}
+
+func hy2UpdateStatePath(configPath string) string {
+	if configPath != "" {
+		return filepath.Join(filepath.Dir(configPath), "hy2-update-state.json")
+	}
+	return "/etc/h2o-agent/hy2-update-state.json"
+}
+
+func shouldCheckHy2Update(path string, now time.Time) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return true
+	}
+	var state hy2UpdateState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return true
+	}
+	lastCheckAt, err := time.Parse(time.RFC3339, state.LastCheckAt)
+	if err != nil {
+		return true
+	}
+	return now.Sub(lastCheckAt) >= hy2AutoUpdateInterval
+}
+
+func writeHy2UpdateState(path string, checkedAt time.Time) error {
+	encoded, err := json.MarshalIndent(hy2UpdateState{
+		LastCheckAt: checkedAt.UTC().Format(time.RFC3339),
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(path, append(encoded, '\n'), 0600)
 }
 
 func applyConfig(ctx context.Context, cfg Config, payload applyConfigPayload) TaskResult {
@@ -798,7 +896,7 @@ func hysteriaVersion(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return trimOutput(strings.TrimSpace(string(out)), 128), nil
+	return hy2update.NormalizeVersion(string(out)), nil
 }
 
 func hashFile(path string) string {

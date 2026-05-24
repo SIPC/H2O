@@ -103,6 +103,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `masquerade_config` | `TEXT` | nullable（JSON 字符串） |
 | `agent_interval` | `INTEGER` | nullable（Agent 上报/同步间隔秒数，默认 120） |
 | `agent_auto_update_enabled` | `INTEGER` | `NOT NULL DEFAULT 1`, `CHECK(agent_auto_update_enabled IN (0,1))` |
+| `hy2_auto_update_enabled` | `INTEGER` | `NOT NULL DEFAULT 1`, `CHECK(hy2_auto_update_enabled IN (0,1))`（Agent 侧每日检查并更新 Hy2） |
 | `hy2_stats_secret` | `TEXT` | nullable（Hy2 `trafficStats.secret`，首次部署/取配置时持久化） |
 | `agent_secret` | `TEXT` | nullable（Agent 控制面 HMAC 共享密钥，32 字节随机 hex） |
 | `agent_control_enabled` | `INTEGER` | `NOT NULL DEFAULT 1`, `CHECK(agent_control_enabled IN (0,1))` |
@@ -272,7 +273,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `finished_at` | `TEXT` | nullable |
 | `updated_at` | `TEXT` | `NOT NULL DEFAULT (datetime('now'))` |
 
-当前允许任务类型：`HY2_STATUS` / `HY2_START` / `HY2_STOP` / `HY2_RESTART` / `HY2_LOGS` / `AGENT_LOGS` / `AGENT_RESTART` / `APPLY_CONFIG` / `AGENT_SELF_UPDATE`。
+当前允许任务类型：`HY2_STATUS` / `HY2_START` / `HY2_STOP` / `HY2_RESTART` / `HY2_LOGS` / `HY2_SELF_UPDATE` / `AGENT_LOGS` / `AGENT_RESTART` / `APPLY_CONFIG` / `AGENT_SELF_UPDATE`。
 
 `agent_request_nonces`（Agent HMAC 请求 nonce 防重放）
 
@@ -455,7 +456,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 `agent/` 目录是独立 Go 程序，部署在每个 Hysteria2 节点上，负责采集 Hy2 Traffic Stats API、上报面板，并执行拉取式控制面任务。
 
-**架构**：五个包——`main`（CLI、配置、信号处理、ticker 循环）、`stats`（并发获取 `/traffic` + `/online`）、`report`（POST 流量快照到面板）、`control`（拉取式控制面同步、Hy2 服务管理、配置应用、日志读取）、`selfupdate`（GitHub Release 自更新）。
+**架构**：五个包——`main`（CLI、配置、信号处理、ticker 循环）、`stats`（并发获取 `/traffic` + `/online`）、`report`（POST 流量快照到面板）、`control`（拉取式控制面同步、Hy2 服务管理、配置应用、日志读取）、`selfupdate`（GitHub Release 更新 Agent）。
 
 **通信**：
 - 流量上报：`POST {h2o_url}/api/node/auth/{authPath}/traffic`，复用 `auth_path` 标识节点。Hy2 本地 API 通过 `Authorization: <secret>` 头认证（对应 Hy2 配置的 `trafficStats.secret`）。当前 `report.Send()` payload 只包含 `traffic` / `online`，不携带 `agent_version`。
@@ -472,7 +473,8 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `hysteria_stats_url` | 本地 Hy2 Stats API，默认 `http://127.0.0.1:9999` |
 | `hysteria_stats_secret` | Hy2 配置的 `trafficStats.secret`，由面板持久化生成 |
 | `interval_seconds` | 上报/同步间隔，默认 120 |
-| `auto_update_enabled` | 是否允许 Agent 自更新，默认 true |
+| `auto_update_enabled` | 是否允许更新 Agent，默认 true |
+| `hy2_auto_update_enabled` | 是否允许 Agent 每日检查并更新 Hysteria2，默认 true |
 | `hysteria_config_path` | Hy2 配置路径，默认 `/etc/hysteria/config.yaml` |
 | `hysteria_service_name` | Hy2 服务名，默认 `hysteria-server` |
 | `agent_config_path` | Agent 自身配置路径，默认当前 `-c` 参数 |
@@ -485,9 +487,9 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 
 **构建**：`agent/build.sh` 交叉编译 `linux/amd64` + `linux/arm64`（CGO_ENABLED=0，静态，strip），从根目录 `package.json` 注入版本，打包为 `dist/h2o-agent-bundle.tar.gz` 并生成 `.sha256`。
 
-**安装**：`agent/install.sh` 是 bundle 内的 systemd 安装脚本：自动检测架构、创建系统用户 `h2o-agent`、安装二进制与 systemd service/timer。service 未设置 `User=`，实际以 root 运行，便于控制 Hy2 服务和写入 `/etc/hysteria/config.yaml`。一键部署脚本（`/api/deploy/node-install` 输出）额外支持 systemd 与 OpenRC/Alpine，OpenRC 下会创建 init 脚本与 daily 自更新任务。
+**安装**：`agent/install.sh` 是 bundle 内的 systemd 安装脚本：自动检测架构、创建系统用户 `h2o-agent`、安装二进制与 systemd service/timer。service 未设置 `User=`，实际以 root 运行，便于控制 Hy2 服务和写入 `/etc/hysteria/config.yaml`。一键部署脚本（`/api/deploy/node-install` 输出）额外支持 systemd 与 OpenRC/Alpine，OpenRC 下会创建 init 脚本与 daily 更新 Agent 任务。
 
-**自更新**：`selfupdate` 访问 GitHub API `https://api.github.com/repos/SIPC/H2O/releases/latest`，按架构下载 `h2o-agent-linux-amd64` / `h2o-agent-linux-arm64` 及 `.sha256`，校验通过后原子替换当前二进制；更新成功以 exit code `2` 表示需要重启。`Version=dev` 时跳过更新。
+**更新 Agent**：`selfupdate` 访问 GitHub API `https://api.github.com/repos/SIPC/H2O/releases/latest`，按架构下载 `h2o-agent-linux-amd64` / `h2o-agent-linux-arm64` 及 `.sha256`，校验通过后原子替换当前二进制；更新成功以 exit code `2` 表示需要重启。`Version=dev` 时跳过更新。
 
 **Go 依赖**：零外部依赖，仅 stdlib，`go 1.22`。
 
@@ -546,7 +548,7 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 - 配置：面板用 `lib/hysteria-server-config.ts` 生成规范 Hy2 YAML，并用 `agent_config_revision` + `agent_desired_config_hash` 管理期望版本；当 Agent 本地 hash/revision 与期望不一致时，sync 会返回一个虚拟 `APPLY_CONFIG` 任务（`id: 0`）
 - 任务领取：sync 会领取最多 5 个 queued 或 lease 过期的 claimed 任务并设置 lease
 - 返回字段包括 `server_time`、`control_enabled`、`desired_config`、`agent_config`、`tasks`
-- 任务队列：`node_agent_tasks`，允许任务类型为 `HY2_STATUS` / `HY2_START` / `HY2_STOP` / `HY2_RESTART` / `HY2_LOGS` / `AGENT_LOGS` / `AGENT_RESTART` / `APPLY_CONFIG` / `AGENT_SELF_UPDATE`
+- 任务队列：`node_agent_tasks`，允许任务类型为 `HY2_STATUS` / `HY2_START` / `HY2_STOP` / `HY2_RESTART` / `HY2_LOGS` / `HY2_SELF_UPDATE` / `AGENT_LOGS` / `AGENT_RESTART` / `APPLY_CONFIG` / `AGENT_SELF_UPDATE`
 - 任务安全：禁止 `RUN_COMMAND` / `EXEC` 等任意命令；Agent 只执行固定白名单操作
 - 常见错误码：`BAD_PAYLOAD` / `NO_NODE` / `AGENT_CONTROL_DISABLED` / `AGENT_SECRET_MISSING` / `UNAUTHORIZED` / `REPLAY_DETECTED` / `INTERNAL`
 - 管理 API：`GET /api/admin/nodes/[id]/agent`、`GET|POST /api/admin/nodes/[id]/tasks`、`GET /api/admin/nodes/[id]/agent-config`、`POST /api/admin/nodes/[id]/agent-secret`、`GET /api/admin/agent-tasks`
@@ -556,6 +558,7 @@ Agent 执行任务要点：
 - `HY2_LOGS` / `AGENT_LOGS` 在 systemd 下读 `journalctl`，OpenRC 下读对应 `/var/log/*.log`
 - `APPLY_CONFIG` 会校验 YAML hash、备份旧配置、写入 revision/applied-at 元信息、重启 Hy2；失败尝试回滚
 - `AGENT_RESTART` 先回传任务结果，再重启 Agent 服务
+- `HY2_SELF_UPDATE` 从 `apernet/hysteria` 最新 Release 下载当前架构二进制，校验 SHA256 后替换并重启 Hy2；失败会尽量回滚旧二进制
 - `AGENT_SELF_UPDATE` 调用自身 `-self-update`，exit code 2 表示已更新并需要重启
 
 ### 一键部署
@@ -568,7 +571,7 @@ Agent 执行任务要点：
 - 部署端口：`node_port` 不为空时使用节点部署端口和 `node_port_hopping`；否则回退订阅端口 `port` / `port_hopping`
 - 生成的 Hy2 配置将 `trafficStats.listen` 绑定到 `127.0.0.1:9999`
 - `node-install` 支持 `payload=base64url(query)` 或直接 query 参数，返回 `text/x-shellscript`
-- 输出脚本支持 systemd 与 OpenRC/Alpine，安装/更新 Hy2、写入 Hy2 config、安装 Agent、写入 Agent config、自更新任务，并提供 uninstall 模式
+- 输出脚本支持 systemd 与 OpenRC/Alpine，安装/更新 Hy2、写入 Hy2 config、安装 Agent、写入 Agent config、更新 Agent 任务，并提供 uninstall 模式
 
 ### Cloudflare DNS 管理
 

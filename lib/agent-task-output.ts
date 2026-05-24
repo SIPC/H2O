@@ -100,6 +100,41 @@ function isRecord(input: unknown): input is Record<string, unknown> {
   return Boolean(input && typeof input === "object" && !Array.isArray(input))
 }
 
+const taskJsonKeyLabel: Record<string, string> = {
+  current_version: "当前版本",
+  latest_version: "最新版本",
+  updated: "是否已更新",
+  restart_required: "需要重启",
+  skipped_reason: "跳过原因",
+  output: "输出",
+  revision: "配置版本",
+  hash: "配置哈希",
+  path: "路径",
+  status: "状态",
+  lines: "日志行数",
+}
+
+const taskJsonValueLabel: Record<string, string> = {
+  running: "运行中",
+  stopped: "已停止",
+  failed: "异常",
+  unknown: "未知",
+}
+
+function localizeTaskJson(input: unknown): unknown {
+  if (Array.isArray(input)) return input.map(localizeTaskJson)
+  if (isRecord(input)) {
+    return Object.fromEntries(
+      Object.entries(input).map(([key, value]) => [
+        taskJsonKeyLabel[key] ?? key,
+        localizeTaskJson(value),
+      ])
+    )
+  }
+  if (typeof input === "string") return taskJsonValueLabel[input] ?? input
+  return input
+}
+
 function parseJournalPrefix(
   line: string
 ): { prefix: string; content: string; service?: string } | null {
@@ -280,7 +315,10 @@ export function parseAgentTaskOutput(
     return { type: "text", value: parsed }
   }
 
-  return { type: "json", value: JSON.stringify(parsed, null, 2) }
+  return {
+    type: "json",
+    value: JSON.stringify(localizeTaskJson(parsed), null, 2),
+  }
 }
 
 export function renderAgentTaskOutput(

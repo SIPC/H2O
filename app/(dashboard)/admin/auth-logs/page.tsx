@@ -43,12 +43,13 @@ type SuccessFilter = "all" | "1" | "0"
 
 const reasonLabel: Record<string, string> = {
   OK: "成功",
-  NO_NODE: "节点无效",
+  BAD_PAYLOAD: "请求体非法",
+  INTERNAL: "内部错误",
+  NO_NODE: "节点不存在",
   NO_USER: "账号不存在",
   USER_DISABLED: "账号已禁用",
   NO_SUB: "无可用订阅",
-  TRAFFIC_EXCEEDED: "流量耗尽",
-  BAD_PAYLOAD: "参数非法",
+  TRAFFIC_EXCEEDED: "流量超限",
 }
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]

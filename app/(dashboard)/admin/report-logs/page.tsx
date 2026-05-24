@@ -87,13 +87,21 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 
 const reasonLabel: Record<string, string> = {
   OK: "成功",
-  BAD_PAYLOAD: "参数非法",
-  NO_NODE: "节点无效",
+  BAD_PAYLOAD: "请求体非法",
+  NO_NODE: "节点不存在",
   NO_USER: "账号不存在",
   USER_DISABLED: "账号已禁用",
   NO_SUB: "无可用订阅",
-  TRAFFIC_EXCEEDED: "流量耗尽",
-  INTERNAL: "处理失败",
+  TRAFFIC_EXCEEDED: "流量超限",
+  INTERNAL: "内部错误",
+}
+
+const detailValueLabel: Record<string, string> = {
+  INVALID_JSON: "JSON 格式非法",
+  INVALID_FIELD_TYPE: "字段类型非法",
+  tx_rx: "上行 + 下行",
+  tx: "仅上行",
+  rx: "仅下行",
 }
 
 const detailLabel: Record<string, string> = {
@@ -109,6 +117,8 @@ const detailLabel: Record<string, string> = {
   node_snapshot_fallback_users: "快照兜底用户",
   subscription_delta_tx_bytes: "订阅计费 TX 增量",
   subscription_delta_rx_bytes: "订阅计费 RX 增量",
+  billable_delta_bytes: "计费用量增量",
+  traffic_billing_mode: "计费口径",
   used_traffic_bytes: "原已用流量",
   next_usage_bytes: "新已用流量",
   traffic_limit_bytes: "套餐流量上限",
@@ -151,7 +161,8 @@ function renderDetailValue(value: unknown): string {
   if (typeof value === "number")
     return Number.isFinite(value) ? String(value) : "-"
   if (typeof value === "object") return JSON.stringify(value, null, 2)
-  return String(value)
+  const raw = String(value)
+  return detailValueLabel[raw] ?? raw
 }
 
 function renderDetailSummary(detail: string | null) {

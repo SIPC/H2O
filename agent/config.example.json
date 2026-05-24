@@ -7,6 +7,7 @@
   "hysteria_stats_secret": "请填入 Hy2 config 里 trafficStats.secret 的值",
   "interval_seconds": 120,
   "auto_update_enabled": true,
+  "hy2_auto_update_enabled": true,
   "hysteria_config_path": "/etc/hysteria/config.yaml",
   "hysteria_service_name": "hysteria-server",
   "agent_config_path": "/etc/h2o-agent/config.json"

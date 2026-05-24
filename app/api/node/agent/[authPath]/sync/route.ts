@@ -419,6 +419,7 @@ export async function POST(
       agent_config: {
         interval_seconds: desired.intervalSeconds,
         auto_update_enabled: desired.node.agent_auto_update_enabled !== 0,
+        hy2_auto_update_enabled: desired.node.hy2_auto_update_enabled !== 0,
         hysteria_stats_url: "http://127.0.0.1:9999",
         hysteria_stats_secret: desired.hy2StatsSecret,
       },

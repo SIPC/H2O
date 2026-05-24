@@ -137,6 +137,7 @@ type AgentTaskType =
   | "HY2_STOP"
   | "HY2_RESTART"
   | "HY2_LOGS"
+  | "HY2_SELF_UPDATE"
   | "AGENT_LOGS"
   | "AGENT_RESTART"
   | "APPLY_CONFIG"
@@ -184,6 +185,7 @@ type AgentDetail = {
     agent_desired_config_hash: string | null
     agent_interval: number
     agent_auto_update_enabled: boolean
+    hy2_auto_update_enabled: boolean
   }
   desired_config: {
     revision: number
@@ -247,6 +249,7 @@ type NodeRow = {
   masquerade_config: string | null
   agent_interval: number | null
   agent_auto_update_enabled: 0 | 1 | null
+  hy2_auto_update_enabled: 0 | 1 | null
   host_traffic_limit_bytes: number | null
   host_traffic_used_bytes: number | null
   host_traffic_billing_mode: HostTrafficBillingMode | null
@@ -319,10 +322,11 @@ const TASK_LABEL: Record<AgentTaskType, string> = {
   HY2_STOP: "停止 Hysteria2",
   HY2_RESTART: "重启 Hysteria2",
   HY2_LOGS: "查看 Hysteria2 日志",
+  HY2_SELF_UPDATE: "更新 Hysteria2",
   AGENT_LOGS: "查看 Agent 日志",
   AGENT_RESTART: "重启 Agent",
   APPLY_CONFIG: "应用配置",
-  AGENT_SELF_UPDATE: "Agent 自更新",
+  AGENT_SELF_UPDATE: "更新 Agent",
 }
 
 const TASK_STATUS_LABEL: Record<AgentTaskStatus, string> = {
@@ -449,6 +453,30 @@ function getHy2StatusClass(status: string | null) {
   if (status === "stopped") return "bg-muted text-muted-foreground"
   if (status === "failed") return "bg-red-500/15 text-red-700 dark:text-red-400"
   return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+}
+
+function formatHy2Version(version: string | null) {
+  if (!version) return null
+  const value = version.trim()
+  if (!value) return null
+  const labeledMatch = value.match(
+    /^\s*Version:\s*(?:app\/)?v?(\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?)\b/im
+  )
+  if (labeledMatch?.[1]) return labeledMatch[1]
+  const tagMatch = value.match(
+    /^(?:app\/)?v?(\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?)$/i
+  )
+  return tagMatch?.[1] ?? null
+}
+
+function hasAgentCapability(row: NodeRow, capability: string) {
+  if (!row.capabilities) return false
+  try {
+    const parsed = JSON.parse(row.capabilities) as unknown
+    return Array.isArray(parsed) && parsed.includes(capability)
+  } catch {
+    return false
+  }
 }
 
 function clampHour(hour: number): number {
@@ -986,6 +1014,8 @@ function NodeCard({
   const fresh = isFresh(row.last_report_at)
   const agentFresh = isAgentFresh(row.agent_last_seen_at)
   const displayAgentVersion = row.control_agent_version
+  const displayHy2Version = formatHy2Version(row.hy2_version)
+  const supportsHy2Update = hasAgentCapability(row, "hy2-update")
   const onlineCount = row.online_count ?? 0
   const dnsStatusMeta = getDnsStatusMeta(row.dns_status)
   const dnsStatusTitle = row.dns_status_detail || dnsStatusMeta?.description
@@ -1006,15 +1036,26 @@ function NodeCard({
       {/* 渐变遮罩 - 确保文字可读 */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-card/95 via-card/70 to-card/30" />
 
-      {displayAgentVersion && (
-        <Badge
-          className="absolute right-3 bottom-3 z-10 bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
-          title={`Agent 版本：${displayAgentVersion}`}
-        >
-          <Bot className="mr-0.5 h-2.5 w-2.5" />
-          {displayAgentVersion}
-        </Badge>
-      )}
+      <div className="absolute right-3 bottom-3 z-10 flex flex-col items-end gap-1">
+        {displayHy2Version && (
+          <Badge
+            className="bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
+            title={`Hysteria2 版本：${displayHy2Version}`}
+          >
+            <Server className="mr-0.5 h-2.5 w-2.5" />
+            {displayHy2Version}
+          </Badge>
+        )}
+        {displayAgentVersion && (
+          <Badge
+            className="bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
+            title={`Agent 版本：${displayAgentVersion}`}
+          >
+            <Bot className="mr-0.5 h-2.5 w-2.5" />
+            {displayAgentVersion}
+          </Badge>
+        )}
+      </div>
 
       {/* 节点信息 - 叠加在图表上 */}
       <div className="relative flex h-full flex-col justify-between p-3">
@@ -1106,6 +1147,18 @@ function NodeCard({
                       停止 Hysteria2
                     </DropdownMenuItem>
                     <DropdownMenuItem
+                      disabled={!supportsHy2Update}
+                      title={
+                        supportsHy2Update
+                          ? undefined
+                          : "请先更新 Agent 后再更新 Hysteria2"
+                      }
+                      onClick={() => onQueueAgentTask(row, "HY2_SELF_UPDATE")}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      更新 Hysteria2
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_LOGS")}
                     >
                       <FileText className="h-4 w-4" />
@@ -1150,7 +1203,7 @@ function NodeCard({
                       onClick={() => onQueueAgentTask(row, "AGENT_SELF_UPDATE")}
                     >
                       <Bot className="h-4 w-4" />
-                      Agent 自更新
+                      更新 Agent
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
@@ -1365,6 +1418,8 @@ function NodeForm({
   setAgentInterval,
   agentAutoUpdateEnabled,
   setAgentAutoUpdateEnabled,
+  hy2AutoUpdateEnabled,
+  setHy2AutoUpdateEnabled,
   agentControlEnabled,
   setAgentControlEnabled,
   onSubmit,
@@ -1454,6 +1509,8 @@ function NodeForm({
   setAgentInterval: (v: string) => void
   agentAutoUpdateEnabled: boolean
   setAgentAutoUpdateEnabled: (v: boolean) => void
+  hy2AutoUpdateEnabled: boolean
+  setHy2AutoUpdateEnabled: (v: boolean) => void
   agentControlEnabled: boolean
   setAgentControlEnabled: (v: boolean) => void
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
@@ -2100,7 +2157,7 @@ function NodeForm({
         </div>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label>每日自动更新</Label>
+            <Label>Agent 每日自动更新</Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
               启用后，Agent 将按计划检查发布版本并更新当前系统架构对应的程序包。
             </p>
@@ -2108,6 +2165,19 @@ function NodeForm({
           <Switch
             checked={agentAutoUpdateEnabled}
             onCheckedChange={setAgentAutoUpdateEnabled}
+          />
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <Label>Hysteria2 每日自动更新</Label>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              启用后，Agent 会每日检查 Hysteria2 Release，更新成功后会重启 Hy2
+              服务。
+            </p>
+          </div>
+          <Switch
+            checked={hy2AutoUpdateEnabled}
+            onCheckedChange={setHy2AutoUpdateEnabled}
           />
         </div>
       </NodeFormSection>
@@ -2196,6 +2266,7 @@ export default function AdminNodesPage() {
   const [hostTrafficResetAnchor, setHostTrafficResetAnchor] = useState("")
   const [agentInterval, setAgentInterval] = useState("")
   const [agentAutoUpdateEnabled, setAgentAutoUpdateEnabled] = useState(true)
+  const [hy2AutoUpdateEnabled, setHy2AutoUpdateEnabled] = useState(true)
   const [agentControlEnabled, setAgentControlEnabled] = useState(true)
 
   // 编辑面板
@@ -2249,6 +2320,7 @@ export default function AdminNodesPage() {
   const [editAgentInterval, setEditAgentInterval] = useState("")
   const [editAgentAutoUpdateEnabled, setEditAgentAutoUpdateEnabled] =
     useState(true)
+  const [editHy2AutoUpdateEnabled, setEditHy2AutoUpdateEnabled] = useState(true)
   const [editAgentControlEnabled, setEditAgentControlEnabled] = useState(true)
   const [agentDetailRow, setAgentDetailRow] = useState<NodeRow | null>(null)
   const [agentDetail, setAgentDetail] = useState<AgentDetail | null>(null)
@@ -2665,6 +2737,7 @@ export default function AdminNodesPage() {
         ),
         agentInterval: agentInterval ? Number(agentInterval) : null,
         agentAutoUpdateEnabled,
+        hy2AutoUpdateEnabled,
         agentControlEnabled,
       }),
     })
@@ -2711,6 +2784,7 @@ export default function AdminNodesPage() {
     setHostTrafficResetAnchor("")
     setAgentInterval("")
     setAgentAutoUpdateEnabled(true)
+    setHy2AutoUpdateEnabled(true)
     setAgentControlEnabled(true)
     setCreateOpen(false)
     await load()
@@ -2878,6 +2952,7 @@ export default function AdminNodesPage() {
       row.agent_interval != null ? String(row.agent_interval) : ""
     )
     setEditAgentAutoUpdateEnabled(row.agent_auto_update_enabled !== 0)
+    setEditHy2AutoUpdateEnabled(row.hy2_auto_update_enabled !== 0)
     setEditAgentControlEnabled(row.agent_control_enabled !== 0)
   }
 
@@ -2938,6 +3013,7 @@ export default function AdminNodesPage() {
       ),
       agentInterval: editAgentInterval ? Number(editAgentInterval) : null,
       agentAutoUpdateEnabled: editAgentAutoUpdateEnabled,
+      hy2AutoUpdateEnabled: editHy2AutoUpdateEnabled,
       agentControlEnabled: editAgentControlEnabled,
     })
 
@@ -2987,7 +3063,9 @@ export default function AdminNodesPage() {
     const confirmDescriptions: Partial<Record<AgentTaskType, string>> = {
       HY2_STOP: "停止 Hysteria2 会中断当前节点连接，确认继续？",
       AGENT_RESTART: "重启 Agent 会短暂中断控制面同步和流量上报，确认继续？",
-      AGENT_SELF_UPDATE: "Agent 自更新成功后会自动重启服务，确认继续？",
+      AGENT_SELF_UPDATE: "更新 Agent 成功后会自动重启服务，确认继续？",
+      HY2_SELF_UPDATE:
+        "更新 Hysteria2 会重启 Hy2 服务并短暂中断节点连接，确认继续？",
     }
     const confirmDescription = confirmDescriptions[type]
     if (confirmDescription) {
@@ -3563,6 +3641,8 @@ export default function AdminNodesPage() {
                 setAgentInterval={setAgentInterval}
                 agentAutoUpdateEnabled={agentAutoUpdateEnabled}
                 setAgentAutoUpdateEnabled={setAgentAutoUpdateEnabled}
+                hy2AutoUpdateEnabled={hy2AutoUpdateEnabled}
+                setHy2AutoUpdateEnabled={setHy2AutoUpdateEnabled}
                 agentControlEnabled={agentControlEnabled}
                 setAgentControlEnabled={setAgentControlEnabled}
                 onSubmit={create}
@@ -3653,6 +3733,18 @@ export default function AdminNodesPage() {
                             {(agentDetail.state?.agent_version as
                               | string
                               | null) ?? "-"}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">
+                            Hy2 版本
+                          </span>
+                          <p className="font-mono">
+                            {formatHy2Version(
+                              (agentDetail.state?.hy2_version as
+                                | string
+                                | null) ?? null
+                            ) ?? "-"}
                           </p>
                         </div>
                         <div>
@@ -3871,6 +3963,8 @@ export default function AdminNodesPage() {
                 setAgentInterval={setEditAgentInterval}
                 agentAutoUpdateEnabled={editAgentAutoUpdateEnabled}
                 setAgentAutoUpdateEnabled={setEditAgentAutoUpdateEnabled}
+                hy2AutoUpdateEnabled={editHy2AutoUpdateEnabled}
+                setHy2AutoUpdateEnabled={setEditHy2AutoUpdateEnabled}
                 agentControlEnabled={editAgentControlEnabled}
                 setAgentControlEnabled={setEditAgentControlEnabled}
                 onSubmit={submitEdit}

@@ -54,6 +54,7 @@ type CreateNodeBody = {
   masqueradeConfig?: Record<string, unknown> | null
   agentInterval?: number | null
   agentAutoUpdateEnabled?: boolean
+  hy2AutoUpdateEnabled?: boolean
   agentControlEnabled?: boolean
   hostTrafficLimitBytes?: number | null
   hostTrafficUsedBytes?: number | null
@@ -79,6 +80,7 @@ export async function GET(request: Request) {
               n.cert_mode, n.cert_path, n.key_path,
               n.acme_domains, n.acme_email, n.acme_dns_provider, n.acme_dns_config,
               n.masquerade_type, n.masquerade_config, n.agent_interval, n.agent_auto_update_enabled,
+              n.hy2_auto_update_enabled,
               n.agent_control_enabled, n.agent_config_revision, n.agent_desired_config_hash,
               n.agent_last_config_built_at,
               n.host_traffic_limit_bytes, n.host_traffic_used_bytes,
@@ -289,6 +291,7 @@ export async function POST(request: Request) {
       ? body.agentInterval
       : null
   const agentAutoUpdateEnabled = body.agentAutoUpdateEnabled === false ? 0 : 1
+  const hy2AutoUpdateEnabled = body.hy2AutoUpdateEnabled === false ? 0 : 1
   const agentControlEnabled = body.agentControlEnabled === false ? 0 : 1
 
   const hostTrafficLimit = parseHostTrafficLimitBytes(
@@ -467,11 +470,11 @@ export async function POST(request: Request) {
            node_ip, node_port, node_port_hopping, cert_mode, cert_path, key_path,
            acme_domains, acme_email, acme_dns_provider, acme_dns_config,
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
-           hy2_stats_secret, agent_secret, agent_control_enabled,
+           hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
            host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
            host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor,
            sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         body.name,
@@ -501,6 +504,7 @@ export async function POST(request: Request) {
         masqueradeConfig,
         agentInterval,
         agentAutoUpdateEnabled,
+        hy2AutoUpdateEnabled,
         hy2StatsSecret,
         agentSecret,
         agentControlEnabled,

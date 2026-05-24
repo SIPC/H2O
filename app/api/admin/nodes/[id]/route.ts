@@ -67,6 +67,7 @@ type UpdateNodeBody = {
   masqueradeConfig?: Record<string, unknown> | null
   agentInterval?: number | null
   agentAutoUpdateEnabled?: boolean
+  hy2AutoUpdateEnabled?: boolean
   agentControlEnabled?: boolean
   hostTrafficLimitBytes?: number | null
   hostTrafficUsedBytes?: number | null
@@ -340,6 +341,7 @@ export async function PATCH(
               cert_mode, cert_path, key_path, acme_domains, acme_email,
               acme_dns_provider, acme_dns_config, masquerade_type,
               masquerade_config, agent_interval, agent_auto_update_enabled,
+              hy2_auto_update_enabled,
               host_traffic_limit_bytes, host_traffic_used_bytes,
               host_traffic_billing_mode, host_traffic_reset_cycle,
               host_traffic_reset_interval_days, host_traffic_reset_anchor
@@ -466,6 +468,12 @@ export async function PATCH(
     updates.push("agent_auto_update_enabled = ?")
     values.push(body.agentAutoUpdateEnabled ? 1 : 0)
     changedFields.push("agent_auto_update_enabled")
+  }
+
+  if (body.hy2AutoUpdateEnabled !== undefined) {
+    updates.push("hy2_auto_update_enabled = ?")
+    values.push(body.hy2AutoUpdateEnabled ? 1 : 0)
+    changedFields.push("hy2_auto_update_enabled")
   }
 
   if (body.agentControlEnabled !== undefined) {

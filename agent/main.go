@@ -24,17 +24,18 @@ const initialRunDelay = 10 * time.Second
 
 // 配置文件结构；字段名与 JSON 键保持 snake_case
 type Config struct {
-	H2OURL              string `json:"h2o_url"`
-	AuthPath            string `json:"auth_path"`
-	AgentSecret         string `json:"agent_secret"`
-	ControlEnabled      *bool  `json:"control_enabled"`
-	HysteriaStatsURL    string `json:"hysteria_stats_url"`
-	HysteriaStatsSecret string `json:"hysteria_stats_secret"`
-	IntervalSeconds     int    `json:"interval_seconds"`
-	AutoUpdateEnabled   *bool  `json:"auto_update_enabled"`
-	HysteriaConfigPath  string `json:"hysteria_config_path"`
-	HysteriaServiceName string `json:"hysteria_service_name"`
-	AgentConfigPath     string `json:"agent_config_path"`
+	H2OURL               string `json:"h2o_url"`
+	AuthPath             string `json:"auth_path"`
+	AgentSecret          string `json:"agent_secret"`
+	ControlEnabled       *bool  `json:"control_enabled"`
+	HysteriaStatsURL     string `json:"hysteria_stats_url"`
+	HysteriaStatsSecret  string `json:"hysteria_stats_secret"`
+	IntervalSeconds      int    `json:"interval_seconds"`
+	AutoUpdateEnabled    *bool  `json:"auto_update_enabled"`
+	Hy2AutoUpdateEnabled *bool  `json:"hy2_auto_update_enabled"`
+	HysteriaConfigPath   string `json:"hysteria_config_path"`
+	HysteriaServiceName  string `json:"hysteria_service_name"`
+	AgentConfigPath      string `json:"agent_config_path"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -52,6 +53,10 @@ func loadConfig(path string) (*Config, error) {
 	if c.AutoUpdateEnabled == nil {
 		defaultAutoUpdate := true
 		c.AutoUpdateEnabled = &defaultAutoUpdate
+	}
+	if c.Hy2AutoUpdateEnabled == nil {
+		defaultHy2AutoUpdate := true
+		c.Hy2AutoUpdateEnabled = &defaultHy2AutoUpdate
 	}
 	if c.ControlEnabled == nil {
 		defaultControl := c.AgentSecret != ""
@@ -118,10 +123,11 @@ func main() {
 
 	interval := time.Duration(cfg.IntervalSeconds) * time.Second
 	log.Printf(
-		"[h2o-agent] 启动，版本 %s，上报间隔 %s，自动更新 %v",
+		"[h2o-agent] 启动，版本 %s，上报间隔 %s，Agent 自动更新 %v，Hy2 自动更新 %v",
 		Version,
 		interval,
 		cfg.AutoUpdateEnabled != nil && *cfg.AutoUpdateEnabled,
+		cfg.Hy2AutoUpdateEnabled != nil && *cfg.Hy2AutoUpdateEnabled,
 	)
 
 	var pendingControlResults []control.TaskResult
@@ -153,17 +159,18 @@ func main() {
 
 func runOnce(ctx context.Context, cfg *Config, pending []control.TaskResult) []control.TaskResult {
 	if cfg.ControlEnabled != nil && *cfg.ControlEnabled {
-		_, results, err := control.Sync(ctx, control.Config{
-			H2OURL:              cfg.H2OURL,
-			AuthPath:            cfg.AuthPath,
-			AgentSecret:         cfg.AgentSecret,
-			HysteriaConfigPath:  cfg.HysteriaConfigPath,
-			HysteriaServiceName: cfg.HysteriaServiceName,
-			AgentConfigPath:     cfg.AgentConfigPath,
-			AutoUpdateEnabled:   cfg.AutoUpdateEnabled != nil && *cfg.AutoUpdateEnabled,
-			IntervalSeconds:     cfg.IntervalSeconds,
-			HysteriaStatsURL:    cfg.HysteriaStatsURL,
-			HysteriaStatsSecret: cfg.HysteriaStatsSecret,
+		resp, results, err := control.Sync(ctx, control.Config{
+			H2OURL:               cfg.H2OURL,
+			AuthPath:             cfg.AuthPath,
+			AgentSecret:          cfg.AgentSecret,
+			HysteriaConfigPath:   cfg.HysteriaConfigPath,
+			HysteriaServiceName:  cfg.HysteriaServiceName,
+			AgentConfigPath:      cfg.AgentConfigPath,
+			AutoUpdateEnabled:    cfg.AutoUpdateEnabled != nil && *cfg.AutoUpdateEnabled,
+			Hy2AutoUpdateEnabled: cfg.Hy2AutoUpdateEnabled != nil && *cfg.Hy2AutoUpdateEnabled,
+			IntervalSeconds:      cfg.IntervalSeconds,
+			HysteriaStatsURL:     cfg.HysteriaStatsURL,
+			HysteriaStatsSecret:  cfg.HysteriaStatsSecret,
 		}, Version, pending)
 		if err != nil {
 			log.Printf("同步控制面失败: %v", err)
@@ -172,6 +179,7 @@ func runOnce(ctx context.Context, cfg *Config, pending []control.TaskResult) []c
 				log.Printf("控制面任务结果将在下次同步重试: %d", len(results))
 			}
 		} else {
+			applyPanelAgentConfig(cfg, resp)
 			pending = results
 			if len(results) > 0 {
 				log.Printf("控制面同步成功，待回传任务结果: %d", len(results))
@@ -180,6 +188,8 @@ func runOnce(ctx context.Context, cfg *Config, pending []control.TaskResult) []c
 			}
 		}
 	}
+
+	maybeAutoUpdateHy2(ctx, cfg)
 
 	snap, err := fetchStatsWithRetry(ctx, cfg)
 	if err != nil {
@@ -192,6 +202,54 @@ func runOnce(ctx context.Context, cfg *Config, pending []control.TaskResult) []c
 	}
 	log.Printf("上报成功: users=%d online=%d", len(snap.Traffic), len(snap.Online))
 	return pending
+}
+
+func applyPanelAgentConfig(cfg *Config, resp *control.SyncResponse) {
+	if resp == nil || !resp.OK {
+		return
+	}
+	if resp.Data.AgentConfig.IntervalSeconds > 0 {
+		cfg.IntervalSeconds = resp.Data.AgentConfig.IntervalSeconds
+	}
+	if cfg.AutoUpdateEnabled == nil {
+		cfg.AutoUpdateEnabled = new(bool)
+	}
+	*cfg.AutoUpdateEnabled = resp.Data.AgentConfig.AutoUpdateEnabled
+	if resp.Data.AgentConfig.Hy2AutoUpdateEnabled != nil {
+		if cfg.Hy2AutoUpdateEnabled == nil {
+			cfg.Hy2AutoUpdateEnabled = new(bool)
+		}
+		*cfg.Hy2AutoUpdateEnabled = *resp.Data.AgentConfig.Hy2AutoUpdateEnabled
+	}
+	if resp.Data.AgentConfig.HysteriaStatsURL != "" {
+		cfg.HysteriaStatsURL = resp.Data.AgentConfig.HysteriaStatsURL
+	}
+	if resp.Data.AgentConfig.HysteriaStatsSecret != "" {
+		cfg.HysteriaStatsSecret = resp.Data.AgentConfig.HysteriaStatsSecret
+	}
+}
+
+func maybeAutoUpdateHy2(ctx context.Context, cfg *Config) {
+	if cfg.Hy2AutoUpdateEnabled == nil || !*cfg.Hy2AutoUpdateEnabled {
+		return
+	}
+	result, err := control.MaybeAutoUpdateHy2(ctx, control.Config{
+		HysteriaServiceName:  cfg.HysteriaServiceName,
+		AgentConfigPath:      cfg.AgentConfigPath,
+		Hy2AutoUpdateEnabled: true,
+	})
+	if err != nil {
+		log.Printf("Hy2 自动更新失败: %v", err)
+		return
+	}
+	if result == nil {
+		return
+	}
+	if result.Updated {
+		log.Printf("Hy2 已更新: %s -> %s", result.CurrentVersion, result.LatestVersion)
+		return
+	}
+	log.Printf("Hy2 无需更新: current=%s latest=%s reason=%s", result.CurrentVersion, result.LatestVersion, result.SkippedReason)
 }
 
 func sendReportWithRetry(ctx context.Context, cfg *Config, snap *stats.Snapshot) error {

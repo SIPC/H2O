@@ -26,7 +26,7 @@ export async function GET(
     .prepare(
       `SELECT id, name, auth_path, agent_control_enabled, agent_config_revision,
               agent_desired_config_hash, agent_last_config_built_at,
-              agent_interval, agent_auto_update_enabled
+              agent_interval, agent_auto_update_enabled, hy2_auto_update_enabled
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -42,6 +42,7 @@ export async function GET(
         agent_last_config_built_at: string | null
         agent_interval: number | null
         agent_auto_update_enabled: 0 | 1 | null
+        hy2_auto_update_enabled: 0 | 1 | null
       }
     | undefined
 
@@ -83,6 +84,7 @@ export async function GET(
         agent_last_config_built_at: node.agent_last_config_built_at,
         agent_interval: node.agent_interval ?? 120,
         agent_auto_update_enabled: node.agent_auto_update_enabled !== 0,
+        hy2_auto_update_enabled: node.hy2_auto_update_enabled !== 0,
       },
       desired_config: desired
         ? {

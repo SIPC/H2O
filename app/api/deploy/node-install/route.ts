@@ -30,6 +30,7 @@ type InstallParams = {
   obfsMaxPacketSize: number | null
   intervalSeconds: number
   agentAutoUpdateEnabled: boolean
+  hy2AutoUpdateEnabled: boolean
   agentBundleUrl: string
   certMode: "self-signed" | "acme-http" | "acme-dns" | "acme" | "custom"
   acmeDomains: string[]
@@ -146,6 +147,7 @@ function buildScript(params: InstallParams) {
       hysteria_stats_secret: params.statsSecret,
       interval_seconds: params.intervalSeconds,
       auto_update_enabled: params.agentAutoUpdateEnabled,
+      hy2_auto_update_enabled: params.hy2AutoUpdateEnabled,
       hysteria_config_path: "/etc/hysteria/config.yaml",
       hysteria_service_name: "hysteria-server",
       agent_config_path: "/etc/h2o-agent/config.json",
@@ -188,6 +190,7 @@ function buildScript(params: InstallParams) {
     `HY2_LISTEN=${shellSingleQuote(listenValue)}`,
     `HY2_FALLBACK_LISTEN=${shellSingleQuote(`:${params.port}`)}`,
     `AGENT_AUTO_UPDATE_ENABLED=${shellSingleQuote(params.agentAutoUpdateEnabled ? "true" : "false")}`,
+    `HY2_AUTO_UPDATE_ENABLED=${shellSingleQuote(params.hy2AutoUpdateEnabled ? "true" : "false")}`,
     "",
     "if [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then",
     "  C_RESET=$(tput sgr0 || true)",
@@ -338,7 +341,7 @@ function buildScript(params: InstallParams) {
     "  if command -v rc-service >/dev/null 2>&1; then",
     "    rc-service crond start >/dev/null 2>&1 || true",
     "  fi",
-    '  log_ok "已写入每日自更新任务: /etc/periodic/daily/h2o-agent-self-update"',
+    '  log_ok "已写入每日更新 Agent 任务: /etc/periodic/daily/h2o-agent-self-update"',
     "}",
     "",
     "cleanup_hysteria_firewall_chains() {",
@@ -735,6 +738,16 @@ export async function GET(request: Request) {
   }
   const agentAutoUpdateEnabled = agentAutoUpdateRaw === "true"
 
+  const hy2AutoUpdateRaw =
+    query.get("hy2_auto_update_enabled")?.trim().toLowerCase() ?? "true"
+  if (hy2AutoUpdateRaw !== "true" && hy2AutoUpdateRaw !== "false") {
+    return errorJson(
+      "INVALID_PAYLOAD",
+      "hy2_auto_update_enabled 必须是 true 或 false"
+    )
+  }
+  const hy2AutoUpdateEnabled = hy2AutoUpdateRaw === "true"
+
   const agentBundleUrlRaw = query.get("agent_bundle_url")?.trim() ?? ""
   const agentBundleUrl = parseBaseUrl(agentBundleUrlRaw)
     ? agentBundleUrlRaw
@@ -820,6 +833,7 @@ export async function GET(request: Request) {
     obfsMaxPacketSize: geckoPacketSizes.maxPacketSize,
     intervalSeconds,
     agentAutoUpdateEnabled,
+    hy2AutoUpdateEnabled,
     agentBundleUrl,
     certMode,
     acmeDomains,
