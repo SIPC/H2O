@@ -15,6 +15,10 @@ import {
 } from "@/lib/hysteria-server-config"
 import { resolveNodeRoutingConfig } from "@/lib/hysteria-routing"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
+import {
+  AGENT_TASK_TIMEOUT_ERROR,
+  AGENT_TASK_TIMEOUT_SECONDS,
+} from "@/lib/agent-task-timeout"
 
 export const AGENT_TASK_TYPES = [
   "HY2_STATUS",
@@ -450,6 +454,35 @@ export function rememberAgentNonce(params: {
   } catch {
     return false
   }
+}
+
+export function markTimedOutAgentTasks(
+  params: {
+    database?: DatabaseSync
+    nodeId?: number
+  } = {}
+) {
+  const database = params.database ?? getDb()
+  const nodeClause = params.nodeId ? " AND node_id = ?" : ""
+  const values: Array<string | number> = [
+    AGENT_TASK_TIMEOUT_ERROR,
+    `-${AGENT_TASK_TIMEOUT_SECONDS} seconds`,
+    `-${AGENT_TASK_TIMEOUT_SECONDS} seconds`,
+  ]
+  if (params.nodeId) values.push(params.nodeId)
+
+  const result = database
+    .prepare(
+      `UPDATE node_agent_tasks
+       SET status = 'failed', result = NULL, error = ?,
+           finished_at = datetime('now'), updated_at = datetime('now')
+       WHERE (
+         (status = 'queued' AND created_at <= datetime('now', ?))
+         OR (status = 'claimed' AND COALESCE(claimed_at, created_at) <= datetime('now', ?))
+       )${nodeClause}`
+    )
+    .run(...values)
+  return result.changes
 }
 
 export function getTaskLeaseSeconds(type: AgentTaskType) {

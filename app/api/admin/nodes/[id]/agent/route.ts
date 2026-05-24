@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 
-import { buildNodeDesiredConfig, detectOrigin } from "@/lib/agent-control"
+import {
+  buildNodeDesiredConfig,
+  detectOrigin,
+  markTimedOutAgentTasks,
+} from "@/lib/agent-control"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 
@@ -57,6 +61,8 @@ export async function GET(
   const state = db
     .prepare(`SELECT * FROM node_agent_state WHERE node_id = ? LIMIT 1`)
     .get(nodeId)
+
+  markTimedOutAgentTasks({ database: db, nodeId })
 
   const recentTasks = db
     .prepare(

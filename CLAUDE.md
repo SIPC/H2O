@@ -582,7 +582,7 @@ Agent 执行任务要点：
 - Cloudflare token 优先级：节点 `acme_dns_config.cloudflare_api_token` → 全局设置 `cloudflare_api_token`
 - 记录存在时，如 IP 或 TTL 不同则更新，保留原 `proxied`；不存在则创建 `proxied: false`
 
-`GET /api/admin/nodes/dns-status` 检查所有节点的 DNS 解析状态，状态包含 `match` / `partial` / `mismatch` / `unresolved` / `skip`，会查询系统 DNS、Cloudflare、Google、AliDNS、DNSPod 多个来源。
+`GET /api/admin/nodes/dns-status` 检查所有节点的 DNS 解析状态，状态包含 `match` / `partial` / `mismatch` / `unresolved` / `skip`，会查询系统 DNS、Cloudflare、Google、DNSPod 多个来源。
 
 ### API 返回体约定
 

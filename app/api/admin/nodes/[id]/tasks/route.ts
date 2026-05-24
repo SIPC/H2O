@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 
-import { isAgentTaskType } from "@/lib/agent-control"
+import { isAgentTaskType, markTimedOutAgentTasks } from "@/lib/agent-control"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
@@ -47,6 +47,8 @@ export async function GET(
     .prepare(`SELECT id FROM nodes WHERE id = ? LIMIT 1`)
     .get(nodeId) as { id: number } | undefined
   if (!node) return jsonError("NOT_FOUND", "节点不存在", 404)
+
+  markTimedOutAgentTasks({ database: db, nodeId })
 
   const rows = db
     .prepare(

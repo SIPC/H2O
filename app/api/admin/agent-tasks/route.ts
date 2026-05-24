@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 
-import { isAgentTaskType } from "@/lib/agent-control"
+import { isAgentTaskType, markTimedOutAgentTasks } from "@/lib/agent-control"
+import { AGENT_TASK_TIMEOUT_ERROR } from "@/lib/agent-task-timeout"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 
@@ -13,6 +14,7 @@ const VALID_STATUSES = new Set([
   "succeeded",
   "failed",
   "cancelled",
+  "timeout",
 ])
 
 type AgentTaskRow = {
@@ -46,8 +48,13 @@ export async function GET(request: Request) {
   const values: Array<string | number> = []
 
   if (status && status !== "all" && VALID_STATUSES.has(status)) {
-    conditions.push("t.status = ?")
-    values.push(status)
+    if (status === "timeout") {
+      conditions.push("t.status = 'failed' AND t.error = ?")
+      values.push(AGENT_TASK_TIMEOUT_ERROR)
+    } else {
+      conditions.push("t.status = ?")
+      values.push(status)
+    }
   }
 
   if (type && type !== "all" && isAgentTaskType(type)) {
@@ -75,6 +82,8 @@ export async function GET(request: Request) {
   const offset = (page - 1) * pageSize
 
   const db = getDb()
+  markTimedOutAgentTasks({ database: db })
+
   const countRow = db
     .prepare(
       `SELECT COUNT(*) AS c

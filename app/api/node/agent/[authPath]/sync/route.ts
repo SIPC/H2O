@@ -5,6 +5,7 @@ import {
   detectOrigin,
   getTaskLeaseSeconds,
   isAgentTaskType,
+  markTimedOutAgentTasks,
   rememberAgentNonce,
   verifyAgentRequestSignature,
 } from "@/lib/agent-control"
@@ -259,6 +260,8 @@ export async function POST(
 
   try {
     db.exec("BEGIN")
+
+    markTimedOutAgentTasks({ database: db, nodeId: node.id })
 
     db.prepare(
       `INSERT INTO node_agent_state(

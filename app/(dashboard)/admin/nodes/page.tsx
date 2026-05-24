@@ -121,6 +121,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { isAgentTaskTimeoutError } from "@/lib/agent-task-timeout"
 import { cn } from "@/lib/utils"
 
 type DnsStatus = "match" | "partial" | "mismatch" | "unresolved" | "skip"
@@ -335,6 +336,31 @@ const TASK_STATUS_LABEL: Record<AgentTaskStatus, string> = {
   succeeded: "成功",
   failed: "失败",
   cancelled: "已取消",
+}
+
+function isTimedOutTask(task: AgentTaskRow) {
+  return task.status === "failed" && isAgentTaskTimeoutError(task.error)
+}
+
+function getTaskStatusLabel(task: AgentTaskRow) {
+  if (isTimedOutTask(task)) return "超时"
+  return TASK_STATUS_LABEL[task.status] ?? task.status
+}
+
+function getTaskStatusClass(task: AgentTaskRow) {
+  if (task.status === "succeeded") {
+    return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+  }
+  if (isTimedOutTask(task)) {
+    return "bg-orange-500/15 text-orange-700 dark:text-orange-400"
+  }
+  if (task.status === "failed") {
+    return "bg-red-500/15 text-red-700 dark:text-red-400"
+  }
+  if (task.status === "queued" || task.status === "claimed") {
+    return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+  }
+  return ""
 }
 
 const DNS_STATUS_META: Record<
@@ -1039,19 +1065,19 @@ function NodeCard({
       <div className="absolute right-3 bottom-3 z-10 flex flex-col items-end gap-1">
         {displayHy2Version && (
           <Badge
-            className="bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
+            className="inline-flex items-center gap-1 bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
             title={`Hysteria2 版本：${displayHy2Version}`}
           >
-            <Server className="mr-0.5 h-2.5 w-2.5" />
+            <Server className="h-2.5 w-2.5" />
             {displayHy2Version}
           </Badge>
         )}
         {displayAgentVersion && (
           <Badge
-            className="bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
+            className="inline-flex items-center gap-1 bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
             title={`Agent 版本：${displayAgentVersion}`}
           >
-            <Bot className="mr-0.5 h-2.5 w-2.5" />
+            <Bot className="h-2.5 w-2.5" />
             {displayAgentVersion}
           </Badge>
         )}
@@ -1251,18 +1277,18 @@ function NodeCard({
             {dnsStatusMeta && (
               <Badge
                 className={cn(
-                  "px-1.5 py-0 text-[10px]",
+                  "inline-flex items-center gap-1 px-1.5 py-0 text-[10px]",
                   dnsStatusMeta.badgeClassName
                 )}
                 title={dnsStatusTitle}
               >
-                <Globe className="mr-0.5 h-2.5 w-2.5" />
+                <Globe className="h-2.5 w-2.5" />
                 {dnsStatusMeta.label}
               </Badge>
             )}
             {fresh && (
-              <Badge className="bg-blue-500/15 px-1.5 py-0 text-[10px] text-blue-700 dark:text-blue-400">
-                <Activity className="mr-0.5 h-2.5 w-2.5" />
+              <Badge className="inline-flex items-center gap-1 bg-blue-500/15 px-1.5 py-0 text-[10px] text-blue-700 dark:text-blue-400">
+                <Activity className="h-2.5 w-2.5" />
                 {onlineCount}
               </Badge>
             )}
@@ -3828,17 +3854,10 @@ export default function AdminNodesPage() {
                                 <Badge
                                   className={cn(
                                     "text-[10px]",
-                                    task.status === "succeeded" &&
-                                      "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-                                    task.status === "failed" &&
-                                      "bg-red-500/15 text-red-700 dark:text-red-400",
-                                    (task.status === "queued" ||
-                                      task.status === "claimed") &&
-                                      "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
+                                    getTaskStatusClass(task)
                                   )}
                                 >
-                                  {TASK_STATUS_LABEL[task.status] ??
-                                    task.status}
+                                  {getTaskStatusLabel(task)}
                                 </Badge>
                               </div>
                               <p className="mt-1 font-mono text-[11px] text-muted-foreground">

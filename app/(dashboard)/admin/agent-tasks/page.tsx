@@ -41,6 +41,7 @@ import {
   renderAgentTaskOutput,
   type AgentLogEntry,
 } from "@/lib/agent-task-output"
+import { isAgentTaskTimeoutError } from "@/lib/agent-task-timeout"
 import { cn } from "@/lib/utils"
 
 type AgentTaskType =
@@ -63,7 +64,7 @@ type AgentTaskStatus =
   | "cancelled"
 
 type TaskTypeFilter = "all" | AgentTaskType
-type StatusFilter = "all" | AgentTaskStatus
+type StatusFilter = "all" | AgentTaskStatus | "timeout"
 
 type AgentTaskRow = {
   id: number
@@ -128,6 +129,7 @@ const statusOptions: Array<{ label: string; value: StatusFilter }> = [
   { label: "执行中", value: "claimed" },
   { label: "成功", value: "succeeded" },
   { label: "失败", value: "failed" },
+  { label: "超时", value: "timeout" },
   { label: "已取消", value: "cancelled" },
 ]
 
@@ -166,12 +168,25 @@ function getTaskSummary(row: AgentTaskRow) {
   return "-"
 }
 
-function statusBadgeClass(status: AgentTaskStatus) {
-  if (status === "succeeded") {
+function isTimedOutTask(row: AgentTaskRow) {
+  return row.status === "failed" && isAgentTaskTimeoutError(row.error)
+}
+
+function getTaskStatusLabel(row: AgentTaskRow) {
+  if (isTimedOutTask(row)) return "超时"
+  return TASK_STATUS_LABEL[row.status] ?? row.status
+}
+
+function statusBadgeClass(row: AgentTaskRow) {
+  if (row.status === "succeeded") {
     return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
   }
-  if (status === "failed") return "bg-red-500/15 text-red-700 dark:text-red-400"
-  if (status === "queued" || status === "claimed") {
+  if (isTimedOutTask(row)) {
+    return "bg-orange-500/15 text-orange-700 dark:text-orange-400"
+  }
+  if (row.status === "failed")
+    return "bg-red-500/15 text-red-700 dark:text-red-400"
+  if (row.status === "queued" || row.status === "claimed") {
     return "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300"
   }
   return "bg-muted text-muted-foreground"
@@ -442,8 +457,8 @@ export default function AdminAgentTasksPage() {
       accessorKey: "status",
       header: "状态",
       cell: ({ row }) => (
-        <Badge className={cn(statusBadgeClass(row.original.status))}>
-          {TASK_STATUS_LABEL[row.original.status] ?? row.original.status}
+        <Badge className={cn(statusBadgeClass(row.original))}>
+          {getTaskStatusLabel(row.original)}
         </Badge>
       ),
     },
@@ -598,10 +613,7 @@ function TaskDetailSheet({
                   label="任务"
                   value={TASK_LABEL[row.type] ?? row.type}
                 />
-                <DetailField
-                  label="状态"
-                  value={TASK_STATUS_LABEL[row.status] ?? row.status}
-                />
+                <DetailField label="状态" value={getTaskStatusLabel(row)} />
                 <DetailField
                   label="创建者"
                   value={row.created_by_username ?? "-"}
