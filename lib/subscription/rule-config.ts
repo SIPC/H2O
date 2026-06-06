@@ -1,4 +1,4 @@
-mimport { isIP } from "node:net"
+import { isIP } from "node:net"
 
 import { getSetting, setSetting, SETTING_KEYS } from "@/lib/settings"
 
