@@ -81,11 +81,12 @@ export function nodeToClashProxy(
 
 export function nodeToSingboxOutbound(
   token: string,
-  node: NodeForUri
+  node: NodeForUri,
+  tag = node.name
 ): SingboxHysteria2Outbound {
   const outbound: SingboxHysteria2Outbound = {
     type: "hysteria2",
-    tag: node.name,
+    tag,
     server: node.ip,
     server_port: node.port,
     password: token,

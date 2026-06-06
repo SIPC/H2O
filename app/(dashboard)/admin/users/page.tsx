@@ -278,7 +278,7 @@ export default function AdminUsersPage() {
           <DataTableColumnHeader column={column} title="节点登录 Key" />
         ),
         cell: ({ row }) => (
-          <span className="max-w-[260px] truncate font-mono text-xs">
+          <span className="max-w-65 truncate font-mono text-xs">
             {row.getValue("auth_token")}
           </span>
         ),
@@ -488,7 +488,7 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-450 flex-col gap-4 p-6">
       {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>
@@ -528,7 +528,7 @@ export default function AdminUsersPage() {
                 onChange={(e) =>
                   table.getColumn("username")?.setFilterValue(e.target.value)
                 }
-                className="h-8 max-w-[240px]"
+                className="h-8 max-w-60"
               />
               <DataTableFacetedFilter
                 column={table.getColumn("role")}

@@ -944,14 +944,14 @@ function LogLevelBadge({ level }: { level?: string }) {
 function AgentLogTable({ entries }: { entries: AgentLogEntry[] }) {
   return (
     <div className="mt-2 max-h-52 overflow-auto rounded border">
-      <Table className="min-w-[860px] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-1.5">
+      <Table className="min-w-215 table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-1.5">
         <colgroup>
-          <col className="w-[150px]" />
-          <col className="w-[64px]" />
-          <col className="w-[120px]" />
-          <col className="w-[64px]" />
-          <col className="w-[120px]" />
-          <col className="w-[160px]" />
+          <col className="w-37.5" />
+          <col className="w-16" />
+          <col className="w-30" />
+          <col className="w-16" />
+          <col className="w-30" />
+          <col className="w-40" />
           <col />
         </colgroup>
         <TableHeader className="sticky top-0 z-10 bg-background">
@@ -1060,7 +1060,7 @@ function NodeCard({
       <NodeTrafficChart hourly={hourly} />
 
       {/* 渐变遮罩 - 确保文字可读 */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-card/95 via-card/70 to-card/30" />
+      <div className="pointer-events-none absolute inset-0 bg-linear-to-t from-card/95 via-card/70 to-card/30" />
 
       <div className="absolute right-3 bottom-3 z-10 flex flex-col items-end gap-1">
         {displayHy2Version && (
@@ -1097,7 +1097,7 @@ function NodeCard({
                       <Info className="h-3.5 w-3.5" />
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent className="max-w-70 break-words whitespace-pre-wrap">
+                  <TooltipContent className="max-w-70 wrap-break-word whitespace-pre-wrap">
                     {row.remark}
                   </TooltipContent>
                 </Tooltip>
@@ -3076,7 +3076,7 @@ export default function AdminNodesPage() {
     await alert({
       title: `${row.name} 的 agent 配置${copied ? "（已复制）" : ""}`,
       description: (
-        <pre className="max-h-[400px] min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
+        <pre className="max-h-100 min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
           {config}
         </pre>
       ),
@@ -3300,7 +3300,7 @@ export default function AdminNodesPage() {
                 复制
               </Button>
             </div>
-            <pre className="max-h-[220px] min-w-0 overflow-auto bg-background p-4 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground">
+            <pre className="max-h-55 min-w-0 overflow-auto bg-background p-4 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground">
               {command}
             </pre>
           </div>
@@ -3397,7 +3397,7 @@ export default function AdminNodesPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
+      <div className="mx-auto flex w-full max-w-450 flex-col gap-4 p-6">
         {/* 页面标题 */}
         <div className="flex items-center justify-between">
           <div>

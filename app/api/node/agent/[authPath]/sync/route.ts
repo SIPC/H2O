@@ -10,6 +10,9 @@ import {
   verifyAgentRequestSignature,
 } from "@/lib/agent-control"
 import { getDb } from "@/lib/db"
+import { readTextWithLimit, RequestBodyTooLargeError } from "@/lib/request-body"
+
+const MAX_AGENT_SYNC_BODY_BYTES = 512 * 1024
 
 type AgentSyncPayload = {
   agent_version?: unknown
@@ -180,7 +183,16 @@ export async function POST(
   { params }: { params: Promise<{ authPath: string }> }
 ) {
   const { authPath } = await params
-  const rawBody = await request.text()
+  let rawBody: string
+  try {
+    rawBody = await readTextWithLimit(request, MAX_AGENT_SYNC_BODY_BYTES)
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return jsonError("BAD_PAYLOAD", "请求体过大", 413)
+    }
+    return jsonError("BAD_PAYLOAD", "请求体不合法", 400)
+  }
+
   let body: AgentSyncPayload
   try {
     body = rawBody ? (JSON.parse(rawBody) as AgentSyncPayload) : {}
@@ -305,7 +317,7 @@ export async function POST(
     const updateTask = db.prepare(
       `UPDATE node_agent_tasks
        SET status = ?, result = ?, error = ?, finished_at = datetime('now'), updated_at = datetime('now')
-       WHERE id = ? AND node_id = ? AND status IN ('claimed','queued')`
+       WHERE id = ? AND node_id = ? AND status = 'claimed'`
     )
 
     for (const item of taskResults) {

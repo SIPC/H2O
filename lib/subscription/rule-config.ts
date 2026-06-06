@@ -1,4 +1,4 @@
-import { isIP } from "node:net"
+mimport { isIP } from "node:net"
 
 import { getSetting, setSetting, SETTING_KEYS } from "@/lib/settings"
 
@@ -509,12 +509,22 @@ export function validateSubscriptionRuleConfig(
 
   const policyGroupIds = new Set<string>()
   const enabledPolicyGroupIds = new Set<string>()
+  const clashPolicyGroupNames = new Set<string>()
   const builtinTargetSet = new Set<string>(BUILTIN_SUBSCRIPTION_RULE_TARGETS)
   const enabledBuiltinTargetSet = new Set<string>(
     BUILTIN_SUBSCRIPTION_RULE_TARGETS.filter(
       (target) => config.builtinPolicyOverrides[target]?.enabled !== false
     )
   )
+
+  for (const target of enabledBuiltinTargetSet) {
+    const name = clashTarget(target, config)
+    if (clashPolicyGroupNames.has(name)) {
+      return { ok: false, error: `内置策略组名称重复：${name}` }
+    }
+    clashPolicyGroupNames.add(name)
+  }
+
   for (const group of config.policyGroups) {
     if (policyGroupIds.has(group.id)) {
       return { ok: false, error: `策略组 ID 重复：${group.id}` }
@@ -523,7 +533,13 @@ export function validateSubscriptionRuleConfig(
       return { ok: false, error: `策略组 ID 与内置策略冲突：${group.id}` }
     }
     policyGroupIds.add(group.id)
-    if (group.enabled) enabledPolicyGroupIds.add(group.id)
+    if (group.enabled) {
+      enabledPolicyGroupIds.add(group.id)
+      if (clashPolicyGroupNames.has(group.name)) {
+        return { ok: false, error: `策略组名称重复：${group.name}` }
+      }
+      clashPolicyGroupNames.add(group.name)
+    }
     if (!/^https?:\/\//i.test(group.url)) {
       return { ok: false, error: `策略组 ${group.id} 的测速 URL 不合法` }
     }
@@ -715,7 +731,16 @@ export function buildClashPolicyGroup(
   members.push(...selectGroupNodeNames(group, nodes))
   if (group.includeDirect) members.push("DIRECT")
   if (group.includeReject) members.push("REJECT")
-  const proxies = members.length > 0 ? members : ["DIRECT"]
+  const fallbackProxies =
+    group.id === "proxy"
+      ? nodes.map((node) => node.name)
+      : [clashTarget("proxy", config)]
+  const proxies =
+    members.length > 0
+      ? members
+      : fallbackProxies.length > 0
+        ? fallbackProxies
+        : ["REJECT"]
 
   if (group.type === "url-test") {
     return {
@@ -752,7 +777,14 @@ export function buildSingboxPolicyGroup(
   members.push(...selectGroupNodeNames(group, nodes))
   if (group.includeDirect && tag !== "direct") members.push("direct")
   if (group.includeReject && tag !== "reject") members.push("reject")
-  const groupOutbounds = members.length > 0 ? members : ["direct"]
+  const fallbackOutbounds =
+    tag === "proxy" ? nodes.map((node) => node.name) : ["proxy"]
+  const groupOutbounds =
+    members.length > 0
+      ? members
+      : fallbackOutbounds.length > 0
+        ? fallbackOutbounds
+        : ["reject"]
 
   if (group.type === "url-test") {
     return {

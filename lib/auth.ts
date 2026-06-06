@@ -75,7 +75,7 @@ export function getSessionUser(request: Request) {
        JOIN users u ON u.id = s.user_id
        WHERE s.session_token_hash = ?
          AND s.revoked_at IS NULL
-         AND s.expires_at > datetime('now')
+         AND datetime(s.expires_at) > datetime('now')
        LIMIT 1`
     )
     .get(tokenHash) as SessionUser | undefined

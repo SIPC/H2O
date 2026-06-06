@@ -8,6 +8,7 @@ import { getDb } from "@/lib/db"
 
 const DNS_QUERY_TIMEOUT_MS = 3000
 const DNS_QUERY_ATTEMPTS = 2
+const NODE_DNS_CHECK_CONCURRENCY = 8
 
 const DNS_SOURCES: Array<{ name: string; servers?: string[] }> = [
   { name: "系统 DNS" },
@@ -25,6 +26,27 @@ type DnsSourceResult = {
   status: Exclude<DnsStatus, "partial" | "skip">
   records: string[]
   error?: string
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>
+) {
+  const results = new Array<R>(items.length)
+  let nextIndex = 0
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (nextIndex < items.length) {
+        const index = nextIndex
+        nextIndex += 1
+        results[index] = await mapper(items[index])
+      }
+    }
+  )
+  await Promise.all(workers)
+  return results
 }
 
 function normalizeIp(value: string) {
@@ -142,9 +164,11 @@ export async function GET(request: Request) {
     node_ip: string | null
   }>
 
-  // 并行检查所有节点的 DNS 解析状态
-  const results = await Promise.all(
-    rows.map(async (row) => {
+  // 限制节点并发，避免大量节点时瞬时打满 DNS 查询
+  const results = await mapWithConcurrency(
+    rows,
+    NODE_DNS_CHECK_CONCURRENCY,
+    async (row) => {
       // ip 是 IP 地址或未设置 node_ip → 跳过
       if (!row.node_ip || isIPv4(row.ip) || isIPv6(row.ip)) {
         return {
@@ -168,7 +192,7 @@ export async function GET(request: Request) {
         detail: buildDetail(row.ip, row.node_ip, sources),
         sources,
       }
-    })
+    }
   )
 
   // 以 id 为 key 返回，方便前端合并

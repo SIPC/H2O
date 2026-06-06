@@ -48,14 +48,25 @@ function jsonError(code: string, message: string, status: number) {
   return NextResponse.json({ ok: false, error: { code, message } }, { status })
 }
 
+function hasShellUnsafeUrlChars(value: string) {
+  return /[\s"'`$\\;]/.test(value)
+}
+
 function normalizeOrigin(raw: string): string | null {
   try {
+    if (hasShellUnsafeUrlChars(raw)) return null
     const u = new URL(raw)
+    const normalized = `${u.protocol}//${u.host}`
     if (u.protocol !== "http:" && u.protocol !== "https:") return null
-    return `${u.protocol}//${u.host}`
+    if (hasShellUnsafeUrlChars(normalized)) return null
+    return normalized
   } catch {
     return null
   }
+}
+
+function shellSingleQuote(value: string) {
+  return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 
 function detectOrigin(request: Request): string {
@@ -96,6 +107,33 @@ function normalizeAgentBundleUrl(raw: string): string | null {
   }
 
   return value
+}
+
+function normalizeAgentBundleSha256Url(raw: string): string | null {
+  const value = raw.trim()
+  if (!value || !isHttpUrl(value) || hasShellUnsafeUrlChars(value)) return null
+  return value
+}
+
+function deriveOfficialAgentBundleSha256Url(raw: string): string | null {
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== "https:" || url.host.toLowerCase() !== "github.com") {
+      return null
+    }
+    if (
+      !/^\/SIPC\/H2O\/releases\/(?:latest\/download|download\/[^/]+)\/h2o-agent-bundle\.tar\.gz$/i.test(
+        url.pathname
+      )
+    ) {
+      return null
+    }
+    url.pathname = `${url.pathname}.sha256`
+    const derived = url.toString()
+    return hasShellUnsafeUrlChars(derived) ? null : derived
+  } catch {
+    return null
+  }
 }
 
 const DEPLOY_TOKEN_TTL_MINUTES = 30
@@ -211,6 +249,19 @@ export async function GET(
     return jsonError("INVALID_AGENT_BUNDLE_URL", "agent_bundle_url 不合法", 400)
   }
 
+  const rawAgentBundleSha256Url =
+    reqUrl.searchParams.get("agent_bundle_sha256_url")?.trim() ?? ""
+  const agentBundleSha256Url = rawAgentBundleSha256Url
+    ? normalizeAgentBundleSha256Url(rawAgentBundleSha256Url)
+    : deriveOfficialAgentBundleSha256Url(agentBundleUrl)
+  if (rawAgentBundleSha256Url && !agentBundleSha256Url) {
+    return jsonError(
+      "INVALID_AGENT_BUNDLE_URL",
+      "agent_bundle_sha256_url 不合法",
+      400
+    )
+  }
+
   // 部署端口回退到订阅端口
   // 注意：仅当节点端口完全未配置时才回退；若节点端口已明确设置，
   // 端口跳跃以节点配置为准（null 表示不跳跃）
@@ -292,6 +343,9 @@ export async function GET(
   rawParams.set("agent_secret", agentSecret)
   rawParams.set("interval_seconds", String(node.agent_interval ?? 120))
   rawParams.set("agent_bundle_url", agentBundleUrl)
+  if (agentBundleSha256Url) {
+    rawParams.set("agent_bundle_sha256_url", agentBundleSha256Url)
+  }
   rawParams.set(
     "agent_auto_update_enabled",
     node.agent_auto_update_enabled !== 0 ? "true" : "false"
@@ -379,7 +433,7 @@ export async function GET(
   const scriptUrl = new URL("/api/deploy/node-install", panelUrl)
   scriptUrl.searchParams.set("token", deployToken.token)
 
-  const command = `curl -A "Mozilla/5.0" -fsSL "${scriptUrl.toString()}" | bash`
+  const command = `curl -A "Mozilla/5.0" -fsSL ${shellSingleQuote(scriptUrl.toString())} | bash`
 
   return NextResponse.json({
     ok: true,

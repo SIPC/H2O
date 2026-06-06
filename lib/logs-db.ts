@@ -202,6 +202,14 @@ export function writeAuthLog(fields: AuthLogFields): void {
   cleanupExpiredLogsBySetting()
 }
 
+export function writeAuthLogSafely(fields: AuthLogFields): void {
+  try {
+    writeAuthLog(fields)
+  } catch (error) {
+    console.error("write auth log failed", error)
+  }
+}
+
 // Agent 批量流量上报日志入口：请求级汇总 + 用户级明细写入同一个日志事务
 export function writeAgentTrafficLogs(
   report: AgentTrafficReportLogFields,

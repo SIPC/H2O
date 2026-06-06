@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
-import { writeAuthLog } from "@/lib/logs-db"
+import { maskAuthPath, writeAuthLogSafely } from "@/lib/logs-db"
 
 type AuthPayload = {
   addr?: string
@@ -14,14 +14,34 @@ export async function POST(
   { params }: { params: Promise<{ authPath: string }> }
 ) {
   const { authPath } = await params
-  const body = (await request.json()) as AuthPayload
+  const maskedAuthPath = maskAuthPath(authPath)
+  let body: AuthPayload
+  try {
+    body = (await request.json()) as AuthPayload
+  } catch {
+    writeAuthLogSafely({
+      node_id: null,
+      node_name: maskedAuthPath,
+      user_id: null,
+      username: null,
+      ip: null,
+      success: false,
+      reason: "BAD_PAYLOAD",
+    })
+    return NextResponse.json({ ok: false, id: "" }, { status: 400 })
+  }
   const ip = typeof body.addr === "string" ? body.addr : null
 
   // 参数缺失或类型非法，记一条 BAD_PAYLOAD
-  if (!body.auth || typeof body.auth !== "string") {
-    writeAuthLog({
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !body.auth ||
+    typeof body.auth !== "string"
+  ) {
+    writeAuthLogSafely({
       node_id: null,
-      node_name: authPath,
+      node_name: maskedAuthPath,
       user_id: null,
       username: null,
       ip,
@@ -44,9 +64,9 @@ export async function POST(
     .get(authPath) as { id: number; name: string } | undefined
 
   if (!node) {
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: null,
-      node_name: authPath,
+      node_name: maskedAuthPath,
       user_id: null,
       username: null,
       ip,
@@ -66,7 +86,7 @@ export async function POST(
     | undefined
 
   if (!user) {
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: node.id,
       node_name: node.name,
       user_id: null,
@@ -79,7 +99,7 @@ export async function POST(
   }
 
   if (user.status !== "active") {
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: node.id,
       node_name: node.name,
       user_id: user.id,
@@ -100,7 +120,7 @@ export async function POST(
        JOIN plan_nodes pn ON pn.plan_id = p.id
        WHERE s.user_id = ?
          AND s.status = 'active'
-         AND s.expire_time > datetime('now')
+         AND datetime(s.expire_time) > datetime('now')
          AND pn.node_id = ?
        ORDER BY s.expire_time DESC
        LIMIT 1`
@@ -108,7 +128,7 @@ export async function POST(
     .get(user.id, node.id) as { id: number } | undefined
 
   if (!activeSub) {
-    writeAuthLog({
+    writeAuthLogSafely({
       node_id: node.id,
       node_name: node.name,
       user_id: user.id,
@@ -120,7 +140,7 @@ export async function POST(
     return NextResponse.json({ ok: false, id: "" })
   }
 
-  writeAuthLog({
+  writeAuthLogSafely({
     node_id: node.id,
     node_name: node.name,
     user_id: user.id,

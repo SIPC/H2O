@@ -46,6 +46,7 @@ function maskUrl(rawUrl: string, token: string): string {
   }
 
   replaceToken(token)
+  if (token) replaceToken(encodeURIComponent(token))
 
   try {
     const url = new URL(rawUrl)
@@ -91,7 +92,7 @@ function logFetch(params: {
   const acceptEncoding = headers.get("accept-encoding")
   if (acceptEncoding) detail.accept_encoding = acceptEncoding
   const referer = headers.get("referer")
-  if (referer) detail.referer = referer
+  if (referer) detail.referer = maskUrl(referer, params.token)
   if (params.nodeCount !== null) detail.nodes = params.nodeCount
 
   writeEventLog({
@@ -177,7 +178,7 @@ export async function serveSubscription(
        JOIN nodes n ON n.id = pn.node_id
        WHERE s.user_id = ?
          AND s.status = 'active'
-         AND s.expire_time > datetime('now')
+         AND datetime(s.expire_time) > datetime('now')
          AND n.status = 'enabled'
        GROUP BY n.id
        ORDER BY n.sort_order ASC, n.id ASC`
@@ -193,7 +194,9 @@ export async function serveSubscription(
          MAX(s.expire_time) AS max_expire
        FROM subscriptions s
        JOIN plans p ON p.id = s.plan_id
-       WHERE s.user_id = ? AND s.status = 'active'`
+       WHERE s.user_id = ?
+         AND s.status = 'active'
+         AND datetime(s.expire_time) > datetime('now')`
     )
     .get(user.id) as
     | { used: number; total: number; max_expire: string | null }

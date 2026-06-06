@@ -609,8 +609,8 @@ func applyConfig(ctx context.Context, cfg Config, payload applyConfigPayload) Ta
 
 	if err := serviceCommand(ctx, "restart", serviceName); err != nil {
 		if backupExists {
-			_ = copyFile(backupPath, path, 0644)
-			_ = makeConfigWorldReadable(path)
+			_ = copyFile(backupPath, path, 0600)
+			_ = makeConfigReadableByService(ctx, path, serviceName)
 			_ = serviceCommand(ctx, "restart", serviceName)
 		}
 		return TaskResult{
@@ -977,10 +977,10 @@ func stripApplyMetadata(input string) string {
 }
 
 func writeConfigFileForService(ctx context.Context, path string, data []byte, serviceName string) error {
-	if err := writeFileAtomic(path, data, 0644); err != nil {
+	if err := writeFileAtomic(path, data, 0600); err != nil {
 		return err
 	}
-	return makeConfigWorldReadable(path)
+	return makeConfigReadableByService(ctx, path, serviceName)
 }
 
 func ensureExistingConfigReadable(ctx context.Context, path string, serviceName string) error {
@@ -993,20 +993,127 @@ func ensureExistingConfigReadable(ctx context.Context, path string, serviceName 
 		}
 		return err
 	}
-	return makeConfigWorldReadable(path)
+	return makeConfigReadableByService(ctx, path, serviceName)
 }
 
-func makeConfigWorldReadable(path string) error {
+func makeConfigReadableByService(ctx context.Context, path string, serviceName string) error {
 	if err := os.Chown(parentDir(path), 0, 0); err != nil {
 		return err
 	}
 	if err := os.Chmod(parentDir(path), 0755); err != nil {
 		return err
 	}
-	if err := os.Chown(path, 0, 0); err != nil {
+
+	serviceUser, serviceGroup := detectSystemdServiceCredentials(ctx, serviceName)
+	if serviceUser == "" || serviceUser == "root" {
+		if err := os.Chown(path, 0, 0); err != nil {
+			return err
+		}
+		return os.Chmod(path, 0600)
+	}
+
+	gid, err := serviceReadableGID(ctx, serviceUser, serviceGroup)
+	if err != nil {
+		if chownErr := os.Chown(path, 0, 0); chownErr != nil {
+			return chownErr
+		}
+		return os.Chmod(path, 0600)
+	}
+	if err := os.Chown(path, 0, gid); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0644)
+	return os.Chmod(path, 0640)
+}
+
+func detectSystemdServiceCredentials(ctx context.Context, serviceName string) (string, string) {
+	if strings.TrimSpace(serviceName) == "" {
+		return "", ""
+	}
+	out, err := exec.CommandContext(ctx, "systemctl", "show", serviceName, "--property=User", "--property=Group").Output()
+	if err != nil {
+		return "", ""
+	}
+
+	var user string
+	var group string
+	for _, line := range strings.Split(string(out), "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "User":
+			user = strings.TrimSpace(value)
+		case "Group":
+			group = strings.TrimSpace(value)
+		}
+	}
+	return user, group
+}
+
+func serviceReadableGID(ctx context.Context, username, groupname string) (int, error) {
+	if strings.TrimSpace(groupname) != "" {
+		return lookupGroupGID(ctx, groupname)
+	}
+	return lookupUserPrimaryGID(ctx, username)
+}
+
+func lookupUserPrimaryGID(ctx context.Context, username string) (int, error) {
+	out, err := exec.CommandContext(ctx, "id", "-g", username).Output()
+	if err != nil {
+		return 0, err
+	}
+	return parseGID(strings.TrimSpace(string(out)))
+}
+
+func lookupGroupGID(ctx context.Context, groupname string) (int, error) {
+	if gid, err := parseGID(strings.TrimSpace(groupname)); err == nil {
+		return gid, nil
+	}
+
+	if out, err := exec.CommandContext(ctx, "getent", "group", groupname).Output(); err == nil {
+		if gid, err := parseGroupEntryGID(strings.TrimSpace(string(out))); err == nil {
+			return gid, nil
+		}
+	}
+
+	data, err := os.ReadFile("/etc/group")
+	if err != nil {
+		return 0, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, groupname+":") {
+			continue
+		}
+		return parseGroupEntryGID(line)
+	}
+	return 0, fmt.Errorf("服务组不存在: %s", groupname)
+}
+
+func parseGroupEntryGID(entry string) (int, error) {
+	fields := strings.Split(entry, ":")
+	if len(fields) < 3 {
+		return 0, fmt.Errorf("组信息格式不合法")
+	}
+	return parseGID(fields[2])
+}
+
+func parseGID(value string) (int, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("GID 为空")
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return 0, fmt.Errorf("GID 不合法: %s", value)
+		}
+	}
+
+	var gid int
+	if _, err := fmt.Sscanf(value, "%d", &gid); err != nil {
+		return 0, err
+	}
+	return gid, nil
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {

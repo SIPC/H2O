@@ -39,6 +39,10 @@ function parseEncodedHash(encoded: string): ParsedHash | null {
   return { salt: saltHex, storedDigest }
 }
 
+export function isPasswordHash(encoded: unknown) {
+  return typeof encoded === "string" && parseEncodedHash(encoded) !== null
+}
+
 // 使用 scrypt 生成密码哈希，格式: scrypt$盐$摘要
 export function hashPassword(plain: string) {
   const salt = randomBytes(SALT_LEN).toString("hex")

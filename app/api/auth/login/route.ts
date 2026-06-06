@@ -15,13 +15,13 @@ type LoginBody = {
 
 export async function POST(request: Request) {
   const ip = getClientIp(request)
-  const body = (await request.json()) as LoginBody
+  const body = (await request.json().catch(() => ({}))) as LoginBody
 
-  if (!body.username || !body.password) {
+  if (!body || typeof body !== "object" || !body.username || !body.password) {
     writeEventLog({
       event: "LOGIN",
       user_id: null,
-      username: body.username ?? null,
+      username: body?.username ?? null,
       ip,
       success: false,
       reason: "INVALID_PAYLOAD",

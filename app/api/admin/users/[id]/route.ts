@@ -32,7 +32,61 @@ export async function PATCH(
     )
   }
 
-  const body = (await request.json()) as UpdateUserBody
+  const body = (await request.json().catch(() => ({}))) as UpdateUserBody
+
+  if (!body || typeof body !== "object") {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "请求体格式不合法" },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (
+    body.status !== undefined &&
+    body.status !== "active" &&
+    body.status !== "disabled"
+  ) {
+    writeAdminEvent({
+      event: "USER_UPDATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { targetUserId: userId, status: body.status },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "用户状态不合法" },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (
+    body.role !== undefined &&
+    body.role !== "user" &&
+    body.role !== "admin"
+  ) {
+    writeAdminEvent({
+      event: "USER_UPDATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { targetUserId: userId, role: body.role },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "用户角色不合法" },
+      },
+      { status: 400 }
+    )
+  }
 
   // 自我保护：不允许 admin 把自己降级为 user 或禁用自己，避免把系统最后一个 admin 锁出去
   if (auth.user.id === userId) {
@@ -171,10 +225,12 @@ export async function PATCH(
     .prepare(`SELECT username FROM users WHERE id = ? LIMIT 1`)
     .get(userId) as { username: string } | undefined
 
-  // 密码或角色变动后，撤销该用户所有未失效的 session：
-  // 防止已偷走 cookie 的攻击者在密码重置 / 降级后继续持有会话
+  // 密码、角色变动或禁用后，撤销该用户所有未失效的 session：
+  // 防止已偷走 cookie 的攻击者在密码重置 / 降级 / 禁用后继续持有会话
   const shouldRevokeSessions =
-    Boolean(body.newPassword) || Boolean(body.role)
+    Boolean(body.newPassword) ||
+    Boolean(body.role) ||
+    body.status === "disabled"
   if (shouldRevokeSessions) {
     db.prepare(
       `UPDATE sessions SET revoked_at = datetime('now')

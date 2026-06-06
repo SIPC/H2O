@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
-import { hashPassword } from "@/lib/password"
+import { hashPassword, isPasswordHash } from "@/lib/password"
 import { createUserAuthToken } from "@/lib/tokens"
 import { getClientIp } from "@/lib/turnstile"
 
@@ -36,19 +36,93 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response
 
   const ip = getClientIp(request)
-  const body = (await request.json()) as CreateUserBody
+  const body = (await request.json().catch(() => ({}))) as CreateUserBody
 
-  if (!body.username || (!body.password && !body.passwordHash)) {
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !body.username ||
+    (!body.password && !body.passwordHash)
+  ) {
     writeAdminEvent({
       event: "USER_CREATE",
       actor: auth.user,
       ip,
       success: false,
       reason: "INVALID_PAYLOAD",
-      detail: { targetUsername: body.username ?? null },
+      detail: { targetUsername: body?.username ?? null },
     })
     return NextResponse.json(
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
+      { status: 400 }
+    )
+  }
+
+  if (body.role && body.role !== "user" && body.role !== "admin") {
+    writeAdminEvent({
+      event: "USER_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { targetUsername: body.username, role: body.role },
+    })
+    return NextResponse.json(
+      { ok: false, error: { code: "INVALID_PAYLOAD", message: "角色不合法" } },
+      { status: 400 }
+    )
+  }
+
+  if (body.password && body.password.length < 6) {
+    writeAdminEvent({
+      event: "USER_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PASSWORD",
+      detail: { targetUsername: body.username },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PASSWORD", message: "密码至少 6 位" },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (body.passwordHash && !isPasswordHash(body.passwordHash)) {
+    writeAdminEvent({
+      event: "USER_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PASSWORD",
+      detail: { targetUsername: body.username },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PASSWORD", message: "密码哈希不合法" },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (body.authToken && !/^[a-f0-9]{48}$/i.test(body.authToken)) {
+    writeAdminEvent({
+      event: "USER_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { targetUsername: body.username },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "认证 Key 不合法" },
+      },
       { status: 400 }
     )
   }

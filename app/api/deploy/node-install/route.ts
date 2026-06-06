@@ -32,6 +32,7 @@ type InstallParams = {
   agentAutoUpdateEnabled: boolean
   hy2AutoUpdateEnabled: boolean
   agentBundleUrl: string
+  agentBundleSha256Url: string | null
   certMode: "self-signed" | "acme-http" | "acme-dns" | "acme" | "custom"
   acmeDomains: string[]
   acmeEmail: string
@@ -51,11 +52,42 @@ function shellSingleQuote(value: string) {
   return `'${value.replace(/'/g, `'\"'\"'`)}'`
 }
 
+function hasShellUnsafeUrlChars(value: string) {
+  return /[\s"'`$\\;]/.test(value)
+}
+
 function parseBaseUrl(input: string): string | null {
   try {
+    if (hasShellUnsafeUrlChars(input)) return null
     const url = new URL(input)
+    const normalized = `${url.protocol}//${url.host}`
     if (url.protocol !== "http:" && url.protocol !== "https:") return null
-    return `${url.protocol}//${url.host}`
+    if (hasShellUnsafeUrlChars(normalized)) return null
+    return normalized
+  } catch {
+    return null
+  }
+}
+
+function deriveOfficialAgentBundleSha256Url(input: string): string | null {
+  if (!parseBaseUrl(input)) return null
+
+  try {
+    const url = new URL(input)
+    if (url.protocol !== "https:" || url.host.toLowerCase() !== "github.com") {
+      return null
+    }
+    if (
+      !/^\/SIPC\/H2O\/releases\/(?:latest\/download|download\/[^/]+)\/h2o-agent-bundle\.tar\.gz$/i.test(
+        url.pathname
+      )
+    ) {
+      return null
+    }
+    url.pathname = `${url.pathname}.sha256`
+    const derived = url.toString()
+    if (hasShellUnsafeUrlChars(derived)) return null
+    return derived
   } catch {
     return null
   }
@@ -84,22 +116,33 @@ function parseDeployTokenQuery(token: string): URLSearchParams | null {
     `DELETE FROM node_deploy_tokens WHERE expires_at <= datetime('now')`
   ).run()
 
-  const row = db
-    .prepare(
-      `SELECT id, payload
-       FROM node_deploy_tokens
-       WHERE token_hash = ? AND expires_at > datetime('now')
-       LIMIT 1`
-    )
-    .get(sha256(token)) as { id: number; payload: string } | undefined
+  let row: { id: number; payload: string } | undefined
+  db.exec("BEGIN IMMEDIATE")
+  try {
+    row = db
+      .prepare(
+        `SELECT id, payload
+         FROM node_deploy_tokens
+         WHERE token_hash = ? AND expires_at > datetime('now')
+         LIMIT 1`
+      )
+      .get(sha256(token)) as { id: number; payload: string } | undefined
 
-  if (!row || /[\r\n]/.test(row.payload)) return null
+    if (!row || /[\r\n]/.test(row.payload)) {
+      db.exec("ROLLBACK")
+      return null
+    }
 
-  db.prepare(
-    `UPDATE node_deploy_tokens
-     SET last_used_at = datetime('now')
-     WHERE id = ?`
-  ).run(row.id)
+    db.prepare(`DELETE FROM node_deploy_tokens WHERE id = ?`).run(row.id)
+    db.exec("COMMIT")
+  } catch {
+    try {
+      db.exec("ROLLBACK")
+    } catch {
+      // 事务已结束
+    }
+    return null
+  }
 
   return new URLSearchParams(row.payload)
 }
@@ -187,6 +230,7 @@ function buildScript(params: InstallParams) {
     `CERT_PATH=${shellSingleQuote(params.certPath)}`,
     `KEY_PATH=${shellSingleQuote(params.keyPath)}`,
     `AGENT_BUNDLE_URL=${shellSingleQuote(params.agentBundleUrl)}`,
+    `AGENT_BUNDLE_SHA256_URL=${shellSingleQuote(params.agentBundleSha256Url ?? "")}`,
     `HY2_LISTEN=${shellSingleQuote(listenValue)}`,
     `HY2_FALLBACK_LISTEN=${shellSingleQuote(`:${params.port}`)}`,
     `AGENT_AUTO_UPDATE_ENABLED=${shellSingleQuote(params.agentAutoUpdateEnabled ? "true" : "false")}`,
@@ -214,8 +258,8 @@ function buildScript(params: InstallParams) {
     '  echo "========================================"',
     '  echo " H2O 节点管理脚本"',
     '  echo "========================================"',
-    `  echo "面板地址: ${params.panelUrl}"`,
-    `  echo "节点认证路径: /api/node/auth/${params.authPath}"`,
+    '  echo "面板地址: $PANEL_URL"',
+    '  echo "节点认证路径: /api/node/auth/$AUTH_PATH"',
     '  echo ""',
     "}",
     "",
@@ -246,8 +290,10 @@ function buildScript(params: InstallParams) {
     "    return 0",
     "  fi",
     "  if is_alpine && command -v apk >/dev/null 2>&1; then",
+    '    local pkg="$cmd"',
+    '    if [[ "$cmd" == "sha256sum" ]]; then pkg="coreutils"; fi',
     '    log_info "安装缺失依赖: $cmd"',
-    '    apk add --no-cache "$cmd"',
+    '    apk add --no-cache "$pkg"',
     "    return 0",
     "  fi",
     '  log_error "缺少依赖: $cmd"',
@@ -258,6 +304,34 @@ function buildScript(params: InstallParams) {
     "  check_service_manager",
     "  ensure_command curl",
     "  ensure_command tar",
+    '  if [[ -n "$AGENT_BUNDLE_SHA256_URL" ]] || has_openrc; then',
+    "    ensure_command sha256sum",
+    "  fi",
+    "}",
+    "",
+    "verify_sha256_file() {",
+    '  local file="$1"',
+    '  local sha_file="$2"',
+    "  local expected= actual line token",
+    "  while IFS= read -r line; do",
+    "    for token in $line; do",
+    '      if [[ "$token" =~ ^[0-9a-fA-F]{64}$ ]]; then',
+    '        expected="${token,,}"',
+    "        break 2",
+    "      fi",
+    "    done",
+    '  done < "$sha_file"',
+    '  if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then',
+    '    log_error "SHA256 校验文件格式不合法: $sha_file"',
+    "    return 1",
+    "  fi",
+    "  actual=$(sha256sum \"$file\" | awk '{print tolower($1)}')",
+    '  if [[ "$actual" != "$expected" ]]; then',
+    '    log_error "SHA256 校验失败: $file"',
+    '    log_error "期望: $expected"',
+    '    log_error "实际: $actual"',
+    "    return 1",
+    "  fi",
     "}",
     "",
     "ensure_system_user() {",
@@ -454,7 +528,9 @@ function buildScript(params: InstallParams) {
   if (needsSelfSignedCert) {
     lines.push(
       "HY2_USER=$(awk -F= '/^User=/{print $2; exit}' /etc/systemd/system/hysteria-server.service 2>/dev/null || true)",
+      "HY2_GROUP=$(awk -F= '/^Group=/{print $2; exit}' /etc/systemd/system/hysteria-server.service 2>/dev/null || true)",
       'if [[ -z "$HY2_USER" ]]; then HY2_USER="hysteria"; fi',
+      'if [[ -z "$HY2_GROUP" ]]; then HY2_GROUP="$HY2_USER"; fi',
       'if [[ ! -f "$CERT_PATH" || ! -f "$KEY_PATH" ]]; then',
       "  ensure_command openssl",
       '  log_info "证书或私钥不存在，自动生成自签证书"',
@@ -462,8 +538,11 @@ function buildScript(params: InstallParams) {
       '  openssl req -x509 -nodes -newkey rsa:2048 -keyout "$KEY_PATH" -out "$CERT_PATH" -days 3650 -subj "/CN=h2o-hy2"',
       "fi",
       'if id "$HY2_USER" >/dev/null 2>&1; then',
-      '  chown root:"$HY2_USER" "$KEY_PATH" "$CERT_PATH" 2>/dev/null || true',
-      '  chmod 0640 "$KEY_PATH" || true',
+      '  if chown root:"$HY2_GROUP" "$KEY_PATH" "$CERT_PATH" 2>/dev/null; then',
+      '    chmod 0640 "$KEY_PATH" || true',
+      "  else",
+      '    chmod 0644 "$KEY_PATH" || true',
+      "  fi",
       "else",
       '  chmod 0644 "$KEY_PATH" || true',
       "fi",
@@ -498,7 +577,13 @@ function buildScript(params: InstallParams) {
     '    *) log_error "不支持的架构: $(uname -m)"; exit 1 ;;',
     "  esac",
     "  HY2_TMP=$(mktemp /tmp/hysteria.XXXXXX)",
+    "  HY2_HASHES=$(mktemp /tmp/hysteria-hashes.XXXXXX)",
     '  curl -A "H2O-Agent" -fsSL "https://github.com/apernet/hysteria/releases/latest/download/hysteria-linux-$HY2_ARCH" -o "$HY2_TMP"',
+    '  curl -A "H2O-Agent" -fsSL "https://github.com/apernet/hysteria/releases/latest/download/hashes.txt" -o "$HY2_HASHES"',
+    '  HY2_EXPECTED=$(awk -v name="hysteria-linux-$HY2_ARCH" \'{file=$NF; sub(/^.*\\//, "", file); if (file == name) {print $1; exit}}\' "$HY2_HASHES")',
+    '  if [[ ! "$HY2_EXPECTED" =~ ^[0-9a-fA-F]{64}$ ]]; then log_error "未找到 Hysteria SHA256 校验值"; exit 1; fi',
+    '  printf \'%s  %s\\n\' "$HY2_EXPECTED" "$HY2_TMP" | sha256sum -c -',
+    '  rm -f "$HY2_HASHES"',
     '  chmod 0755 "$HY2_TMP"',
     '  mv "$HY2_TMP" /usr/local/bin/hysteria',
     "  ensure_system_user hysteria",
@@ -511,9 +596,18 @@ function buildScript(params: InstallParams) {
     hy2Yaml,
     "H2O_HY2_CONFIG",
     'sed -i "s|__H2O_LISTEN__|$HY2_LISTEN|g" /etc/hysteria/config.yaml',
-    "chown root:root /etc/hysteria /etc/hysteria/config.yaml || true",
+    "HY2_USER=$(awk -F= '/^User=/{print $2; exit}' /etc/systemd/system/hysteria-server.service 2>/dev/null || true)",
+    "HY2_GROUP=$(awk -F= '/^Group=/{print $2; exit}' /etc/systemd/system/hysteria-server.service 2>/dev/null || true)",
+    'if [[ -z "$HY2_USER" ]]; then HY2_USER="hysteria"; fi',
+    'if [[ -z "$HY2_GROUP" ]]; then HY2_GROUP="$HY2_USER"; fi',
+    'if id "$HY2_USER" >/dev/null 2>&1 && chown root:"$HY2_GROUP" /etc/hysteria/config.yaml 2>/dev/null; then',
+    "  chmod 0640 /etc/hysteria/config.yaml || true",
+    "else",
+    "  chown root:root /etc/hysteria/config.yaml || true",
+    "  chmod 0600 /etc/hysteria/config.yaml || true",
+    "fi",
+    "chown root:root /etc/hysteria || true",
     "chmod 0755 /etc/hysteria || true",
-    "chmod 0644 /etc/hysteria/config.yaml || true",
     "",
     'log_step "重启 hysteria-server"',
     "enable_and_restart_service hysteria-server",
@@ -522,6 +616,12 @@ function buildScript(params: InstallParams) {
     "WORKDIR=$(mktemp -d /tmp/h2o-node-install.XXXXXX)",
     "trap 'rm -rf \"$WORKDIR\"' EXIT",
     'curl -A "H2O-Agent" -fsSL "$AGENT_BUNDLE_URL" -o "$WORKDIR/h2o-agent-bundle.tar.gz"',
+    'if [[ -n "$AGENT_BUNDLE_SHA256_URL" ]]; then',
+    '  curl -A "H2O-Agent" -fsSL "$AGENT_BUNDLE_SHA256_URL" -o "$WORKDIR/h2o-agent-bundle.tar.gz.sha256"',
+    '  verify_sha256_file "$WORKDIR/h2o-agent-bundle.tar.gz" "$WORKDIR/h2o-agent-bundle.tar.gz.sha256"',
+    "else",
+    '  log_warn "未提供 Agent 安装包 SHA256 校验地址，跳过完整性校验"',
+    "fi",
     'tar xzf "$WORKDIR/h2o-agent-bundle.tar.gz" -C "$WORKDIR"',
     "if has_systemd; then",
     '  bash "$WORKDIR/install.sh"',
@@ -558,8 +658,8 @@ function buildScript(params: InstallParams) {
     'log_step "重启 h2o-agent"',
     "enable_and_restart_service h2o-agent",
     "",
-    `log_info "面板地址: ${params.panelUrl}"`,
-    `log_info "节点认证路径: /api/node/auth/${params.authPath}"`,
+    'log_info "面板地址: $PANEL_URL"',
+    'log_info "节点认证路径: /api/node/auth/$AUTH_PATH"',
     "if has_systemd; then",
     '  log_info "查看 agent 日志: journalctl -u h2o-agent -f"',
     "else",
@@ -756,6 +856,20 @@ export async function GET(request: Request) {
     return errorJson("INVALID_AGENT_BUNDLE_URL", "agent_bundle_url 不合法")
   }
 
+  const agentBundleSha256UrlRaw =
+    query.get("agent_bundle_sha256_url")?.trim() ?? ""
+  const agentBundleSha256Url = agentBundleSha256UrlRaw
+    ? parseBaseUrl(agentBundleSha256UrlRaw)
+      ? agentBundleSha256UrlRaw
+      : null
+    : deriveOfficialAgentBundleSha256Url(agentBundleUrl)
+  if (agentBundleSha256UrlRaw && !agentBundleSha256Url) {
+    return errorJson(
+      "INVALID_AGENT_BUNDLE_URL",
+      "agent_bundle_sha256_url 不合法"
+    )
+  }
+
   // 证书模式解析（兼容旧值 acme → acme-dns）
   const certModeRaw = query.get("cert_mode")?.trim() ?? "self-signed"
   const certMode = normalizeCertMode(certModeRaw) as
@@ -835,6 +949,7 @@ export async function GET(request: Request) {
     agentAutoUpdateEnabled,
     hy2AutoUpdateEnabled,
     agentBundleUrl,
+    agentBundleSha256Url,
     certMode,
     acmeDomains,
     acmeEmail,

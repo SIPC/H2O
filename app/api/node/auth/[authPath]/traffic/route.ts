@@ -6,13 +6,17 @@ import {
   ensureNodeHostTrafficPeriod,
 } from "@/lib/node-traffic-quota"
 import {
+  maskAuthPath,
   type AgentTrafficReportLogFields,
   type AgentTrafficUserLogFields,
   writeAgentTrafficLogs,
   writeAuthLog,
 } from "@/lib/logs-db"
 import { getBillableTrafficBytes } from "@/lib/plan-traffic"
+import { readJsonWithLimit, RequestBodyTooLargeError } from "@/lib/request-body"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
+
+const MAX_TRAFFIC_REPORT_BODY_BYTES = 5 * 1024 * 1024
 
 // agent 每次上报的 payload 结构
 type TrafficPayload = {
@@ -149,13 +153,59 @@ export async function POST(
     request.headers.get("x-real-ip") ||
     null
 
-  let body: TrafficPayload
-  try {
-    body = (await request.json()) as TrafficPayload
-  } catch {
+  const maskedAuthPath = maskAuthPath(authPath)
+  const db = getDb()
+
+  // 只要 authPath 匹配某个节点就视为合法 agent（复用 Hy2 回调的信任模型）
+  // 不受节点禁用状态影响，节点被禁用一样可以上报状态
+  const node = db
+    .prepare(`SELECT id, name, status FROM nodes WHERE auth_path = ? LIMIT 1`)
+    .get(authPath) as { id: number; name: string; status: string } | undefined
+
+  if (!node) {
     writeAuthLogSafely({
       node_id: null,
-      node_name: authPath,
+      node_name: maskedAuthPath,
+      user_id: null,
+      username: null,
+      ip,
+      success: false,
+      reason: "NO_NODE",
+    })
+    writeAgentTrafficLogsSafely({
+      report: {
+        node_id: null,
+        node_name: null,
+        auth_path: authPath,
+        ip,
+        success: false,
+        reason: "NO_NODE",
+        reported_users: 0,
+        online_count: 0,
+        total_tx_bytes: 0,
+        total_rx_bytes: 0,
+        delta_tx_bytes: 0,
+        delta_rx_bytes: 0,
+      },
+    })
+    return NextResponse.json(
+      { ok: false, error: { code: "NO_NODE", message: "未知节点" } },
+      { status: 404 }
+    )
+  }
+
+  let body: TrafficPayload
+  try {
+    body = await readJsonWithLimit<TrafficPayload>(
+      request,
+      MAX_TRAFFIC_REPORT_BODY_BYTES
+    )
+  } catch (error) {
+    const tooLarge = error instanceof RequestBodyTooLargeError
+    const detailError = tooLarge ? "PAYLOAD_TOO_LARGE" : "INVALID_JSON"
+    writeAuthLogSafely({
+      node_id: node.id,
+      node_name: node.name,
       user_id: null,
       username: null,
       ip,
@@ -164,8 +214,8 @@ export async function POST(
     })
     writeAgentTrafficLogsSafely({
       report: {
-        node_id: null,
-        node_name: null,
+        node_id: node.id,
+        node_name: node.name,
         auth_path: authPath,
         ip,
         success: false,
@@ -176,12 +226,18 @@ export async function POST(
         total_rx_bytes: 0,
         delta_tx_bytes: 0,
         delta_rx_bytes: 0,
-        detail: stringifyDetail({ error: "INVALID_JSON" }),
+        detail: stringifyDetail({ error: detailError }),
       },
     })
     return NextResponse.json(
-      { ok: false, error: { code: "BAD_PAYLOAD", message: "请求体不合法" } },
-      { status: 400 }
+      {
+        ok: false,
+        error: {
+          code: "BAD_PAYLOAD",
+          message: tooLarge ? "请求体过大" : "请求体不合法",
+        },
+      },
+      { status: tooLarge ? 413 : 400 }
     )
   }
 
@@ -189,8 +245,8 @@ export async function POST(
   const online = normalizeOnline(body.online)
   if (traffic === null || online === null) {
     writeAuthLogSafely({
-      node_id: null,
-      node_name: authPath,
+      node_id: node.id,
+      node_name: node.name,
       user_id: null,
       username: null,
       ip,
@@ -199,8 +255,8 @@ export async function POST(
     })
     writeAgentTrafficLogsSafely({
       report: {
-        node_id: null,
-        node_name: null,
+        node_id: node.id,
+        node_name: node.name,
         auth_path: authPath,
         ip,
         success: false,
@@ -226,8 +282,6 @@ export async function POST(
   const { totalTxBytes, totalRxBytes } = getTrafficTotals(traffic)
   const totalOnlineCount = getOnlineCount(online)
 
-  const db = getDb()
-
   // 统计历史保留天数（1~365），用于自动清理小时趋势表
   const rawRetentionDays = getSetting<number>(
     SETTING_KEYS.statsRetentionDays,
@@ -239,44 +293,6 @@ export async function POST(
     rawRetentionDays <= 365
       ? rawRetentionDays
       : 30
-
-  // 只要 authPath 匹配某个节点就视为合法 agent（复用 Hy2 回调的信任模型）
-  // 不受节点禁用状态影响，节点被禁用一样可以上报状态
-  const node = db
-    .prepare(`SELECT id, name, status FROM nodes WHERE auth_path = ? LIMIT 1`)
-    .get(authPath) as { id: number; name: string; status: string } | undefined
-
-  if (!node) {
-    writeAuthLogSafely({
-      node_id: null,
-      node_name: authPath,
-      user_id: null,
-      username: null,
-      ip,
-      success: false,
-      reason: "NO_NODE",
-    })
-    writeAgentTrafficLogsSafely({
-      report: {
-        node_id: null,
-        node_name: null,
-        auth_path: authPath,
-        ip,
-        success: false,
-        reason: "NO_NODE",
-        reported_users: traffic.size,
-        online_count: totalOnlineCount,
-        total_tx_bytes: totalTxBytes,
-        total_rx_bytes: totalRxBytes,
-        delta_tx_bytes: 0,
-        delta_rx_bytes: 0,
-      },
-    })
-    return NextResponse.json(
-      { ok: false, error: { code: "NO_NODE", message: "未知节点" } },
-      { status: 404 }
-    )
-  }
 
   const agentUserLogs: AgentTrafficUserLogFields[] = []
   let processed = 0
@@ -355,7 +371,7 @@ export async function POST(
        JOIN plan_nodes pn ON pn.plan_id = p.id
        WHERE s.user_id = ?
          AND s.status = 'active'
-         AND s.expire_time > datetime('now')
+         AND datetime(s.expire_time) > datetime('now')
          AND pn.node_id = ?
        ORDER BY s.expire_time DESC
        LIMIT 1`
@@ -450,7 +466,7 @@ export async function POST(
          WHERE p.auto_renew = 1
            AND p.renewal_period_days > 0
            AND s.status IN ('active', 'blocked')
-           AND s.expire_time > datetime('now')`
+           AND datetime(s.expire_time) > datetime('now')`
       )
       .all() as Array<{
       id: number
@@ -519,6 +535,14 @@ export async function POST(
       }
 
       if (user.status !== "active") {
+        const last = selectLast.get(node.id, user.id) as
+          | { last_tx_bytes: number; last_rx_bytes: number }
+          | undefined
+        const lastTx = last?.last_tx_bytes ?? 0
+        const lastRx = last?.last_rx_bytes ?? 0
+        const ignoredDeltaTx = getCounterDelta(stat.tx, lastTx)
+        const ignoredDeltaRx = getCounterDelta(stat.rx, lastRx)
+        const counterReset = stat.tx < lastTx || stat.rx < lastRx
         skipped++
         agentUserLogs.push({
           node_id: node.id,
@@ -527,14 +551,19 @@ export async function POST(
           username: user.username,
           reported_tx_bytes: stat.tx,
           reported_rx_bytes: stat.rx,
-          last_tx_bytes: null,
-          last_rx_bytes: null,
+          last_tx_bytes: last ? lastTx : null,
+          last_rx_bytes: last ? lastRx : null,
           delta_tx_bytes: 0,
           delta_rx_bytes: 0,
           online_count: online.get(username) ?? 0,
           subscription_id: null,
           success: false,
           reason: "USER_DISABLED",
+          detail: stringifyDetail({
+            discarded_delta_tx_bytes: ignoredDeltaTx,
+            discarded_delta_rx_bytes: ignoredDeltaRx,
+            counter_reset: counterReset,
+          }),
         })
         writeAuthLogSafely({
           node_id: node.id,
@@ -545,6 +574,7 @@ export async function POST(
           success: false,
           reason: "USER_DISABLED",
         })
+        upsertLast.run(node.id, user.id, stat.tx, stat.rx)
         continue
       }
 

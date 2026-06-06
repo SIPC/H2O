@@ -2,7 +2,11 @@ import { NextResponse } from "next/server"
 
 function hasSessionCookie(request: Request) {
   const cookie = request.headers.get("cookie")
-  return Boolean(cookie && cookie.includes("h2o_session="))
+  if (!cookie) return false
+  return cookie
+    .split(";")
+    .map((item) => item.trim())
+    .some((item) => item.startsWith("h2o_session="))
 }
 
 export function proxy(request: Request) {

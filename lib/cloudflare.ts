@@ -34,13 +34,12 @@ async function cfFetch<T>(
   return data.result
 }
 
-// 从域名中提取根域（zone 域名）
-// 如 "sub.example.com" → 尝试 "example.com"、"sub.example.com"
+// 从域名中提取根域（zone 域名），优先匹配最具体的子域 zone
+// 如 "node.sub.example.com" → 尝试 "node.sub.example.com"、"sub.example.com"、"example.com"
 function extractZoneCandidates(domain: string): string[] {
-  const parts = domain.split(".")
+  const parts = domain.split(".").filter(Boolean)
   const candidates: string[] = []
-  // 从两级开始向上尝试（example.com、sub.example.com 的上级等）
-  for (let i = 2; i <= parts.length; i++) {
+  for (let i = parts.length; i >= 2; i -= 1) {
     candidates.push(parts.slice(-i).join("."))
   }
   return candidates

@@ -21,6 +21,8 @@ echo "[3/3] 打包..."
 cp install.sh config.example.json README.md dist/
 tar -C dist -czf dist/h2o-agent-bundle.tar.gz \
   h2o-agent-linux-amd64 h2o-agent-linux-arm64 install.sh config.example.json README.md
+(cd dist && sha256sum h2o-agent-bundle.tar.gz > h2o-agent-bundle.tar.gz.sha256)
+
 
 echo ""
 echo "产物列表："
