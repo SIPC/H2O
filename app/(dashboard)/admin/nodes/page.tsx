@@ -2769,7 +2769,12 @@ export default function AdminNodesPage() {
     })
 
     const json = await response.json()
-    if (!response.ok || !json.ok) return
+    if (!response.ok || !json.ok) {
+      toast.error("无法创建节点", {
+        description: json?.error?.message ?? "请稍后重试",
+      })
+      return
+    }
 
     setName("")
     setRemark("")
@@ -2824,8 +2829,14 @@ export default function AdminNodesPage() {
     })
 
     const json = await response.json()
-    if (!response.ok || !json.ok) return
+    if (!response.ok || !json.ok) {
+      toast.error("无法保存节点", {
+        description: json?.error?.message ?? "请稍后重试",
+      })
+      return false
+    }
     await load()
+    return true
   }
 
   async function removeNode(row: NodeRow) {
@@ -2996,7 +3007,7 @@ export default function AdminNodesPage() {
       editCertMode === "acme-http" || editCertMode === "acme-dns"
         ? parseAcmeDomainsInput(editAcmeDomainsInput)
         : []
-    await updateNode(editingRow.id, {
+    const saved = await updateNode(editingRow.id, {
       name: editName,
       remark: editRemark || null,
       ip: editIp,
@@ -3043,7 +3054,7 @@ export default function AdminNodesPage() {
       agentControlEnabled: editAgentControlEnabled,
     })
 
-    setEditingRow(null)
+    if (saved) setEditingRow(null)
   }
 
   async function showAgentConfig(row: NodeRow) {

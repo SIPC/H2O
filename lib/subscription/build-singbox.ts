@@ -7,26 +7,19 @@ import {
 } from "./rule-config"
 import { buildSingboxBase } from "./singbox-template"
 
-function buildNodeTag(node: NodeForUri, index: number) {
-  const id = "id" in node && typeof node.id === "number" ? node.id : index + 1
-  return `node-${id}-${node.name}`
-}
-
 export function buildSingboxConfig(
   token: string,
   nodes: NodeForUri[],
   ruleConfig: SubscriptionRuleConfig = getSubscriptionRuleConfig()
 ): string {
-  const tags = nodes.map(buildNodeTag)
-  const nodeRefs = nodes.map((node, index) => ({
+  const tags = nodes.map((node) => node.name)
+  const nodeRefs = nodes.map((node) => ({
     id: "id" in node && typeof node.id === "number" ? node.id : null,
-    name: tags[index],
+    name: node.name,
   }))
   const config = buildSingboxBase(tags, { ruleConfig, nodeRefs })
   config.outbounds.push(
-    ...nodes.map((node, index) =>
-      nodeToSingboxOutbound(token, node, tags[index])
-    )
+    ...nodes.map((node) => nodeToSingboxOutbound(token, node))
   )
 
   return JSON.stringify(config, null, 2)

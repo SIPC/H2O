@@ -137,27 +137,6 @@ jobs:
             echo '```'
           } > release_body.md
 
-      - name: 发布到 GitHub Releases
-        if: steps.version.outputs.changed == 'true'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.version.outputs.tag }}
-
-          body_path: release_body.md
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-          overwrite_files: true
-          files: |
-            agent/dist/h2o-agent-linux-amd64
-            agent/dist/h2o-agent-linux-arm64
-            agent/dist/h2o-agent-bundle.tar.gz
-            agent/dist/h2o-agent-linux-amd64.sha256
-            agent/dist/h2o-agent-linux-arm64.sha256
-            agent/dist/h2o-agent-bundle.tar.gz.sha256
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: 设置 Docker Buildx
         if: steps.version.outputs.changed == 'true'
         uses: docker/setup-buildx-action@v3
@@ -179,6 +158,27 @@ jobs:
           tags: |
             sipcink/h2o:latest
             sipcink/h2o:${{ steps.version.outputs.tag }}
+
+      - name: 发布到 GitHub Releases
+        if: steps.version.outputs.changed == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+
+          body_path: release_body.md
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+          overwrite_files: true
+          files: |
+            agent/dist/h2o-agent-linux-amd64
+            agent/dist/h2o-agent-linux-arm64
+            agent/dist/h2o-agent-bundle.tar.gz
+            agent/dist/h2o-agent-linux-amd64.sha256
+            agent/dist/h2o-agent-linux-arm64.sha256
+            agent/dist/h2o-agent-bundle.tar.gz.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 发送 Telegram 通知
         if: steps.version.outputs.changed == 'true'

@@ -12,6 +12,7 @@ import {
   validateGeckoPacketSizes,
 } from "@/lib/hysteria-obfs"
 import { writeAdminEvent } from "@/lib/logs-db"
+import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
   buildNodeHostTrafficSummary,
   ensureAllNodeHostTrafficPeriods,
@@ -123,15 +124,16 @@ export async function POST(request: Request) {
 
   const ip = getClientIp(request)
   const body = (await request.json()) as CreateNodeBody
+  const nodeName = normalizeNodeName(body.name)
 
-  if (!body.name || !body.ip || body.port === undefined || body.port === null) {
+  if (!nodeName || !body.ip || body.port === undefined || body.port === null) {
     writeAdminEvent({
       event: "NODE_CREATE",
       actor: auth.user,
       ip,
       success: false,
       reason: "INVALID_PAYLOAD",
-      detail: { name: body.name ?? null },
+      detail: { name: nodeName || body.name || null },
     })
     return NextResponse.json(
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
@@ -139,9 +141,45 @@ export async function POST(request: Request) {
     )
   }
 
+  const nodeNameError = validateNodeName(nodeName)
+  if (nodeNameError) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: nodeName },
+    })
+    return NextResponse.json(
+      { ok: false, error: { code: "INVALID_PAYLOAD", message: nodeNameError } },
+      { status: 400 }
+    )
+  }
+
   // 创建节点时生成一次长随机认证路径，后续保持不变
   const authPath = randomBytes(24).toString("hex")
   const db = getDb()
+  const duplicateNode = db
+    .prepare(`SELECT id FROM nodes WHERE name = ? LIMIT 1`)
+    .get(nodeName) as { id: number } | undefined
+  if (duplicateNode) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: nodeName, duplicateNodeId: duplicateNode.id },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "节点名称已存在" },
+      },
+      { status: 400 }
+    )
+  }
 
   const remark = body.remark?.trim() || null
   const sni = body.sni?.trim() || null
@@ -477,7 +515,7 @@ export async function POST(request: Request) {
          VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
-        body.name,
+        nodeName,
         remark,
         body.ip,
         resolvedPort,
@@ -526,7 +564,7 @@ export async function POST(request: Request) {
       reason: "OK",
       detail: {
         nodeId: newNodeId,
-        name: body.name,
+        name: nodeName,
         host: `${body.ip}:${resolvedPortHopping ?? resolvedPort}`,
       },
     })
@@ -535,7 +573,7 @@ export async function POST(request: Request) {
       ok: true,
       data: {
         id: newNodeId,
-        name: body.name,
+        name: nodeName,
         ip: body.ip,
         port: resolvedPort,
         port_hopping: resolvedPortHopping,
@@ -549,7 +587,7 @@ export async function POST(request: Request) {
       ip,
       success: false,
       reason: "CREATE_FAILED",
-      detail: { name: body.name },
+      detail: { name: nodeName },
     })
     return NextResponse.json(
       { ok: false, error: { code: "CREATE_FAILED", message: "节点创建失败" } },

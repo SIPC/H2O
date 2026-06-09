@@ -9,6 +9,7 @@ import {
   validateGeckoPacketSizes,
 } from "@/lib/hysteria-obfs"
 import { writeAdminEvent } from "@/lib/logs-db"
+import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
   isHostTrafficResetCycle,
   parseHostTrafficBillingMode,
@@ -100,11 +101,33 @@ export async function PATCH(
   const updates: string[] = []
   const values: Array<string | number | null> = []
   const changedFields: string[] = []
+  let nextNodeName: string | null = null
 
-  if (body.name) {
+  if (body.name !== undefined) {
+    const nodeName = normalizeNodeName(body.name)
+    const nodeNameError = validateNodeName(nodeName)
+    if (nodeNameError) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId, name: nodeName || body.name || null },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: nodeNameError },
+        },
+        { status: 400 }
+      )
+    }
+
     updates.push("name = ?")
-    values.push(body.name)
+    values.push(nodeName)
     changedFields.push("name")
+    nextNodeName = nodeName
   }
 
   if (body.remark !== undefined) {
@@ -364,6 +387,33 @@ export async function PATCH(
       { ok: false, error: { code: "NOT_FOUND", message: "节点不存在" } },
       { status: 404 }
     )
+  }
+
+  if (nextNodeName) {
+    const duplicateNode = db
+      .prepare(`SELECT id FROM nodes WHERE name = ? AND id <> ? LIMIT 1`)
+      .get(nextNodeName, nodeId) as { id: number } | undefined
+    if (duplicateNode) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: {
+          nodeId,
+          name: nextNodeName,
+          duplicateNodeId: duplicateNode.id,
+        },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: "节点名称已存在" },
+        },
+        { status: 400 }
+      )
+    }
   }
 
   const nextObfs =
