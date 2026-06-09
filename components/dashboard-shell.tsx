@@ -3,16 +3,17 @@
 import Image from "next/image"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { FormEvent, Fragment, ReactNode, useEffect, useState } from "react"
+import { Fragment, ReactNode, useEffect, useState } from "react"
 import { useTheme } from "next-themes"
 import {
+  Bell,
   ChevronRight,
+  ChevronsUpDown,
   LayoutDashboard,
   LogOut,
   Moon,
   Shield,
   Sun,
-  UserCircle2,
 } from "lucide-react"
 
 import { ConfirmProvider } from "@/components/confirm-provider"
@@ -27,6 +28,13 @@ import {
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Toaster } from "@/components/ui/sonner"
 import {
   Collapsible,
@@ -52,6 +60,7 @@ import {
   SidebarMenuSubItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 
 type SessionUser = {
@@ -140,6 +149,61 @@ function getBreadcrumbs(pathname: string): Crumb[] {
   return []
 }
 
+function SidebarUserMenu({
+  user,
+  onLogout,
+}: {
+  user: SessionUser
+  onLogout: () => void
+}) {
+  const { isMobile } = useSidebar()
+  const initial = user.username.trim().charAt(0).toUpperCase() || "H"
+  const roleLabel = user.role === "admin" ? "管理员" : "普通用户"
+
+  return (
+    <SidebarMenu>
+      <SidebarMenuItem>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton
+              size="lg"
+              className="h-14 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              tooltip={user.username}
+            >
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-sky-500 via-fuchsia-500 to-amber-400 text-sm font-semibold text-white shadow-sm">
+                {initial}
+              </div>
+              <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="truncate font-medium">{user.username}</span>
+                <span className="truncate text-xs text-sidebar-foreground/65">
+                  {roleLabel}
+                </span>
+              </div>
+              <ChevronsUpDown className="ml-auto size-4 text-sidebar-foreground/65 group-data-[collapsible=icon]:hidden" />
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side={isMobile ? "bottom" : "right"}
+            align="end"
+            sideOffset={4}
+            className="min-w-48"
+          >
+            <DropdownMenuItem onSelect={() => toast.info("暂无通知")}>
+              <Bell className="size-4" />
+              <span>通知</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onLogout}>
+              <LogOut className="size-4" />
+              <span>退出登录</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </SidebarMenuItem>
+    </SidebarMenu>
+  )
+}
+
 export function DashboardShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -223,8 +287,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
     }
   }, [user?.role])
 
-  async function logout(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
+  async function logout() {
     await fetch("/api/auth/logout", { method: "POST" })
     router.replace("/login")
   }
@@ -420,31 +483,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             </SidebarContent>
 
             <SidebarFooter className="p-2 pt-1">
-              <div className="rounded-md border border-sidebar-border/70 p-2 group-data-[collapsible=icon]:p-1.5">
-                <div className="flex items-center gap-2 group-data-[collapsible=icon]:justify-center">
-                  <UserCircle2 className="size-4 shrink-0" />
-                  <div className="min-w-0 text-xs group-data-[collapsible=icon]:hidden">
-                    <p className="truncate font-medium text-sidebar-foreground">
-                      {user.username}
-                    </p>
-                    <p className="truncate text-sidebar-foreground/65">
-                      {user.role === "admin" ? "管理员" : "普通用户"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <form onSubmit={logout}>
-                <Button
-                  type="submit"
-                  variant="outline"
-                  className="w-full justify-start group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-                >
-                  <LogOut className="size-4" />
-                  <span className="group-data-[collapsible=icon]:hidden">
-                    退出登录
-                  </span>
-                </Button>
-              </form>
+              <SidebarUserMenu user={user} onLogout={() => void logout()} />
             </SidebarFooter>
           </Sidebar>
 
