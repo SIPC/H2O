@@ -28,7 +28,7 @@ export type SingboxHysteria2Outbound = {
   type: "hysteria2"
   tag: string
   server: string
-  server_port: number
+  server_port?: number
   server_ports?: string[]
   password: string
   up_mbps?: number
@@ -88,7 +88,6 @@ export function nodeToSingboxOutbound(
     type: "hysteria2",
     tag,
     server: node.ip,
-    server_port: node.port,
     password: token,
     tls: {
       enabled: true,
@@ -97,7 +96,10 @@ export function nodeToSingboxOutbound(
   }
   const serverPorts = toSingboxServerPorts(node.port_hopping)
   if (serverPorts && serverPorts.length > 0) {
+    // sing-box 1.11+ 使用 server_ports 表示端口跳跃；避免同时输出 server_port 被客户端误当成单端口。
     outbound.server_ports = serverPorts
+  } else {
+    outbound.server_port = node.port
   }
   if (node.sni) outbound.tls.server_name = node.sni
   if (shouldSkipCertVerify(node)) outbound.tls.insecure = true
