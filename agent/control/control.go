@@ -16,6 +16,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -489,6 +491,7 @@ func taskTimeout(taskType string) time.Duration {
 	}
 }
 
+const configBackupRetention = 3
 const hy2AutoUpdateInterval = 24 * time.Hour
 
 type hy2UpdateState struct {
@@ -620,15 +623,77 @@ func applyConfig(ctx context.Context, cfg Config, payload applyConfigPayload) Ta
 	}
 
 	status, _ := serviceStatus(ctx, serviceName)
+	result := map[string]interface{}{
+		"revision": payload.Revision,
+		"hash":     firstNonEmpty(payload.Hash, configHash),
+		"path":     path,
+		"status":   status,
+	}
+	if err := cleanupConfigBackups(path, configBackupRetention); err != nil {
+		result["backup_cleanup_error"] = fmt.Sprintf("清理旧配置备份失败: %v", err)
+	}
 	return TaskResult{
 		Status: "succeeded",
-		Result: map[string]interface{}{
-			"revision": payload.Revision,
-			"hash":     firstNonEmpty(payload.Hash, configHash),
-			"path":     path,
-			"status":   status,
-		},
+		Result: result,
 	}
+}
+
+type configBackupFile struct {
+	path      string
+	name      string
+	timestamp int64
+}
+
+func cleanupConfigBackups(path string, keep int) error {
+	if path == "" || keep < 0 {
+		return nil
+	}
+
+	dir := filepath.Dir(path)
+	prefix := filepath.Base(path) + ".h2o-backup-"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	backups := make([]configBackupFile, 0)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasPrefix(name, prefix) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		timestamp, err := strconv.ParseInt(strings.TrimPrefix(name, prefix), 10, 64)
+		if err != nil {
+			continue
+		}
+		backups = append(backups, configBackupFile{
+			path:      filepath.Join(dir, name),
+			name:      name,
+			timestamp: timestamp,
+		})
+	}
+	if len(backups) <= keep {
+		return nil
+	}
+
+	sort.Slice(backups, func(i, j int) bool {
+		if backups[i].timestamp == backups[j].timestamp {
+			return backups[i].name > backups[j].name
+		}
+		return backups[i].timestamp > backups[j].timestamp
+	})
+
+	var firstErr error
+	for _, backup := range backups[keep:] {
+		if err := os.Remove(backup.path); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func runServiceTask(ctx context.Context, id int64, action, serviceName string) TaskResult {
