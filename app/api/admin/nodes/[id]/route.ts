@@ -8,6 +8,10 @@ import {
   requiresObfsPassword,
   validateGeckoPacketSizes,
 } from "@/lib/hysteria-obfs"
+import {
+  parseHysteriaNetworkConfig,
+  type HysteriaNetworkConfig,
+} from "@/lib/hysteria-network-config"
 import { writeAdminEvent } from "@/lib/logs-db"
 import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
@@ -75,6 +79,18 @@ type UpdateNodeBody = {
   agentAutoUpdateEnabled?: boolean
   hy2AutoUpdateEnabled?: boolean
   agentControlEnabled?: boolean
+  serverBandwidthUpMbps?: number | string | null
+  serverBandwidthDownMbps?: number | string | null
+  ignoreClientBandwidth?: boolean
+  quicInitStreamReceiveWindow?: number | string | null
+  quicMaxStreamReceiveWindow?: number | string | null
+  quicInitConnReceiveWindow?: number | string | null
+  quicMaxConnReceiveWindow?: number | string | null
+  quicMaxIdleTimeoutSeconds?: number | string | null
+  quicMaxIncomingStreams?: number | string | null
+  quicDisablePathMtuDiscovery?: boolean
+  congestionType?: string | null
+  congestionBbrProfile?: string | null
   hostTrafficLimitBytes?: number | null
   hostTrafficUsedBytes?: number | null
   hostTrafficBillingMode?: string | null
@@ -412,6 +428,13 @@ export async function PATCH(
               acme_dns_provider, acme_dns_config, masquerade_type,
               masquerade_config, agent_interval, agent_auto_update_enabled,
               hy2_auto_update_enabled,
+              server_bandwidth_up_mbps, server_bandwidth_down_mbps,
+              ignore_client_bandwidth,
+              quic_init_stream_receive_window, quic_max_stream_receive_window,
+              quic_init_conn_receive_window, quic_max_conn_receive_window,
+              quic_max_idle_timeout_seconds, quic_max_incoming_streams,
+              quic_disable_path_mtu_discovery,
+              congestion_type, congestion_bbr_profile,
               host_traffic_limit_bytes, host_traffic_used_bytes,
               host_traffic_billing_mode, host_traffic_reset_cycle,
               host_traffic_reset_interval_days, host_traffic_reset_anchor
@@ -577,6 +600,154 @@ export async function PATCH(
     updates.push("agent_control_enabled = ?")
     values.push(body.agentControlEnabled ? 1 : 0)
     changedFields.push("agent_control_enabled")
+  }
+
+  const networkConfigKeys: Array<keyof UpdateNodeBody> = [
+    "serverBandwidthUpMbps",
+    "serverBandwidthDownMbps",
+    "ignoreClientBandwidth",
+    "quicInitStreamReceiveWindow",
+    "quicMaxStreamReceiveWindow",
+    "quicInitConnReceiveWindow",
+    "quicMaxConnReceiveWindow",
+    "quicMaxIdleTimeoutSeconds",
+    "quicMaxIncomingStreams",
+    "quicDisablePathMtuDiscovery",
+    "congestionType",
+    "congestionBbrProfile",
+  ]
+  const hasNetworkConfigChanges = networkConfigKeys.some(
+    (key) => body[key] !== undefined
+  )
+  if (hasNetworkConfigChanges) {
+    const currentNetworkConfig: HysteriaNetworkConfig = {
+      serverBandwidthUpMbps:
+        typeof currentNode.server_bandwidth_up_mbps === "number"
+          ? currentNode.server_bandwidth_up_mbps
+          : 0,
+      serverBandwidthDownMbps:
+        typeof currentNode.server_bandwidth_down_mbps === "number"
+          ? currentNode.server_bandwidth_down_mbps
+          : 0,
+      ignoreClientBandwidth: currentNode.ignore_client_bandwidth === 1,
+      quicInitStreamReceiveWindow:
+        typeof currentNode.quic_init_stream_receive_window === "number"
+          ? currentNode.quic_init_stream_receive_window
+          : null,
+      quicMaxStreamReceiveWindow:
+        typeof currentNode.quic_max_stream_receive_window === "number"
+          ? currentNode.quic_max_stream_receive_window
+          : null,
+      quicInitConnReceiveWindow:
+        typeof currentNode.quic_init_conn_receive_window === "number"
+          ? currentNode.quic_init_conn_receive_window
+          : null,
+      quicMaxConnReceiveWindow:
+        typeof currentNode.quic_max_conn_receive_window === "number"
+          ? currentNode.quic_max_conn_receive_window
+          : null,
+      quicMaxIdleTimeoutSeconds:
+        typeof currentNode.quic_max_idle_timeout_seconds === "number"
+          ? currentNode.quic_max_idle_timeout_seconds
+          : null,
+      quicMaxIncomingStreams:
+        typeof currentNode.quic_max_incoming_streams === "number"
+          ? currentNode.quic_max_incoming_streams
+          : null,
+      quicDisablePathMtuDiscovery:
+        currentNode.quic_disable_path_mtu_discovery === 1,
+      congestionType:
+        currentNode.congestion_type === "bbr" ||
+        currentNode.congestion_type === "reno"
+          ? currentNode.congestion_type
+          : null,
+      congestionBbrProfile:
+        currentNode.congestion_bbr_profile === "standard" ||
+        currentNode.congestion_bbr_profile === "conservative" ||
+        currentNode.congestion_bbr_profile === "aggressive"
+          ? currentNode.congestion_bbr_profile
+          : null,
+    }
+    const networkConfig = parseHysteriaNetworkConfig(
+      {
+        serverBandwidthUpMbps: body.serverBandwidthUpMbps,
+        serverBandwidthDownMbps: body.serverBandwidthDownMbps,
+        ignoreClientBandwidth: body.ignoreClientBandwidth,
+        quicInitStreamReceiveWindow: body.quicInitStreamReceiveWindow,
+        quicMaxStreamReceiveWindow: body.quicMaxStreamReceiveWindow,
+        quicInitConnReceiveWindow: body.quicInitConnReceiveWindow,
+        quicMaxConnReceiveWindow: body.quicMaxConnReceiveWindow,
+        quicMaxIdleTimeoutSeconds: body.quicMaxIdleTimeoutSeconds,
+        quicMaxIncomingStreams: body.quicMaxIncomingStreams,
+        quicDisablePathMtuDiscovery: body.quicDisablePathMtuDiscovery,
+        congestionType: body.congestionType,
+        congestionBbrProfile: body.congestionBbrProfile,
+      },
+      currentNetworkConfig
+    )
+    if (!networkConfig.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: networkConfig.code ?? "INVALID_PAYLOAD",
+        detail: { nodeId },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: networkConfig.code ?? "INVALID_PAYLOAD",
+            message: networkConfig.message,
+          },
+        },
+        { status: 400 }
+      )
+    }
+
+    for (const [col, value] of [
+      ["server_bandwidth_up_mbps", networkConfig.value.serverBandwidthUpMbps],
+      [
+        "server_bandwidth_down_mbps",
+        networkConfig.value.serverBandwidthDownMbps,
+      ],
+      [
+        "ignore_client_bandwidth",
+        networkConfig.value.ignoreClientBandwidth ? 1 : 0,
+      ],
+      [
+        "quic_init_stream_receive_window",
+        networkConfig.value.quicInitStreamReceiveWindow,
+      ],
+      [
+        "quic_max_stream_receive_window",
+        networkConfig.value.quicMaxStreamReceiveWindow,
+      ],
+      [
+        "quic_init_conn_receive_window",
+        networkConfig.value.quicInitConnReceiveWindow,
+      ],
+      [
+        "quic_max_conn_receive_window",
+        networkConfig.value.quicMaxConnReceiveWindow,
+      ],
+      [
+        "quic_max_idle_timeout_seconds",
+        networkConfig.value.quicMaxIdleTimeoutSeconds,
+      ],
+      ["quic_max_incoming_streams", networkConfig.value.quicMaxIncomingStreams],
+      [
+        "quic_disable_path_mtu_discovery",
+        networkConfig.value.quicDisablePathMtuDiscovery ? 1 : 0,
+      ],
+      ["congestion_type", networkConfig.value.congestionType],
+      ["congestion_bbr_profile", networkConfig.value.congestionBbrProfile],
+    ] as const) {
+      updates.push(`${col} = ?`)
+      values.push(value)
+      changedFields.push(col)
+    }
   }
 
   const hostTrafficLimit =
@@ -908,6 +1079,18 @@ export async function PATCH(
     "masquerade_config",
     "agent_interval",
     "agent_auto_update_enabled",
+    "server_bandwidth_up_mbps",
+    "server_bandwidth_down_mbps",
+    "ignore_client_bandwidth",
+    "quic_init_stream_receive_window",
+    "quic_max_stream_receive_window",
+    "quic_init_conn_receive_window",
+    "quic_max_conn_receive_window",
+    "quic_max_idle_timeout_seconds",
+    "quic_max_incoming_streams",
+    "quic_disable_path_mtu_discovery",
+    "congestion_type",
+    "congestion_bbr_profile",
   ])
   const valueByField = new Map<string, string | number | null>()
   updates.forEach((update, index) => {

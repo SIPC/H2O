@@ -28,6 +28,18 @@ export type HysteriaServerConfigInput = {
   acmeDnsConfig: Record<string, string>
   masqueradeType: string | null
   masqueradeConfig: Record<string, unknown>
+  serverBandwidthUpMbps?: number | null
+  serverBandwidthDownMbps?: number | null
+  ignoreClientBandwidth?: boolean
+  quicInitStreamReceiveWindow?: number | null
+  quicMaxStreamReceiveWindow?: number | null
+  quicInitConnReceiveWindow?: number | null
+  quicMaxConnReceiveWindow?: number | null
+  quicMaxIdleTimeoutSeconds?: number | null
+  quicMaxIncomingStreams?: number | null
+  quicDisablePathMtuDiscovery?: boolean
+  congestionType?: string | null
+  congestionBbrProfile?: string | null
   outboundsBlock?: string | null
   aclBlock?: string | null
 }
@@ -191,6 +203,64 @@ export function buildMasqueradeBlock(
   })
 }
 
+function positiveInteger(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : null
+}
+
+function buildQuicBlock(params: HysteriaServerConfigInput) {
+  const lines: string[] = []
+  const addInt = (key: string, value: number | null | undefined) => {
+    const n = positiveInteger(value)
+    if (n != null) lines.push(`  ${key}: ${n}`)
+  }
+
+  addInt("initStreamReceiveWindow", params.quicInitStreamReceiveWindow)
+  addInt("maxStreamReceiveWindow", params.quicMaxStreamReceiveWindow)
+  addInt("initConnReceiveWindow", params.quicInitConnReceiveWindow)
+  addInt("maxConnReceiveWindow", params.quicMaxConnReceiveWindow)
+
+  const maxIdleTimeout = positiveInteger(params.quicMaxIdleTimeoutSeconds)
+  if (maxIdleTimeout != null) {
+    lines.push(`  maxIdleTimeout: ${maxIdleTimeout}s`)
+  }
+
+  addInt("maxIncomingStreams", params.quicMaxIncomingStreams)
+
+  if (params.quicDisablePathMtuDiscovery) {
+    lines.push("  disablePathMTUDiscovery: true")
+  }
+
+  if (lines.length === 0) return null
+  return ["quic:", ...lines].join("\n")
+}
+
+function buildBandwidthBlock(params: HysteriaServerConfigInput) {
+  const up = positiveInteger(params.serverBandwidthUpMbps) ?? 0
+  const down = positiveInteger(params.serverBandwidthDownMbps) ?? 0
+  if (up <= 0 && down <= 0) return null
+
+  return ["bandwidth:", `  up: ${up} mbps`, `  down: ${down} mbps`].join("\n")
+}
+
+function buildCongestionBlock(params: HysteriaServerConfigInput) {
+  const type = params.congestionType
+  if (type !== "bbr" && type !== "reno") return null
+
+  const lines = ["congestion:", `  type: ${type}`]
+  if (
+    type === "bbr" &&
+    (params.congestionBbrProfile === "standard" ||
+      params.congestionBbrProfile === "conservative" ||
+      params.congestionBbrProfile === "aggressive")
+  ) {
+    lines.push(`  bbrProfile: ${params.congestionBbrProfile}`)
+  }
+
+  return lines.join("\n")
+}
+
 function buildObfsBlock(params: HysteriaServerConfigInput) {
   if (!params.obfsPassword) return ""
 
@@ -235,6 +305,11 @@ export function buildHysteriaServerConfig(params: HysteriaServerConfigInput) {
     `listen: ${yamlString(listenValue)}`,
     "",
     tlsOrAcme,
+    "",
+    buildQuicBlock(params),
+    buildBandwidthBlock(params),
+    params.ignoreClientBandwidth ? "ignoreClientBandwidth: true" : null,
+    buildCongestionBlock(params),
     "",
     "auth:",
     "  type: http",

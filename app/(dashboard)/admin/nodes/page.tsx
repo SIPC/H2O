@@ -159,6 +159,8 @@ type HostTrafficResetCycle =
   | "custom_days"
 
 type HostTrafficBillingMode = "tx_rx" | "tx" | "rx"
+type CongestionType = "default" | "bbr" | "reno"
+type CongestionBbrProfile = "standard" | "conservative" | "aggressive"
 
 type HostTrafficUnit = "GB" | "TB"
 
@@ -252,6 +254,18 @@ type NodeRow = {
   agent_interval: number | null
   agent_auto_update_enabled: 0 | 1 | null
   hy2_auto_update_enabled: 0 | 1 | null
+  server_bandwidth_up_mbps: number | null
+  server_bandwidth_down_mbps: number | null
+  ignore_client_bandwidth: 0 | 1 | null
+  quic_init_stream_receive_window: number | null
+  quic_max_stream_receive_window: number | null
+  quic_init_conn_receive_window: number | null
+  quic_max_conn_receive_window: number | null
+  quic_max_idle_timeout_seconds: number | null
+  quic_max_incoming_streams: number | null
+  quic_disable_path_mtu_discovery: 0 | 1 | null
+  congestion_type: Exclude<CongestionType, "default"> | null
+  congestion_bbr_profile: CongestionBbrProfile | null
   host_traffic_limit_bytes: number | null
   host_traffic_used_bytes: number | null
   host_traffic_billing_mode: HostTrafficBillingMode | null
@@ -1428,6 +1442,31 @@ function NodeForm({
   setMasqProxyXForwarded,
   masqFileDir,
   setMasqFileDir,
+  // Hy2 高级网络
+  serverBandwidthUpMbps,
+  setServerBandwidthUpMbps,
+  serverBandwidthDownMbps,
+  setServerBandwidthDownMbps,
+  ignoreClientBandwidth,
+  setIgnoreClientBandwidth,
+  quicInitStreamReceiveWindow,
+  setQuicInitStreamReceiveWindow,
+  quicMaxStreamReceiveWindow,
+  setQuicMaxStreamReceiveWindow,
+  quicInitConnReceiveWindow,
+  setQuicInitConnReceiveWindow,
+  quicMaxConnReceiveWindow,
+  setQuicMaxConnReceiveWindow,
+  quicMaxIdleTimeoutSeconds,
+  setQuicMaxIdleTimeoutSeconds,
+  quicMaxIncomingStreams,
+  setQuicMaxIncomingStreams,
+  quicDisablePathMtuDiscovery,
+  setQuicDisablePathMtuDiscovery,
+  congestionType,
+  setCongestionType,
+  congestionBbrProfile,
+  setCongestionBbrProfile,
   // 宿主机流量
   hostTrafficEnabled,
   setHostTrafficEnabled,
@@ -1521,6 +1560,31 @@ function NodeForm({
   setMasqProxyXForwarded: (v: boolean) => void
   masqFileDir: string
   setMasqFileDir: (v: string) => void
+  // Hy2 高级网络
+  serverBandwidthUpMbps: string
+  setServerBandwidthUpMbps: (v: string) => void
+  serverBandwidthDownMbps: string
+  setServerBandwidthDownMbps: (v: string) => void
+  ignoreClientBandwidth: boolean
+  setIgnoreClientBandwidth: (v: boolean) => void
+  quicInitStreamReceiveWindow: string
+  setQuicInitStreamReceiveWindow: (v: string) => void
+  quicMaxStreamReceiveWindow: string
+  setQuicMaxStreamReceiveWindow: (v: string) => void
+  quicInitConnReceiveWindow: string
+  setQuicInitConnReceiveWindow: (v: string) => void
+  quicMaxConnReceiveWindow: string
+  setQuicMaxConnReceiveWindow: (v: string) => void
+  quicMaxIdleTimeoutSeconds: string
+  setQuicMaxIdleTimeoutSeconds: (v: string) => void
+  quicMaxIncomingStreams: string
+  setQuicMaxIncomingStreams: (v: string) => void
+  quicDisablePathMtuDiscovery: boolean
+  setQuicDisablePathMtuDiscovery: (v: boolean) => void
+  congestionType: CongestionType
+  setCongestionType: (v: CongestionType) => void
+  congestionBbrProfile: CongestionBbrProfile
+  setCongestionBbrProfile: (v: CongestionBbrProfile) => void
   // 宿主机流量
   hostTrafficEnabled: boolean
   setHostTrafficEnabled: (v: boolean) => void
@@ -2023,6 +2087,191 @@ function NodeForm({
         </div>
       </NodeFormSection>
 
+      {/* === Hy2 高级网络 === */}
+      <NodeFormSection title="Hy2 高级网络" defaultOpen={false}>
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">服务端带宽</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              配置 Hy2 服务端 bandwidth；0
+              或留空表示该方向不限。服务端上传对应客户端下载，服务端下载对应客户端上传。
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>服务端上传限速 (Mbps)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={serverBandwidthUpMbps}
+                onChange={(e) => setServerBandwidthUpMbps(e.target.value)}
+                placeholder="0 = 不配置"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>服务端下载限速 (Mbps)</Label>
+              <Input
+                type="number"
+                min="0"
+                step="1"
+                value={serverBandwidthDownMbps}
+                onChange={(e) => setServerBandwidthDownMbps(e.target.value)}
+                placeholder="0 = 不配置"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-2">
+            <div>
+              <Label>忽略客户端带宽配置</Label>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                启用后 Hy2 会忽略订阅中客户端自行设置的 bandwidth，改用非 Brutal
+                拥塞控制。
+              </p>
+            </div>
+            <Switch
+              checked={ignoreClientBandwidth}
+              onCheckedChange={setIgnoreClientBandwidth}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">拥塞控制</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              留空使用 Hy2 默认；BBR 预设仅在选择 BBR 时生效。
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>控制器</Label>
+              <Select
+                value={congestionType}
+                onValueChange={(v) => setCongestionType(v as CongestionType)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="default">默认（不配置）</SelectItem>
+                  <SelectItem value="bbr">BBR</SelectItem>
+                  <SelectItem value="reno">Reno</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label>BBR 预设</Label>
+              <Select
+                value={congestionBbrProfile}
+                onValueChange={(v) =>
+                  setCongestionBbrProfile(v as CongestionBbrProfile)
+                }
+                disabled={congestionType !== "bbr"}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectItem value="standard">standard</SelectItem>
+                  <SelectItem value="conservative">conservative</SelectItem>
+                  <SelectItem value="aggressive">aggressive</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-lg border p-3">
+          <div>
+            <p className="text-sm font-medium">QUIC 参数</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              不填则使用 Hy2 默认值。除非明确了解影响，不建议随意修改窗口大小。
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label>initStreamReceiveWindow</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={quicInitStreamReceiveWindow}
+                onChange={(e) => setQuicInitStreamReceiveWindow(e.target.value)}
+                placeholder="默认 8388608"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>maxStreamReceiveWindow</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={quicMaxStreamReceiveWindow}
+                onChange={(e) => setQuicMaxStreamReceiveWindow(e.target.value)}
+                placeholder="默认 8388608"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>initConnReceiveWindow</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={quicInitConnReceiveWindow}
+                onChange={(e) => setQuicInitConnReceiveWindow(e.target.value)}
+                placeholder="默认 20971520"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>maxConnReceiveWindow</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={quicMaxConnReceiveWindow}
+                onChange={(e) => setQuicMaxConnReceiveWindow(e.target.value)}
+                placeholder="默认 20971520"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>maxIdleTimeout（秒）</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={quicMaxIdleTimeoutSeconds}
+                onChange={(e) => setQuicMaxIdleTimeoutSeconds(e.target.value)}
+                placeholder="默认 30"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>maxIncomingStreams</Label>
+              <Input
+                type="number"
+                min="1"
+                step="1"
+                value={quicMaxIncomingStreams}
+                onChange={(e) => setQuicMaxIncomingStreams(e.target.value)}
+                placeholder="默认 1024"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-2">
+            <div>
+              <Label>禁用 Path MTU Discovery</Label>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                对应 Hy2 quic.disablePathMTUDiscovery。
+              </p>
+            </div>
+            <Switch
+              checked={quicDisablePathMtuDiscovery}
+              onCheckedChange={setQuicDisablePathMtuDiscovery}
+            />
+          </div>
+        </div>
+      </NodeFormSection>
+
       {/* === 宿主机流量 === */}
       <NodeFormSection title="宿主机流量" defaultOpen={false}>
         <div className="flex items-center justify-between gap-3">
@@ -2298,6 +2547,23 @@ export default function AdminNodesPage() {
   const [masqProxyInsecure, setMasqProxyInsecure] = useState(false)
   const [masqProxyXForwarded, setMasqProxyXForwarded] = useState(false)
   const [masqFileDir, setMasqFileDir] = useState("/www/masq")
+  const [serverBandwidthUpMbps, setServerBandwidthUpMbps] = useState("0")
+  const [serverBandwidthDownMbps, setServerBandwidthDownMbps] = useState("0")
+  const [ignoreClientBandwidth, setIgnoreClientBandwidth] = useState(false)
+  const [quicInitStreamReceiveWindow, setQuicInitStreamReceiveWindow] =
+    useState("")
+  const [quicMaxStreamReceiveWindow, setQuicMaxStreamReceiveWindow] =
+    useState("")
+  const [quicInitConnReceiveWindow, setQuicInitConnReceiveWindow] = useState("")
+  const [quicMaxConnReceiveWindow, setQuicMaxConnReceiveWindow] = useState("")
+  const [quicMaxIdleTimeoutSeconds, setQuicMaxIdleTimeoutSeconds] = useState("")
+  const [quicMaxIncomingStreams, setQuicMaxIncomingStreams] = useState("")
+  const [quicDisablePathMtuDiscovery, setQuicDisablePathMtuDiscovery] =
+    useState(false)
+  const [congestionType, setCongestionType] =
+    useState<CongestionType>("default")
+  const [congestionBbrProfile, setCongestionBbrProfile] =
+    useState<CongestionBbrProfile>("standard")
   const [hostTrafficEnabled, setHostTrafficEnabled] = useState(false)
   const [hostTrafficLimit, setHostTrafficLimit] = useState("")
   const [hostTrafficUsed, setHostTrafficUsed] = useState("")
@@ -2348,6 +2614,30 @@ export default function AdminNodesPage() {
   const [editMasqProxyInsecure, setEditMasqProxyInsecure] = useState(false)
   const [editMasqProxyXForwarded, setEditMasqProxyXForwarded] = useState(false)
   const [editMasqFileDir, setEditMasqFileDir] = useState("/www/masq")
+  const [editServerBandwidthUpMbps, setEditServerBandwidthUpMbps] =
+    useState("0")
+  const [editServerBandwidthDownMbps, setEditServerBandwidthDownMbps] =
+    useState("0")
+  const [editIgnoreClientBandwidth, setEditIgnoreClientBandwidth] =
+    useState(false)
+  const [editQuicInitStreamReceiveWindow, setEditQuicInitStreamReceiveWindow] =
+    useState("")
+  const [editQuicMaxStreamReceiveWindow, setEditQuicMaxStreamReceiveWindow] =
+    useState("")
+  const [editQuicInitConnReceiveWindow, setEditQuicInitConnReceiveWindow] =
+    useState("")
+  const [editQuicMaxConnReceiveWindow, setEditQuicMaxConnReceiveWindow] =
+    useState("")
+  const [editQuicMaxIdleTimeoutSeconds, setEditQuicMaxIdleTimeoutSeconds] =
+    useState("")
+  const [editQuicMaxIncomingStreams, setEditQuicMaxIncomingStreams] =
+    useState("")
+  const [editQuicDisablePathMtuDiscovery, setEditQuicDisablePathMtuDiscovery] =
+    useState(false)
+  const [editCongestionType, setEditCongestionType] =
+    useState<CongestionType>("default")
+  const [editCongestionBbrProfile, setEditCongestionBbrProfile] =
+    useState<CongestionBbrProfile>("standard")
   const [editHostTrafficEnabled, setEditHostTrafficEnabled] = useState(false)
   const [editHostTrafficLimit, setEditHostTrafficLimit] = useState("")
   const [editHostTrafficUsed, setEditHostTrafficUsed] = useState("")
@@ -2779,6 +3069,35 @@ export default function AdminNodesPage() {
         acmeDnsConfig: buildAcmeDnsConfig("create"),
         masqueradeType,
         masqueradeConfig: buildMasqueradeConfigObj("create"),
+        serverBandwidthUpMbps: serverBandwidthUpMbps
+          ? Number(serverBandwidthUpMbps)
+          : 0,
+        serverBandwidthDownMbps: serverBandwidthDownMbps
+          ? Number(serverBandwidthDownMbps)
+          : 0,
+        ignoreClientBandwidth,
+        quicInitStreamReceiveWindow: quicInitStreamReceiveWindow
+          ? Number(quicInitStreamReceiveWindow)
+          : null,
+        quicMaxStreamReceiveWindow: quicMaxStreamReceiveWindow
+          ? Number(quicMaxStreamReceiveWindow)
+          : null,
+        quicInitConnReceiveWindow: quicInitConnReceiveWindow
+          ? Number(quicInitConnReceiveWindow)
+          : null,
+        quicMaxConnReceiveWindow: quicMaxConnReceiveWindow
+          ? Number(quicMaxConnReceiveWindow)
+          : null,
+        quicMaxIdleTimeoutSeconds: quicMaxIdleTimeoutSeconds
+          ? Number(quicMaxIdleTimeoutSeconds)
+          : null,
+        quicMaxIncomingStreams: quicMaxIncomingStreams
+          ? Number(quicMaxIncomingStreams)
+          : null,
+        quicDisablePathMtuDiscovery,
+        congestionType: congestionType === "default" ? null : congestionType,
+        congestionBbrProfile:
+          congestionType === "bbr" ? congestionBbrProfile : null,
         hostTrafficLimitBytes: hostTrafficEnabled
           ? buildHostTrafficLimitBytes(hostTrafficLimit, hostTrafficUnit)
           : null,
@@ -2840,6 +3159,18 @@ export default function AdminNodesPage() {
     setMasqProxyInsecure(false)
     setMasqProxyXForwarded(false)
     setMasqFileDir("/www/masq")
+    setServerBandwidthUpMbps("0")
+    setServerBandwidthDownMbps("0")
+    setIgnoreClientBandwidth(false)
+    setQuicInitStreamReceiveWindow("")
+    setQuicMaxStreamReceiveWindow("")
+    setQuicInitConnReceiveWindow("")
+    setQuicMaxConnReceiveWindow("")
+    setQuicMaxIdleTimeoutSeconds("")
+    setQuicMaxIncomingStreams("")
+    setQuicDisablePathMtuDiscovery(false)
+    setCongestionType("default")
+    setCongestionBbrProfile("standard")
     setHostTrafficEnabled(false)
     setHostTrafficLimit("")
     setHostTrafficUsed("")
@@ -2990,6 +3321,45 @@ export default function AdminNodesPage() {
       setEditMasqProxyXForwarded(false)
       setEditMasqFileDir("/www/masq")
     }
+    // Hy2 高级网络
+    setEditServerBandwidthUpMbps(String(row.server_bandwidth_up_mbps ?? 0))
+    setEditServerBandwidthDownMbps(String(row.server_bandwidth_down_mbps ?? 0))
+    setEditIgnoreClientBandwidth(row.ignore_client_bandwidth === 1)
+    setEditQuicInitStreamReceiveWindow(
+      row.quic_init_stream_receive_window != null
+        ? String(row.quic_init_stream_receive_window)
+        : ""
+    )
+    setEditQuicMaxStreamReceiveWindow(
+      row.quic_max_stream_receive_window != null
+        ? String(row.quic_max_stream_receive_window)
+        : ""
+    )
+    setEditQuicInitConnReceiveWindow(
+      row.quic_init_conn_receive_window != null
+        ? String(row.quic_init_conn_receive_window)
+        : ""
+    )
+    setEditQuicMaxConnReceiveWindow(
+      row.quic_max_conn_receive_window != null
+        ? String(row.quic_max_conn_receive_window)
+        : ""
+    )
+    setEditQuicMaxIdleTimeoutSeconds(
+      row.quic_max_idle_timeout_seconds != null
+        ? String(row.quic_max_idle_timeout_seconds)
+        : ""
+    )
+    setEditQuicMaxIncomingStreams(
+      row.quic_max_incoming_streams != null
+        ? String(row.quic_max_incoming_streams)
+        : ""
+    )
+    setEditQuicDisablePathMtuDiscovery(
+      row.quic_disable_path_mtu_discovery === 1
+    )
+    setEditCongestionType(row.congestion_type ?? "default")
+    setEditCongestionBbrProfile(row.congestion_bbr_profile ?? "standard")
     // 宿主机流量
     const enabledHostTraffic = (row.host_traffic_limit_bytes ?? 0) > 0
     const preferredHostTrafficUnit =
@@ -3069,6 +3439,36 @@ export default function AdminNodesPage() {
       acmeDnsConfig: buildAcmeDnsConfig("edit"),
       masqueradeType: editMasqueradeType,
       masqueradeConfig: buildMasqueradeConfigObj("edit"),
+      serverBandwidthUpMbps: editServerBandwidthUpMbps
+        ? Number(editServerBandwidthUpMbps)
+        : 0,
+      serverBandwidthDownMbps: editServerBandwidthDownMbps
+        ? Number(editServerBandwidthDownMbps)
+        : 0,
+      ignoreClientBandwidth: editIgnoreClientBandwidth,
+      quicInitStreamReceiveWindow: editQuicInitStreamReceiveWindow
+        ? Number(editQuicInitStreamReceiveWindow)
+        : null,
+      quicMaxStreamReceiveWindow: editQuicMaxStreamReceiveWindow
+        ? Number(editQuicMaxStreamReceiveWindow)
+        : null,
+      quicInitConnReceiveWindow: editQuicInitConnReceiveWindow
+        ? Number(editQuicInitConnReceiveWindow)
+        : null,
+      quicMaxConnReceiveWindow: editQuicMaxConnReceiveWindow
+        ? Number(editQuicMaxConnReceiveWindow)
+        : null,
+      quicMaxIdleTimeoutSeconds: editQuicMaxIdleTimeoutSeconds
+        ? Number(editQuicMaxIdleTimeoutSeconds)
+        : null,
+      quicMaxIncomingStreams: editQuicMaxIncomingStreams
+        ? Number(editQuicMaxIncomingStreams)
+        : null,
+      quicDisablePathMtuDiscovery: editQuicDisablePathMtuDiscovery,
+      congestionType:
+        editCongestionType === "default" ? null : editCongestionType,
+      congestionBbrProfile:
+        editCongestionType === "bbr" ? editCongestionBbrProfile : null,
       hostTrafficLimitBytes: editHostTrafficEnabled
         ? buildHostTrafficLimitBytes(editHostTrafficLimit, editHostTrafficUnit)
         : null,
@@ -3280,6 +3680,18 @@ export default function AdminNodesPage() {
           deploy_port?: number
           deploy_port_hopping?: string | null
           obfs?: string | null
+          server_bandwidth_up_mbps?: number
+          server_bandwidth_down_mbps?: number
+          ignore_client_bandwidth?: boolean
+          quic_init_stream_receive_window?: number | null
+          quic_max_stream_receive_window?: number | null
+          quic_init_conn_receive_window?: number | null
+          quic_max_conn_receive_window?: number | null
+          quic_max_idle_timeout_seconds?: number | null
+          quic_max_incoming_streams?: number | null
+          quic_disable_path_mtu_discovery?: boolean
+          congestion_type?: string | null
+          congestion_bbr_profile?: string | null
           acme_domains?: string[]
           acme_email?: string | null
           acme_dns_provider?: string | null
@@ -3296,6 +3708,23 @@ export default function AdminNodesPage() {
     const portText = meta?.deploy_port_hopping
       ? `${meta?.deploy_port ?? 443} / ${meta.deploy_port_hopping}`
       : String(meta?.deploy_port ?? 443)
+    const hasServerBandwidth =
+      (meta?.server_bandwidth_up_mbps ?? 0) > 0 ||
+      (meta?.server_bandwidth_down_mbps ?? 0) > 0
+    const hasQuicConfig = Boolean(
+      meta?.quic_init_stream_receive_window ||
+      meta?.quic_max_stream_receive_window ||
+      meta?.quic_init_conn_receive_window ||
+      meta?.quic_max_conn_receive_window ||
+      meta?.quic_max_idle_timeout_seconds ||
+      meta?.quic_max_incoming_streams ||
+      meta?.quic_disable_path_mtu_discovery
+    )
+    const congestionText = meta?.congestion_type
+      ? meta.congestion_type === "bbr" && meta.congestion_bbr_profile
+        ? `BBR / ${meta.congestion_bbr_profile}`
+        : meta.congestion_type
+      : null
 
     await alert({
       title: `${row.name} 的一键部署命令`,
@@ -3368,6 +3797,21 @@ export default function AdminNodesPage() {
                 label="上报间隔"
                 value={`${meta?.interval_seconds ?? 120} 秒`}
               />
+              {hasServerBandwidth && (
+                <DeployInfoItem
+                  label="服务端限速"
+                  value={`↑ ${meta?.server_bandwidth_up_mbps || "不限"} / ↓ ${meta?.server_bandwidth_down_mbps || "不限"} Mbps`}
+                />
+              )}
+              {meta?.ignore_client_bandwidth && (
+                <DeployInfoItem label="忽略客户端限速" value="已启用" />
+              )}
+              {congestionText && (
+                <DeployInfoItem label="拥塞控制" value={congestionText} />
+              )}
+              {hasQuicConfig && (
+                <DeployInfoItem label="QUIC 参数" value="已配置" />
+              )}
               {meta?.obfs === "salamander" && (
                 <DeployInfoItem label="混淆" value="Salamander" />
               )}
@@ -3697,6 +4141,30 @@ export default function AdminNodesPage() {
                 setMasqProxyXForwarded={setMasqProxyXForwarded}
                 masqFileDir={masqFileDir}
                 setMasqFileDir={setMasqFileDir}
+                serverBandwidthUpMbps={serverBandwidthUpMbps}
+                setServerBandwidthUpMbps={setServerBandwidthUpMbps}
+                serverBandwidthDownMbps={serverBandwidthDownMbps}
+                setServerBandwidthDownMbps={setServerBandwidthDownMbps}
+                ignoreClientBandwidth={ignoreClientBandwidth}
+                setIgnoreClientBandwidth={setIgnoreClientBandwidth}
+                quicInitStreamReceiveWindow={quicInitStreamReceiveWindow}
+                setQuicInitStreamReceiveWindow={setQuicInitStreamReceiveWindow}
+                quicMaxStreamReceiveWindow={quicMaxStreamReceiveWindow}
+                setQuicMaxStreamReceiveWindow={setQuicMaxStreamReceiveWindow}
+                quicInitConnReceiveWindow={quicInitConnReceiveWindow}
+                setQuicInitConnReceiveWindow={setQuicInitConnReceiveWindow}
+                quicMaxConnReceiveWindow={quicMaxConnReceiveWindow}
+                setQuicMaxConnReceiveWindow={setQuicMaxConnReceiveWindow}
+                quicMaxIdleTimeoutSeconds={quicMaxIdleTimeoutSeconds}
+                setQuicMaxIdleTimeoutSeconds={setQuicMaxIdleTimeoutSeconds}
+                quicMaxIncomingStreams={quicMaxIncomingStreams}
+                setQuicMaxIncomingStreams={setQuicMaxIncomingStreams}
+                quicDisablePathMtuDiscovery={quicDisablePathMtuDiscovery}
+                setQuicDisablePathMtuDiscovery={setQuicDisablePathMtuDiscovery}
+                congestionType={congestionType}
+                setCongestionType={setCongestionType}
+                congestionBbrProfile={congestionBbrProfile}
+                setCongestionBbrProfile={setCongestionBbrProfile}
                 hostTrafficEnabled={hostTrafficEnabled}
                 setHostTrafficEnabled={setHostTrafficEnabled}
                 hostTrafficLimit={hostTrafficLimit}
@@ -4014,6 +4482,36 @@ export default function AdminNodesPage() {
                 setMasqProxyXForwarded={setEditMasqProxyXForwarded}
                 masqFileDir={editMasqFileDir}
                 setMasqFileDir={setEditMasqFileDir}
+                serverBandwidthUpMbps={editServerBandwidthUpMbps}
+                setServerBandwidthUpMbps={setEditServerBandwidthUpMbps}
+                serverBandwidthDownMbps={editServerBandwidthDownMbps}
+                setServerBandwidthDownMbps={setEditServerBandwidthDownMbps}
+                ignoreClientBandwidth={editIgnoreClientBandwidth}
+                setIgnoreClientBandwidth={setEditIgnoreClientBandwidth}
+                quicInitStreamReceiveWindow={editQuicInitStreamReceiveWindow}
+                setQuicInitStreamReceiveWindow={
+                  setEditQuicInitStreamReceiveWindow
+                }
+                quicMaxStreamReceiveWindow={editQuicMaxStreamReceiveWindow}
+                setQuicMaxStreamReceiveWindow={
+                  setEditQuicMaxStreamReceiveWindow
+                }
+                quicInitConnReceiveWindow={editQuicInitConnReceiveWindow}
+                setQuicInitConnReceiveWindow={setEditQuicInitConnReceiveWindow}
+                quicMaxConnReceiveWindow={editQuicMaxConnReceiveWindow}
+                setQuicMaxConnReceiveWindow={setEditQuicMaxConnReceiveWindow}
+                quicMaxIdleTimeoutSeconds={editQuicMaxIdleTimeoutSeconds}
+                setQuicMaxIdleTimeoutSeconds={setEditQuicMaxIdleTimeoutSeconds}
+                quicMaxIncomingStreams={editQuicMaxIncomingStreams}
+                setQuicMaxIncomingStreams={setEditQuicMaxIncomingStreams}
+                quicDisablePathMtuDiscovery={editQuicDisablePathMtuDiscovery}
+                setQuicDisablePathMtuDiscovery={
+                  setEditQuicDisablePathMtuDiscovery
+                }
+                congestionType={editCongestionType}
+                setCongestionType={setEditCongestionType}
+                congestionBbrProfile={editCongestionBbrProfile}
+                setCongestionBbrProfile={setEditCongestionBbrProfile}
                 hostTrafficEnabled={editHostTrafficEnabled}
                 setHostTrafficEnabled={setEditHostTrafficEnabled}
                 hostTrafficLimit={editHostTrafficLimit}

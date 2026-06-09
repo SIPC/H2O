@@ -11,6 +11,7 @@ import {
   requiresObfsPassword,
   validateGeckoPacketSizes,
 } from "@/lib/hysteria-obfs"
+import { parseHysteriaNetworkConfig } from "@/lib/hysteria-network-config"
 import { writeAdminEvent } from "@/lib/logs-db"
 import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
@@ -62,6 +63,18 @@ type CreateNodeBody = {
   agentAutoUpdateEnabled?: boolean
   hy2AutoUpdateEnabled?: boolean
   agentControlEnabled?: boolean
+  serverBandwidthUpMbps?: number | string | null
+  serverBandwidthDownMbps?: number | string | null
+  ignoreClientBandwidth?: boolean
+  quicInitStreamReceiveWindow?: number | string | null
+  quicMaxStreamReceiveWindow?: number | string | null
+  quicInitConnReceiveWindow?: number | string | null
+  quicMaxConnReceiveWindow?: number | string | null
+  quicMaxIdleTimeoutSeconds?: number | string | null
+  quicMaxIncomingStreams?: number | string | null
+  quicDisablePathMtuDiscovery?: boolean
+  congestionType?: string | null
+  congestionBbrProfile?: string | null
   hostTrafficLimitBytes?: number | null
   hostTrafficUsedBytes?: number | null
   hostTrafficBillingMode?: string | null
@@ -89,6 +102,13 @@ export async function GET(request: Request) {
               n.hy2_auto_update_enabled,
               n.agent_control_enabled, n.agent_config_revision, n.agent_desired_config_hash,
               n.agent_last_config_built_at,
+              n.server_bandwidth_up_mbps, n.server_bandwidth_down_mbps,
+              n.ignore_client_bandwidth,
+              n.quic_init_stream_receive_window, n.quic_max_stream_receive_window,
+              n.quic_init_conn_receive_window, n.quic_max_conn_receive_window,
+              n.quic_max_idle_timeout_seconds, n.quic_max_incoming_streams,
+              n.quic_disable_path_mtu_discovery,
+              n.congestion_type, n.congestion_bbr_profile,
               n.host_traffic_limit_bytes, n.host_traffic_used_bytes,
               n.host_traffic_billing_mode,
               n.host_traffic_reset_cycle, n.host_traffic_reset_interval_days,
@@ -374,6 +394,41 @@ export async function POST(request: Request) {
   const hy2AutoUpdateEnabled = body.hy2AutoUpdateEnabled === false ? 0 : 1
   const agentControlEnabled = body.agentControlEnabled === false ? 0 : 1
 
+  const networkConfig = parseHysteriaNetworkConfig({
+    serverBandwidthUpMbps: body.serverBandwidthUpMbps,
+    serverBandwidthDownMbps: body.serverBandwidthDownMbps,
+    ignoreClientBandwidth: body.ignoreClientBandwidth,
+    quicInitStreamReceiveWindow: body.quicInitStreamReceiveWindow,
+    quicMaxStreamReceiveWindow: body.quicMaxStreamReceiveWindow,
+    quicInitConnReceiveWindow: body.quicInitConnReceiveWindow,
+    quicMaxConnReceiveWindow: body.quicMaxConnReceiveWindow,
+    quicMaxIdleTimeoutSeconds: body.quicMaxIdleTimeoutSeconds,
+    quicMaxIncomingStreams: body.quicMaxIncomingStreams,
+    quicDisablePathMtuDiscovery: body.quicDisablePathMtuDiscovery,
+    congestionType: body.congestionType,
+    congestionBbrProfile: body.congestionBbrProfile,
+  })
+  if (!networkConfig.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: networkConfig.code ?? "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: networkConfig.code ?? "INVALID_PAYLOAD",
+          message: networkConfig.message,
+        },
+      },
+      { status: 400 }
+    )
+  }
+
   const hostTrafficLimit = parseHostTrafficLimitBytes(
     body.hostTrafficLimitBytes
   )
@@ -551,10 +606,15 @@ export async function POST(request: Request) {
            acme_domains, acme_email, acme_dns_provider, acme_dns_config,
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
            hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
+           server_bandwidth_up_mbps, server_bandwidth_down_mbps, ignore_client_bandwidth,
+           quic_init_stream_receive_window, quic_max_stream_receive_window,
+           quic_init_conn_receive_window, quic_max_conn_receive_window,
+           quic_max_idle_timeout_seconds, quic_max_incoming_streams,
+           quic_disable_path_mtu_discovery, congestion_type, congestion_bbr_profile,
            host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
            host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor,
            sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         nodeName,
@@ -589,6 +649,18 @@ export async function POST(request: Request) {
         hy2StatsSecret,
         agentSecret,
         agentControlEnabled,
+        networkConfig.value.serverBandwidthUpMbps,
+        networkConfig.value.serverBandwidthDownMbps,
+        networkConfig.value.ignoreClientBandwidth ? 1 : 0,
+        networkConfig.value.quicInitStreamReceiveWindow,
+        networkConfig.value.quicMaxStreamReceiveWindow,
+        networkConfig.value.quicInitConnReceiveWindow,
+        networkConfig.value.quicMaxConnReceiveWindow,
+        networkConfig.value.quicMaxIdleTimeoutSeconds,
+        networkConfig.value.quicMaxIncomingStreams,
+        networkConfig.value.quicDisablePathMtuDiscovery ? 1 : 0,
+        networkConfig.value.congestionType,
+        networkConfig.value.congestionBbrProfile,
         hostTrafficLimit.value,
         hostTrafficLimit.value ? hostTrafficUsed.value : 0,
         hostTrafficBillingMode.value,

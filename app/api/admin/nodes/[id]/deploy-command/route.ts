@@ -38,6 +38,18 @@ type NodeRow = {
   hy2_stats_secret: string | null
   agent_secret: string | null
   agent_control_enabled: 0 | 1 | null
+  server_bandwidth_up_mbps: number | null
+  server_bandwidth_down_mbps: number | null
+  ignore_client_bandwidth: 0 | 1 | null
+  quic_init_stream_receive_window: number | null
+  quic_max_stream_receive_window: number | null
+  quic_init_conn_receive_window: number | null
+  quic_max_conn_receive_window: number | null
+  quic_max_idle_timeout_seconds: number | null
+  quic_max_incoming_streams: number | null
+  quic_disable_path_mtu_discovery: 0 | 1 | null
+  congestion_type: string | null
+  congestion_bbr_profile: string | null
 }
 
 const DEFAULT_AGENT_BUNDLE_URL =
@@ -202,7 +214,12 @@ export async function GET(
               cert_mode, cert_path, key_path,
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
               masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
-              hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled
+              hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
+              server_bandwidth_up_mbps, server_bandwidth_down_mbps, ignore_client_bandwidth,
+              quic_init_stream_receive_window, quic_max_stream_receive_window,
+              quic_init_conn_receive_window, quic_max_conn_receive_window,
+              quic_max_idle_timeout_seconds, quic_max_incoming_streams,
+              quic_disable_path_mtu_discovery, congestion_type, congestion_bbr_profile
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -357,6 +374,64 @@ export async function GET(
     "cert_mode",
     node.cert_mode === "acme" ? "acme-dns" : node.cert_mode || "self-signed"
   )
+  rawParams.set(
+    "server_bandwidth_up_mbps",
+    String(node.server_bandwidth_up_mbps ?? 0)
+  )
+  rawParams.set(
+    "server_bandwidth_down_mbps",
+    String(node.server_bandwidth_down_mbps ?? 0)
+  )
+  rawParams.set(
+    "ignore_client_bandwidth",
+    node.ignore_client_bandwidth === 1 ? "true" : "false"
+  )
+  if (node.quic_init_stream_receive_window != null) {
+    rawParams.set(
+      "quic_init_stream_receive_window",
+      String(node.quic_init_stream_receive_window)
+    )
+  }
+  if (node.quic_max_stream_receive_window != null) {
+    rawParams.set(
+      "quic_max_stream_receive_window",
+      String(node.quic_max_stream_receive_window)
+    )
+  }
+  if (node.quic_init_conn_receive_window != null) {
+    rawParams.set(
+      "quic_init_conn_receive_window",
+      String(node.quic_init_conn_receive_window)
+    )
+  }
+  if (node.quic_max_conn_receive_window != null) {
+    rawParams.set(
+      "quic_max_conn_receive_window",
+      String(node.quic_max_conn_receive_window)
+    )
+  }
+  if (node.quic_max_idle_timeout_seconds != null) {
+    rawParams.set(
+      "quic_max_idle_timeout_seconds",
+      String(node.quic_max_idle_timeout_seconds)
+    )
+  }
+  if (node.quic_max_incoming_streams != null) {
+    rawParams.set(
+      "quic_max_incoming_streams",
+      String(node.quic_max_incoming_streams)
+    )
+  }
+  rawParams.set(
+    "quic_disable_path_mtu_discovery",
+    node.quic_disable_path_mtu_discovery === 1 ? "true" : "false"
+  )
+  if (node.congestion_type) {
+    rawParams.set("congestion_type", node.congestion_type)
+  }
+  if (node.congestion_bbr_profile) {
+    rawParams.set("congestion_bbr_profile", node.congestion_bbr_profile)
+  }
 
   if (node.obfs && isSupportedHysteriaObfs(node.obfs)) {
     rawParams.set("obfs", node.obfs)
@@ -458,6 +533,19 @@ export async function GET(
         obfs: node.obfs || null,
         obfs_min_packet_size: node.obfs_min_packet_size,
         obfs_max_packet_size: node.obfs_max_packet_size,
+        server_bandwidth_up_mbps: node.server_bandwidth_up_mbps ?? 0,
+        server_bandwidth_down_mbps: node.server_bandwidth_down_mbps ?? 0,
+        ignore_client_bandwidth: node.ignore_client_bandwidth === 1,
+        quic_init_stream_receive_window: node.quic_init_stream_receive_window,
+        quic_max_stream_receive_window: node.quic_max_stream_receive_window,
+        quic_init_conn_receive_window: node.quic_init_conn_receive_window,
+        quic_max_conn_receive_window: node.quic_max_conn_receive_window,
+        quic_max_idle_timeout_seconds: node.quic_max_idle_timeout_seconds,
+        quic_max_incoming_streams: node.quic_max_incoming_streams,
+        quic_disable_path_mtu_discovery:
+          node.quic_disable_path_mtu_discovery === 1,
+        congestion_type: node.congestion_type,
+        congestion_bbr_profile: node.congestion_bbr_profile,
         acme_domains: acmeDomains,
         acme_email: acmeEmail || null,
         acme_dns_provider: node.acme_dns_provider || null,

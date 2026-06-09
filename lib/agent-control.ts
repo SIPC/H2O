@@ -97,6 +97,18 @@ export type NodeRuntimeRow = {
   agent_control_enabled: 0 | 1 | null
   agent_config_revision: number | null
   agent_desired_config_hash: string | null
+  server_bandwidth_up_mbps: number | null
+  server_bandwidth_down_mbps: number | null
+  ignore_client_bandwidth: 0 | 1 | null
+  quic_init_stream_receive_window: number | null
+  quic_max_stream_receive_window: number | null
+  quic_init_conn_receive_window: number | null
+  quic_max_conn_receive_window: number | null
+  quic_max_idle_timeout_seconds: number | null
+  quic_max_incoming_streams: number | null
+  quic_disable_path_mtu_discovery: 0 | 1 | null
+  congestion_type: string | null
+  congestion_bbr_profile: string | null
 }
 
 export function isAgentTaskType(value: unknown): value is AgentTaskType {
@@ -207,7 +219,12 @@ function getNodeRuntimeRow(nodeId: number, database: DatabaseSync) {
               acme_domains, acme_email, acme_dns_provider, acme_dns_config,
               masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
               hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
-              agent_config_revision, agent_desired_config_hash
+              agent_config_revision, agent_desired_config_hash,
+              server_bandwidth_up_mbps, server_bandwidth_down_mbps, ignore_client_bandwidth,
+              quic_init_stream_receive_window, quic_max_stream_receive_window,
+              quic_init_conn_receive_window, quic_max_conn_receive_window,
+              quic_max_idle_timeout_seconds, quic_max_incoming_streams,
+              quic_disable_path_mtu_discovery, congestion_type, congestion_bbr_profile
        FROM nodes
        WHERE id = ?
        LIMIT 1`
@@ -278,6 +295,18 @@ export function buildNodeDesiredConfig(params: {
     acmeDnsConfig,
     masqueradeType: node.masquerade_type,
     masqueradeConfig,
+    serverBandwidthUpMbps: node.server_bandwidth_up_mbps,
+    serverBandwidthDownMbps: node.server_bandwidth_down_mbps,
+    ignoreClientBandwidth: node.ignore_client_bandwidth === 1,
+    quicInitStreamReceiveWindow: node.quic_init_stream_receive_window,
+    quicMaxStreamReceiveWindow: node.quic_max_stream_receive_window,
+    quicInitConnReceiveWindow: node.quic_init_conn_receive_window,
+    quicMaxConnReceiveWindow: node.quic_max_conn_receive_window,
+    quicMaxIdleTimeoutSeconds: node.quic_max_idle_timeout_seconds,
+    quicMaxIncomingStreams: node.quic_max_incoming_streams,
+    quicDisablePathMtuDiscovery: node.quic_disable_path_mtu_discovery === 1,
+    congestionType: node.congestion_type,
+    congestionBbrProfile: node.congestion_bbr_profile,
     outboundsBlock: routingConfig?.outboundsBlock,
     aclBlock: routingConfig?.aclBlock,
   })

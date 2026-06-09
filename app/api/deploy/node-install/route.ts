@@ -14,6 +14,13 @@ import {
   normalizeCertMode,
   yamlString,
 } from "@/lib/hysteria-server-config"
+import {
+  normalizeCongestionBbrProfile,
+  normalizeCongestionType,
+  parseBooleanQueryFlag,
+  parseNonNegativeIntegerInput,
+  parseOptionalPositiveIntegerInput,
+} from "@/lib/hysteria-network-config"
 
 type InstallParams = {
   panelUrl: string
@@ -40,6 +47,18 @@ type InstallParams = {
   acmeDnsConfig: Record<string, string>
   masqueradeType: string
   masqueradeConfig: Record<string, unknown>
+  serverBandwidthUpMbps: number
+  serverBandwidthDownMbps: number
+  ignoreClientBandwidth: boolean
+  quicInitStreamReceiveWindow: number | null
+  quicMaxStreamReceiveWindow: number | null
+  quicInitConnReceiveWindow: number | null
+  quicMaxConnReceiveWindow: number | null
+  quicMaxIdleTimeoutSeconds: number | null
+  quicMaxIncomingStreams: number | null
+  quicDisablePathMtuDiscovery: boolean
+  congestionType: string | null
+  congestionBbrProfile: string | null
   outboundsBlock: string | null
   aclBlock: string | null
 }
@@ -918,6 +937,99 @@ export async function GET(request: Request) {
     }
   }
 
+  const serverBandwidthUpMbps = parseNonNegativeIntegerInput(
+    query.get("server_bandwidth_up_mbps"),
+    "server_bandwidth_up_mbps"
+  )
+  if (!serverBandwidthUpMbps.ok) {
+    return errorJson("INVALID_SPEED", serverBandwidthUpMbps.message)
+  }
+
+  const serverBandwidthDownMbps = parseNonNegativeIntegerInput(
+    query.get("server_bandwidth_down_mbps"),
+    "server_bandwidth_down_mbps"
+  )
+  if (!serverBandwidthDownMbps.ok) {
+    return errorJson("INVALID_SPEED", serverBandwidthDownMbps.message)
+  }
+
+  const ignoreClientBandwidth = parseBooleanQueryFlag(
+    query.get("ignore_client_bandwidth"),
+    "ignore_client_bandwidth"
+  )
+  if (!ignoreClientBandwidth.ok) {
+    return errorJson("INVALID_PAYLOAD", ignoreClientBandwidth.message)
+  }
+
+  const quicInitStreamReceiveWindow = parseOptionalPositiveIntegerInput(
+    query.get("quic_init_stream_receive_window"),
+    "quic_init_stream_receive_window"
+  )
+  if (!quicInitStreamReceiveWindow.ok) {
+    return errorJson("INVALID_PAYLOAD", quicInitStreamReceiveWindow.message)
+  }
+
+  const quicMaxStreamReceiveWindow = parseOptionalPositiveIntegerInput(
+    query.get("quic_max_stream_receive_window"),
+    "quic_max_stream_receive_window"
+  )
+  if (!quicMaxStreamReceiveWindow.ok) {
+    return errorJson("INVALID_PAYLOAD", quicMaxStreamReceiveWindow.message)
+  }
+
+  const quicInitConnReceiveWindow = parseOptionalPositiveIntegerInput(
+    query.get("quic_init_conn_receive_window"),
+    "quic_init_conn_receive_window"
+  )
+  if (!quicInitConnReceiveWindow.ok) {
+    return errorJson("INVALID_PAYLOAD", quicInitConnReceiveWindow.message)
+  }
+
+  const quicMaxConnReceiveWindow = parseOptionalPositiveIntegerInput(
+    query.get("quic_max_conn_receive_window"),
+    "quic_max_conn_receive_window"
+  )
+  if (!quicMaxConnReceiveWindow.ok) {
+    return errorJson("INVALID_PAYLOAD", quicMaxConnReceiveWindow.message)
+  }
+
+  const quicMaxIdleTimeoutSeconds = parseOptionalPositiveIntegerInput(
+    query.get("quic_max_idle_timeout_seconds"),
+    "quic_max_idle_timeout_seconds"
+  )
+  if (!quicMaxIdleTimeoutSeconds.ok) {
+    return errorJson("INVALID_PAYLOAD", quicMaxIdleTimeoutSeconds.message)
+  }
+
+  const quicMaxIncomingStreams = parseOptionalPositiveIntegerInput(
+    query.get("quic_max_incoming_streams"),
+    "quic_max_incoming_streams"
+  )
+  if (!quicMaxIncomingStreams.ok) {
+    return errorJson("INVALID_PAYLOAD", quicMaxIncomingStreams.message)
+  }
+
+  const quicDisablePathMtuDiscovery = parseBooleanQueryFlag(
+    query.get("quic_disable_path_mtu_discovery"),
+    "quic_disable_path_mtu_discovery"
+  )
+  if (!quicDisablePathMtuDiscovery.ok) {
+    return errorJson("INVALID_PAYLOAD", quicDisablePathMtuDiscovery.message)
+  }
+
+  const congestionType = normalizeCongestionType(query.get("congestion_type"))
+  if (!congestionType.ok) {
+    return errorJson("INVALID_PAYLOAD", congestionType.message)
+  }
+
+  const congestionBbrProfile = normalizeCongestionBbrProfile(
+    query.get("congestion_bbr_profile"),
+    congestionType.value
+  )
+  if (!congestionBbrProfile.ok) {
+    return errorJson("INVALID_PAYLOAD", congestionBbrProfile.message)
+  }
+
   const outboundsBlock = parseOptionalYamlBlock(
     query,
     "outbounds_block",
@@ -957,6 +1069,18 @@ export async function GET(request: Request) {
     acmeDnsConfig,
     masqueradeType,
     masqueradeConfig,
+    serverBandwidthUpMbps: serverBandwidthUpMbps.value,
+    serverBandwidthDownMbps: serverBandwidthDownMbps.value,
+    ignoreClientBandwidth: ignoreClientBandwidth.value,
+    quicInitStreamReceiveWindow: quicInitStreamReceiveWindow.value,
+    quicMaxStreamReceiveWindow: quicMaxStreamReceiveWindow.value,
+    quicInitConnReceiveWindow: quicInitConnReceiveWindow.value,
+    quicMaxConnReceiveWindow: quicMaxConnReceiveWindow.value,
+    quicMaxIdleTimeoutSeconds: quicMaxIdleTimeoutSeconds.value,
+    quicMaxIncomingStreams: quicMaxIncomingStreams.value,
+    quicDisablePathMtuDiscovery: quicDisablePathMtuDiscovery.value,
+    congestionType: congestionType.value,
+    congestionBbrProfile: congestionBbrProfile.value,
     outboundsBlock,
     aclBlock,
   })
