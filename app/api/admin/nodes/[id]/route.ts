@@ -11,6 +11,10 @@ import {
 import { writeAdminEvent } from "@/lib/logs-db"
 import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
+  parseOptionalNodeIpv4,
+  parseOptionalNodeIpv6,
+} from "@/lib/node-public-address"
+import {
   isHostTrafficResetCycle,
   parseHostTrafficBillingMode,
   parseHostTrafficLimitBytes,
@@ -54,7 +58,8 @@ type UpdateNodeBody = {
   insecure?: boolean
   pinSha256?: string | null
   // 节点配置
-  nodeIp?: string | null
+  nodeIpv4?: string | null
+  nodeIpv6?: string | null
   nodePort?: string | number | null
   nodePortHopping?: string | null
   certMode?: "self-signed" | "acme" | "acme-http" | "acme-dns" | "custom"
@@ -239,10 +244,52 @@ export async function PATCH(
   }
 
   // 节点配置字段
-  if (body.nodeIp !== undefined) {
-    updates.push("node_ip = ?")
-    values.push(body.nodeIp && body.nodeIp.trim() ? body.nodeIp.trim() : null)
-    changedFields.push("node_ip")
+  if (body.nodeIpv4 !== undefined) {
+    const nodeIpv4 = parseOptionalNodeIpv4(body.nodeIpv4)
+    if (!nodeIpv4.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId, nodeIpv4: body.nodeIpv4 ?? null },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: nodeIpv4.message },
+        },
+        { status: 400 }
+      )
+    }
+    updates.push("node_ipv4 = ?")
+    values.push(nodeIpv4.value)
+    changedFields.push("node_ipv4")
+  }
+
+  if (body.nodeIpv6 !== undefined) {
+    const nodeIpv6 = parseOptionalNodeIpv6(body.nodeIpv6)
+    if (!nodeIpv6.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId, nodeIpv6: body.nodeIpv6 ?? null },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: nodeIpv6.message },
+        },
+        { status: 400 }
+      )
+    }
+    updates.push("node_ipv6 = ?")
+    values.push(nodeIpv6.value)
+    changedFields.push("node_ipv6")
   }
 
   if (

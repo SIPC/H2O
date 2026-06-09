@@ -236,7 +236,8 @@ type NodeRow = {
   last_error: string | null
   capabilities: string | null
   // 节点配置
-  node_ip: string | null
+  node_ipv4: string | null
+  node_ipv6: string | null
   node_port: number | null
   node_port_hopping: string | null
   cert_mode: string
@@ -392,7 +393,7 @@ const DNS_STATUS_META: Record<
     shortLabel: "不匹配",
     dotClassName: "bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)]",
     badgeClassName: "bg-red-500/15 text-red-700 dark:text-red-400",
-    description: "所有已解析 DNS 源均未指向节点 IP",
+    description: "所有已解析 DNS 源均未指向节点公网地址",
   },
   unresolved: {
     label: "DNS 未解析",
@@ -1190,21 +1191,24 @@ function NodeCard({
                       <FileText className="h-4 w-4" />
                       Hysteria2 日志
                     </DropdownMenuItem>
-                    {row.node_ip && row.ip !== row.node_ip && (
-                      <DropdownMenuItem onClick={() => onDnsResolve(row)}>
-                        <Globe className="h-4 w-4" />
-                        DNS 解析
-                        {dnsStatusMeta && (
-                          <span
-                            className={cn(
-                              "ml-auto h-2 w-2 rounded-full",
-                              dnsStatusMeta.dotClassName
-                            )}
-                            title={dnsStatusTitle}
-                          />
-                        )}
-                      </DropdownMenuItem>
-                    )}
+                    {(row.node_ipv4 || row.node_ipv6) &&
+                      row.dns_status !== "skip" &&
+                      row.ip !== row.node_ipv4 &&
+                      row.ip !== row.node_ipv6 && (
+                        <DropdownMenuItem onClick={() => onDnsResolve(row)}>
+                          <Globe className="h-4 w-4" />
+                          DNS 解析
+                          {dnsStatusMeta && (
+                            <span
+                              className={cn(
+                                "ml-auto h-2 w-2 rounded-full",
+                                dnsStatusMeta.dotClassName
+                              )}
+                              title={dnsStatusTitle}
+                            />
+                          )}
+                        </DropdownMenuItem>
+                      )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 <DropdownMenuSub>
@@ -1385,8 +1389,10 @@ function NodeForm({
   pinSha256,
   setPinSha256,
   // 节点配置
-  nodeIp,
-  setNodeIp,
+  nodeIpv4,
+  setNodeIpv4,
+  nodeIpv6,
+  setNodeIpv6,
   nodePortInput,
   setNodePortInput,
   certMode,
@@ -1476,8 +1482,10 @@ function NodeForm({
   pinSha256: string
   setPinSha256: (v: string) => void
   // 节点配置
-  nodeIp: string
-  setNodeIp: (v: string) => void
+  nodeIpv4: string
+  setNodeIpv4: (v: string) => void
+  nodeIpv6: string
+  setNodeIpv6: (v: string) => void
   nodePortInput: string
   setNodePortInput: (v: string) => void
   certMode: string
@@ -1641,19 +1649,29 @@ function NodeForm({
 
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">节点实际监听</p>
+            <p className="text-sm font-medium">节点公网地址</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              用于部署、DNS 与实际监听；留空时继承订阅连接地址。
+              用于 Cloudflare DNS 解析；IPv4 / IPv6 可二选一，也可以都填写。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label>节点 IP</Label>
-              <Input
-                value={nodeIp}
-                onChange={(e) => setNodeIp(e.target.value)}
-                placeholder="服务器实际 IP，如 1.2.3.4"
-              />
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <Label>公网 IPv4</Label>
+                <Input
+                  value={nodeIpv4}
+                  onChange={(e) => setNodeIpv4(e.target.value)}
+                  placeholder="如 1.2.3.4"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label>公网 IPv6</Label>
+                <Input
+                  value={nodeIpv6}
+                  onChange={(e) => setNodeIpv6(e.target.value)}
+                  placeholder="如 2001:db8::1"
+                />
+              </div>
             </div>
             <div className="space-y-1">
               <Label>节点端口</Label>
@@ -2259,7 +2277,8 @@ export default function AdminNodesPage() {
   const [obfsMaxPacketSize, setObfsMaxPacketSize] = useState("")
   const [insecure, setInsecure] = useState(false)
   const [pinSha256, setPinSha256] = useState("")
-  const [nodeIp, setNodeIp] = useState("")
+  const [nodeIpv4, setNodeIpv4] = useState("")
+  const [nodeIpv6, setNodeIpv6] = useState("")
   const [nodePortInput, setNodePortInput] = useState("")
   const [certMode, setCertMode] = useState("self-signed")
   const [certPath, setCertPath] = useState("")
@@ -2308,7 +2327,8 @@ export default function AdminNodesPage() {
   const [editObfsMaxPacketSize, setEditObfsMaxPacketSize] = useState("")
   const [editInsecure, setEditInsecure] = useState(false)
   const [editPinSha256, setEditPinSha256] = useState("")
-  const [editNodeIp, setEditNodeIp] = useState("")
+  const [editNodeIpv4, setEditNodeIpv4] = useState("")
+  const [editNodeIpv6, setEditNodeIpv6] = useState("")
   const [editNodePortInput, setEditNodePortInput] = useState("")
   const [editCertMode, setEditCertMode] = useState("self-signed")
   const [editCertPath, setEditCertPath] = useState("")
@@ -2609,16 +2629,29 @@ export default function AdminNodesPage() {
         return false
       }
       const d = json.data
-      const actionText =
-        d.action === "created"
-          ? "已创建"
-          : d.action === "updated"
-            ? "已更新"
-            : "已是最新"
+      const records = Array.isArray(d?.records) ? d.records : []
+      const actionLabel: Record<string, string> = {
+        created: "已创建",
+        updated: "已更新",
+        unchanged: "已是最新",
+      }
+      const description = records.length
+        ? records
+            .map(
+              (record: {
+                dnsType?: string
+                ip?: string
+                action?: string
+                zone?: string
+              }) =>
+                `${d.domain} ${record.dnsType ?? "DNS"} → ${record.ip ?? "-"}（${actionLabel[record.action ?? ""] ?? "已处理"}，Zone: ${record.zone ?? "-"}）`
+            )
+            .join("\n")
+        : "DNS 记录已处理"
       if (showSuccessAlert) {
         await alert({
           title: "DNS 解析成功",
-          description: `${d.domain} → ${d.ip}（${actionText}，Zone: ${d.zone}）`,
+          description,
         })
       }
       await refreshPromise.catch(() => undefined)
@@ -2734,7 +2767,8 @@ export default function AdminNodesPage() {
         obfsMaxPacketSize: obfs === "gecko" ? obfsMaxPacketSize || null : null,
         insecure,
         pinSha256: pinSha256 || null,
-        nodeIp: nodeIp || null,
+        nodeIpv4: nodeIpv4 || null,
+        nodeIpv6: nodeIpv6 || null,
         nodePort: nodePortInput || null,
         certMode,
         certPath: certPath || null,
@@ -2787,7 +2821,8 @@ export default function AdminNodesPage() {
     setObfsMaxPacketSize("")
     setInsecure(false)
     setPinSha256("")
-    setNodeIp("")
+    setNodeIpv4("")
+    setNodeIpv6("")
     setNodePortInput("")
     setCertMode("self-signed")
     setCertPath("")
@@ -2882,7 +2917,8 @@ export default function AdminNodesPage() {
     setEditInsecure(row.insecure === 1)
     setEditPinSha256(row.pin_sha256 ?? "")
     // 节点配置
-    setEditNodeIp(row.node_ip ?? "")
+    setEditNodeIpv4(row.node_ipv4 ?? "")
+    setEditNodeIpv6(row.node_ipv6 ?? "")
     setEditNodePortInput(
       row.node_port_hopping ?? (row.node_port ? String(row.node_port) : "")
     )
@@ -3021,7 +3057,8 @@ export default function AdminNodesPage() {
         editObfs === "gecko" ? editObfsMaxPacketSize || null : null,
       insecure: editInsecure,
       pinSha256: editPinSha256,
-      nodeIp: editNodeIp || null,
+      nodeIpv4: editNodeIpv4 || null,
+      nodeIpv6: editNodeIpv6 || null,
       nodePort: editNodePortInput || null,
       certMode: editCertMode,
       certPath: editCertPath || null,
@@ -3184,8 +3221,10 @@ export default function AdminNodesPage() {
     if (isAcmeMode && row.dns_status !== "skip" && row.dns_status !== "match") {
       const statusText =
         row.dns_status === "mismatch"
-          ? "DNS 指向的 IP 与节点 IP 不一致"
-          : "域名无法解析"
+          ? "DNS 指向的 IP 与节点公网地址不一致"
+          : row.dns_status === "partial"
+            ? "DNS 解析未完全生效"
+            : "域名无法解析"
       const decision = await promptDnsDeployDecision(
         `当前节点使用 ACME 证书模式，但${statusText}。建议先更新 DNS 解析再部署，否则 ACME 证书签发可能失败。`
       )
@@ -3620,8 +3659,10 @@ export default function AdminNodesPage() {
                 setInsecure={setInsecure}
                 pinSha256={pinSha256}
                 setPinSha256={setPinSha256}
-                nodeIp={nodeIp}
-                setNodeIp={setNodeIp}
+                nodeIpv4={nodeIpv4}
+                setNodeIpv4={setNodeIpv4}
+                nodeIpv6={nodeIpv6}
+                setNodeIpv6={setNodeIpv6}
                 nodePortInput={nodePortInput}
                 setNodePortInput={setNodePortInput}
                 certMode={certMode}
@@ -3935,8 +3976,10 @@ export default function AdminNodesPage() {
                 setInsecure={setEditInsecure}
                 pinSha256={editPinSha256}
                 setPinSha256={setEditPinSha256}
-                nodeIp={editNodeIp}
-                setNodeIp={setEditNodeIp}
+                nodeIpv4={editNodeIpv4}
+                setNodeIpv4={setEditNodeIpv4}
+                nodeIpv6={editNodeIpv6}
+                setNodeIpv6={setEditNodeIpv6}
                 nodePortInput={editNodePortInput}
                 setNodePortInput={setEditNodePortInput}
                 certMode={editCertMode}

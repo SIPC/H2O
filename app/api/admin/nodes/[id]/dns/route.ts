@@ -1,4 +1,4 @@
-import { isIPv6 } from "node:net"
+import { isIPv4, isIPv6 } from "node:net"
 import { NextResponse } from "next/server"
 
 import { requireAdmin } from "@/lib/auth"
@@ -14,6 +14,47 @@ import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
 import { getClientIp } from "@/lib/turnstile"
+
+type DnsTarget = {
+  dnsType: "A" | "AAAA"
+  ip: string
+}
+
+type DnsActionResult = {
+  action: "created" | "updated" | "unchanged"
+  domain: string
+  dnsType: "A" | "AAAA"
+  ip: string
+  oldIp?: string
+  oldTtl?: number
+  ttl: number
+  proxied?: boolean
+  zone: string
+  recordId?: string
+}
+
+function buildDnsTargets(node: {
+  node_ipv4: string | null
+  node_ipv6: string | null
+}) {
+  const targets: DnsTarget[] = []
+  const ipv4 = node.node_ipv4?.trim()
+  const ipv6 = node.node_ipv6?.trim()
+
+  if (ipv4) {
+    if (!isIPv4(ipv4))
+      return { ok: false as const, message: "节点 IPv4 不合法" }
+    targets.push({ dnsType: "A", ip: ipv4 })
+  }
+
+  if (ipv6) {
+    if (!isIPv6(ipv6))
+      return { ok: false as const, message: "节点 IPv6 不合法" }
+    targets.push({ dnsType: "AAAA", ip: ipv6 })
+  }
+
+  return { ok: true as const, targets }
+}
 
 export async function POST(
   request: Request,
@@ -35,9 +76,20 @@ export async function POST(
 
   const db = getDb()
   const node = db
-    .prepare(`SELECT id, name, ip, node_ip FROM nodes WHERE id = ? LIMIT 1`)
+    .prepare(
+      `SELECT id, name, ip, node_ipv4, node_ipv6
+       FROM nodes
+       WHERE id = ?
+       LIMIT 1`
+    )
     .get(nodeId) as
-    | { id: number; name: string; ip: string; node_ip: string | null }
+    | {
+        id: number
+        name: string
+        ip: string
+        node_ipv4: string | null
+        node_ipv6: string | null
+      }
     | undefined
 
   if (!node) {
@@ -63,21 +115,29 @@ export async function POST(
     )
   }
 
-  if (!node.node_ip) {
+  const targetResult = buildDnsTargets(node)
+  if (!targetResult.ok) {
     return NextResponse.json(
       {
         ok: false,
-        error: {
-          code: "NO_NODE_IP",
-          message: "请先填写节点 IP（服务器实际 IP）",
-        },
+        error: { code: "INVALID_PAYLOAD", message: targetResult.message },
       },
       { status: 400 }
     )
   }
 
-  // 自动识别 IP 类型：IPv6 → AAAA，IPv4 → A
-  const dnsType = isIPv6(node.node_ip) ? "AAAA" : "A"
+  if (targetResult.targets.length === 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "NO_NODE_IP",
+          message: "请先填写公网 IPv4 或 IPv6",
+        },
+      },
+      { status: 400 }
+    )
+  }
 
   // 读取 Cloudflare API Token：优先节点自身配置，其次全局设置
   let cfToken = ""
@@ -115,7 +175,6 @@ export async function POST(
   }
 
   try {
-    // 查找 zone
     const zone = await findZone(cfToken, domain)
     if (!zone) {
       writeAdminEvent({
@@ -138,79 +197,71 @@ export async function POST(
       )
     }
 
-    // 查找已有记录
-    const existing = await findDnsRecord(cfToken, zone.zoneId, domain, dnsType)
-
-    if (existing) {
-      const needsTtlUpdate = existing.ttl !== PANEL_DNS_TTL_SECONDS
-
-      // 已存在且 IP / TTL 都相同，跳过
-      if (existing.content === node.node_ip && !needsTtlUpdate) {
-        return NextResponse.json({
-          ok: true,
-          data: {
-            action: "unchanged",
-            domain,
-            dnsType,
-            ip: node.node_ip,
-            ttl: PANEL_DNS_TTL_SECONDS,
-            zone: zone.zoneName,
-          },
-        })
-      }
-      // IP 或 TTL 不同，统一更新为面板标准配置
-      await updateDnsRecord(
+    const records: DnsActionResult[] = []
+    for (const target of targetResult.targets) {
+      const existing = await findDnsRecord(
         cfToken,
         zone.zoneId,
-        existing.id,
         domain,
-        node.node_ip,
-        dnsType,
-        existing.proxied
+        target.dnsType
       )
-      writeAdminEvent({
-        event: "NODE_UPDATE",
-        actor: auth.user,
-        ip: clientIp,
-        success: true,
-        reason: "OK",
-        detail: {
-          nodeId,
-          nodeName: node.name,
-          dnsAction: "update",
-          dnsType,
+
+      if (existing) {
+        const needsTtlUpdate = existing.ttl !== PANEL_DNS_TTL_SECONDS
+        if (existing.content === target.ip && !needsTtlUpdate) {
+          records.push({
+            action: "unchanged",
+            domain,
+            dnsType: target.dnsType,
+            ip: target.ip,
+            ttl: PANEL_DNS_TTL_SECONDS,
+            zone: zone.zoneName,
+          })
+          continue
+        }
+
+        await updateDnsRecord(
+          cfToken,
+          zone.zoneId,
+          existing.id,
           domain,
-          oldIp: existing.content,
-          newIp: node.node_ip,
-          oldTtl: existing.ttl,
-          ttl: PANEL_DNS_TTL_SECONDS,
-          proxied: existing.proxied,
-        },
-      })
-      return NextResponse.json({
-        ok: true,
-        data: {
+          target.ip,
+          target.dnsType,
+          existing.proxied
+        )
+        records.push({
           action: "updated",
           domain,
-          dnsType,
-          ip: node.node_ip,
+          dnsType: target.dnsType,
+          ip: target.ip,
           oldIp: existing.content,
           oldTtl: existing.ttl,
           ttl: PANEL_DNS_TTL_SECONDS,
           proxied: existing.proxied,
           zone: zone.zoneName,
-        },
+        })
+        continue
+      }
+
+      const created = await createDnsRecord(
+        cfToken,
+        zone.zoneId,
+        domain,
+        target.ip,
+        target.dnsType
+      )
+      records.push({
+        action: "created",
+        domain,
+        dnsType: target.dnsType,
+        ip: target.ip,
+        ttl: PANEL_DNS_TTL_SECONDS,
+        proxied: false,
+        zone: zone.zoneName,
+        recordId: created.recordId,
       })
     }
 
-    // 不存在，创建
-    const created = await createDnsRecord(
-      cfToken,
-      zone.zoneId,
-      domain,
-      node.node_ip,
-      dnsType
-    )
     writeAdminEvent({
       event: "NODE_UPDATE",
       actor: auth.user,
@@ -220,42 +271,54 @@ export async function POST(
       detail: {
         nodeId,
         nodeName: node.name,
-        dnsAction: "create",
-        dnsType,
-        domain,
-        ip: node.node_ip,
-        ttl: PANEL_DNS_TTL_SECONDS,
-        proxied: false,
-        recordId: created.recordId,
+        dnsRecords: records.map((record) => ({
+          action: record.action,
+          dnsType: record.dnsType,
+          domain,
+          ip: record.ip,
+          oldIp: record.oldIp ?? null,
+          ttl: record.ttl,
+          proxied: record.proxied ?? null,
+          recordId: record.recordId ?? null,
+        })),
       },
     })
+
+    const action = records.some((record) => record.action !== "unchanged")
+      ? "changed"
+      : "unchanged"
+
     return NextResponse.json({
       ok: true,
       data: {
-        action: "created",
+        action,
         domain,
-        dnsType,
-        ip: node.node_ip,
-        ttl: PANEL_DNS_TTL_SECONDS,
-        proxied: false,
-        zone: zone.zoneName,
-        recordId: created.recordId,
+        records,
       },
     })
-  } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Cloudflare API 调用失败"
+  } catch (error) {
     writeAdminEvent({
       event: "NODE_UPDATE",
       actor: auth.user,
       ip: clientIp,
       success: false,
       reason: "CF_API_ERROR",
-      detail: { nodeId, domain, error: message },
+      detail: {
+        nodeId,
+        domain,
+        error: error instanceof Error ? error.message : String(error),
+      },
     })
     return NextResponse.json(
-      { ok: false, error: { code: "CF_API_ERROR", message } },
-      { status: 502 }
+      {
+        ok: false,
+        error: {
+          code: "CF_API_ERROR",
+          message:
+            error instanceof Error ? error.message : "Cloudflare API 请求失败",
+        },
+      },
+      { status: 500 }
     )
   }
 }

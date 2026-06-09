@@ -21,8 +21,16 @@ type DnsStatus = "match" | "partial" | "mismatch" | "unresolved" | "skip"
 
 type DnsSource = (typeof DNS_SOURCES)[number]
 
+type DnsTarget = {
+  dnsType: "A" | "AAAA"
+  label: "IPv4" | "IPv6"
+  ip: string
+  isV6: boolean
+}
+
 type DnsSourceResult = {
   name: string
+  dnsType: "A" | "AAAA"
   status: Exclude<DnsStatus, "partial" | "skip">
   records: string[]
   error?: string
@@ -51,6 +59,29 @@ async function mapWithConcurrency<T, R>(
 
 function normalizeIp(value: string) {
   return value.trim().toLowerCase()
+}
+
+function buildTargets(row: {
+  node_ipv4: string | null
+  node_ipv6: string | null
+}) {
+  const targets: DnsTarget[] = []
+  const ipv4 = row.node_ipv4?.trim()
+  const ipv6 = row.node_ipv6?.trim()
+
+  if (ipv4) {
+    if (!isIPv4(ipv4))
+      return { ok: false as const, detail: "公网 IPv4 格式不合法" }
+    targets.push({ dnsType: "A", label: "IPv4", ip: ipv4, isV6: false })
+  }
+
+  if (ipv6) {
+    if (!isIPv6(ipv6))
+      return { ok: false as const, detail: "公网 IPv6 格式不合法" }
+    targets.push({ dnsType: "AAAA", label: "IPv6", ip: ipv6, isV6: true })
+  }
+
+  return { ok: true as const, targets }
 }
 
 function resolveFromSource(source: DnsSource, hostname: string, isV6: boolean) {
@@ -97,15 +128,15 @@ async function resolveWithRetry(
 async function checkSource(
   source: DnsSource,
   hostname: string,
-  targetIp: string,
-  isV6: boolean
+  target: DnsTarget
 ): Promise<DnsSourceResult> {
   try {
-    const records = await resolveWithRetry(source, hostname, isV6)
-    const normalizedTarget = normalizeIp(targetIp)
+    const records = await resolveWithRetry(source, hostname, target.isV6)
+    const normalizedTarget = normalizeIp(target.ip)
     const normalizedRecords = records.map(normalizeIp)
     return {
       name: source.name,
+      dnsType: target.dnsType,
       status: normalizedRecords.includes(normalizedTarget)
         ? "match"
         : "mismatch",
@@ -114,6 +145,7 @@ async function checkSource(
   } catch (err) {
     return {
       name: source.name,
+      dnsType: target.dnsType,
       status: "unresolved",
       records: [],
       error: err instanceof Error ? err.message : "解析失败",
@@ -137,16 +169,20 @@ function formatSourceStatus(status: DnsSourceResult["status"]) {
 
 function buildDetail(
   domain: string,
-  targetIp: string,
+  targets: DnsTarget[],
   sources: DnsSourceResult[]
 ) {
+  const targetLines = targets.map(
+    (target) => `目标 ${target.label}（${target.dnsType}）：${target.ip}`
+  )
+
   return [
     `域名：${domain}`,
-    `目标 IP：${targetIp}`,
+    ...targetLines,
     ...sources.map((source) => {
       const records = source.records.length ? source.records.join(", ") : "-"
       const error = source.error ? `（${source.error}）` : ""
-      return `${source.name}：${formatSourceStatus(source.status)} → ${records}${error}`
+      return `${source.name} ${source.dnsType}：${formatSourceStatus(source.status)} → ${records}${error}`
     }),
   ].join("\n")
 }
@@ -158,10 +194,13 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response
 
   const db = getDb()
-  const rows = db.prepare(`SELECT id, ip, node_ip FROM nodes`).all() as Array<{
+  const rows = db
+    .prepare(`SELECT id, ip, node_ipv4, node_ipv6 FROM nodes`)
+    .all() as Array<{
     id: number
     ip: string
-    node_ip: string | null
+    node_ipv4: string | null
+    node_ipv6: string | null
   }>
 
   // 限制节点并发，避免大量节点时瞬时打满 DNS 查询
@@ -169,27 +208,48 @@ export async function GET(request: Request) {
     rows,
     NODE_DNS_CHECK_CONCURRENCY,
     async (row) => {
-      // ip 是 IP 地址或未设置 node_ip → 跳过
-      if (!row.node_ip || isIPv4(row.ip) || isIPv6(row.ip)) {
+      // ip 是 IP 地址时跳过
+      if (isIPv4(row.ip) || isIPv6(row.ip)) {
         return {
           id: row.id,
           dns_status: "skip" as const,
-          detail: "订阅地址不是域名或未填写节点 IP，跳过 DNS 检查",
+          detail: "订阅地址不是域名，跳过 DNS 检查",
           sources: [] as DnsSourceResult[],
         }
       }
 
-      const isV6 = isIPv6(row.node_ip)
-      const sources = await Promise.all(
-        DNS_SOURCES.map((source) =>
-          checkSource(source, row.ip, row.node_ip!, isV6)
+      const targetResult = buildTargets(row)
+      if (!targetResult.ok) {
+        return {
+          id: row.id,
+          dns_status: "skip" as const,
+          detail: `${targetResult.detail}，跳过 DNS 检查`,
+          sources: [] as DnsSourceResult[],
+        }
+      }
+
+      if (targetResult.targets.length === 0) {
+        return {
+          id: row.id,
+          dns_status: "skip" as const,
+          detail: "未填写公网 IPv4 或 IPv6，跳过 DNS 检查",
+          sources: [] as DnsSourceResult[],
+        }
+      }
+
+      const nestedSources = await Promise.all(
+        targetResult.targets.map((target) =>
+          Promise.all(
+            DNS_SOURCES.map((source) => checkSource(source, row.ip, target))
+          )
         )
       )
+      const sources = nestedSources.flat()
       const dnsStatus = summarizeStatus(sources)
       return {
         id: row.id,
         dns_status: dnsStatus,
-        detail: buildDetail(row.ip, row.node_ip, sources),
+        detail: buildDetail(row.ip, targetResult.targets, sources),
         sources,
       }
     }

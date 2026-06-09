@@ -14,6 +14,10 @@ import {
 import { writeAdminEvent } from "@/lib/logs-db"
 import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
+  parseOptionalNodeIpv4,
+  parseOptionalNodeIpv6,
+} from "@/lib/node-public-address"
+import {
   buildNodeHostTrafficSummary,
   ensureAllNodeHostTrafficPeriods,
   parseHostTrafficBillingMode,
@@ -41,7 +45,8 @@ type CreateNodeBody = {
   insecure?: boolean
   pinSha256?: string | null
   // 节点配置
-  nodeIp?: string | null
+  nodeIpv4?: string | null
+  nodeIpv6?: string | null
   nodePort?: string | number | null
   nodePortHopping?: string | null
   certMode?: "self-signed" | "acme" | "acme-http" | "acme-dns" | "custom"
@@ -77,7 +82,7 @@ export async function GET(request: Request) {
       `SELECT n.id, n.name, n.remark, n.ip, n.port, n.port_hopping, n.auth_path, n.status, n.sni, n.obfs,
               n.obfs_password, n.obfs_min_packet_size, n.obfs_max_packet_size,
               n.insecure, n.pin_sha256, n.sort_order, n.created_at,
-              n.node_ip, n.node_port, n.node_port_hopping,
+              n.node_ipv4, n.node_ipv6, n.node_port, n.node_port_hopping,
               n.cert_mode, n.cert_path, n.key_path,
               n.acme_domains, n.acme_email, n.acme_dns_provider, n.acme_dns_config,
               n.masquerade_type, n.masquerade_config, n.agent_interval, n.agent_auto_update_enabled,
@@ -306,7 +311,44 @@ export async function POST(request: Request) {
     nodePortHopping = resolvedNode.portHopping
   }
 
-  const nodeIp = body.nodeIp?.trim() || null
+  const nodeIpv4 = parseOptionalNodeIpv4(body.nodeIpv4)
+  if (!nodeIpv4.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null, nodeIpv4: body.nodeIpv4 ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: nodeIpv4.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  const nodeIpv6 = parseOptionalNodeIpv6(body.nodeIpv6)
+  if (!nodeIpv6.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null, nodeIpv6: body.nodeIpv6 ?? null },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: nodeIpv6.message },
+      },
+      { status: 400 }
+    )
+  }
+
   const certMode = body.certMode || "self-signed"
   const certPath = body.certPath?.trim() || null
   const keyPath = body.keyPath?.trim() || null
@@ -505,14 +547,14 @@ export async function POST(request: Request) {
       .prepare(
         `INSERT INTO nodes(name, remark, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password,
            obfs_min_packet_size, obfs_max_packet_size, insecure, pin_sha256,
-           node_ip, node_port, node_port_hopping, cert_mode, cert_path, key_path,
+           node_ipv4, node_ipv6, node_port, node_port_hopping, cert_mode, cert_path, key_path,
            acme_domains, acme_email, acme_dns_provider, acme_dns_config,
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
            hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
            host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
            host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor,
            sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         nodeName,
@@ -528,7 +570,8 @@ export async function POST(request: Request) {
         geckoPacketSizes.maxPacketSize,
         insecure,
         pinSha256,
-        nodeIp,
+        nodeIpv4.value,
+        nodeIpv6.value,
         nodePort,
         nodePortHopping,
         certMode,

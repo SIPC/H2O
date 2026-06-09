@@ -89,7 +89,8 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `obfs_max_packet_size` | `INTEGER` | nullable（Gecko 握手分片最大包大小，空则默认 1200，最大 2048） |
 | `insecure` | `INTEGER` | `NOT NULL DEFAULT 0`, `CHECK(insecure IN (0,1))` |
 | `pin_sha256` | `TEXT` | nullable |
-| `node_ip` | `TEXT` | nullable（实际部署节点 IP；DNS 管理写入 A/AAAA 的目标） |
+| `node_ipv4` | `TEXT` | nullable（实际公网 IPv4；DNS 管理写入 A 记录的目标） |
+| `node_ipv6` | `TEXT` | nullable（实际公网 IPv6；DNS 管理写入 AAAA 记录的目标） |
 | `node_port` | `INTEGER` | nullable（实际部署端口；为空则回退 `port`） |
 | `node_port_hopping` | `TEXT` | nullable（实际部署端口跳跃；仅 `node_port` 已设置时使用） |
 | `cert_mode` | `TEXT` | `NOT NULL DEFAULT 'self-signed'`（应用层支持 `self-signed` / `acme-http` / `acme-dns` / `custom`；旧 `acme` 归一为 `acme-dns`） |
@@ -578,7 +579,7 @@ Agent 执行任务要点：
 `POST /api/admin/nodes/[id]/dns` 通过 Cloudflare API 为节点域名创建/更新 A/AAAA 记录：
 
 - 使用 `nodes.ip` 作为要解析的域名，要求不是纯 IP
-- 使用 `nodes.node_ip` 作为记录目标；IPv6 自动用 `AAAA`，否则 `A`
+- 使用 `nodes.node_ipv4` 写入 A 记录，使用 `nodes.node_ipv6` 写入 AAAA 记录；两者可二选一或同时填写
 - Cloudflare token 优先级：节点 `acme_dns_config.cloudflare_api_token` → 全局设置 `cloudflare_api_token`
 - 记录存在时，如 IP 或 TTL 不同则更新，保留原 `proxied`；不存在则创建 `proxied: false`
 
@@ -841,7 +842,7 @@ services:
 | `PLAN_IN_USE` | plans DELETE 已被订阅引用 |
 | `UNKNOWN_KEY` | settings PATCH 未知设置键 |
 | `NOT_A_DOMAIN` | DNS：节点 `ip` 不是域名 |
-| `NO_NODE_IP` | DNS：缺少 `node_ip` |
+| `NO_NODE_IP` | DNS：缺少 `node_ipv4` / `node_ipv6` |
 | `NO_CF_TOKEN` | DNS：缺少 Cloudflare token |
 | `CF_ZONE_NOT_FOUND` | DNS：Cloudflare zone 未找到 |
 | `CF_API_ERROR` | DNS：Cloudflare API 错误 |

@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs"
+import { isIPv4, isIPv6 } from "node:net"
 import { dirname } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
@@ -12,6 +13,69 @@ function ensureDbDirectory(filePath: string) {
   mkdirSync(dir, { recursive: true })
 }
 
+function hasColumn(database: DatabaseSync, table: string, column: string) {
+  try {
+    const rows = database
+      .prepare(`PRAGMA table_info(${table})`)
+      .all() as Array<{
+      name: string
+    }>
+    return rows.some((row) => row.name === column)
+  } catch {
+    return false
+  }
+}
+
+function migrateLegacyNodeIp(database: DatabaseSync) {
+  if (!hasColumn(database, "nodes", "node_ip")) return
+  if (
+    !hasColumn(database, "nodes", "node_ipv4") ||
+    !hasColumn(database, "nodes", "node_ipv6")
+  ) {
+    return
+  }
+
+  try {
+    const rows = database
+      .prepare(
+        `SELECT id, node_ip, node_ipv4, node_ipv6
+         FROM nodes
+         WHERE node_ip IS NOT NULL AND TRIM(node_ip) <> ''`
+      )
+      .all() as Array<{
+      id: number
+      node_ip: string | null
+      node_ipv4: string | null
+      node_ipv6: string | null
+    }>
+
+    const updateIpv4 = database.prepare(
+      `UPDATE nodes SET node_ipv4 = ? WHERE id = ?`
+    )
+    const updateIpv6 = database.prepare(
+      `UPDATE nodes SET node_ipv6 = ? WHERE id = ?`
+    )
+
+    for (const row of rows) {
+      const value = row.node_ip?.trim()
+      if (!value) continue
+      if (isIPv4(value) && !row.node_ipv4?.trim()) {
+        updateIpv4.run(value, row.id)
+      } else if (isIPv6(value) && !row.node_ipv6?.trim()) {
+        updateIpv6.run(value, row.id)
+      }
+    }
+  } catch {
+    // 旧字段迁移失败不阻塞启动
+  }
+
+  try {
+    database.exec(`ALTER TABLE nodes DROP COLUMN node_ip`)
+  } catch {
+    // SQLite 旧版本不支持 DROP COLUMN 时保留旧列；业务代码已不再读取
+  }
+}
+
 function ensureForwardCompatibleColumns(database: DatabaseSync) {
   // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）
   // 不是多版本迁移链，仅是单次向前兼容
@@ -23,7 +87,8 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
     `ALTER TABLE plans ADD COLUMN up_mbps INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN down_mbps INTEGER NOT NULL DEFAULT 0`,
     `ALTER TABLE plans ADD COLUMN traffic_billing_mode TEXT NOT NULL DEFAULT 'tx_rx' CHECK(traffic_billing_mode IN ('tx_rx','tx','rx'))`,
-    `ALTER TABLE nodes ADD COLUMN node_ip TEXT`,
+    `ALTER TABLE nodes ADD COLUMN node_ipv4 TEXT`,
+    `ALTER TABLE nodes ADD COLUMN node_ipv6 TEXT`,
     `ALTER TABLE nodes ADD COLUMN node_port INTEGER`,
     `ALTER TABLE nodes ADD COLUMN node_port_hopping TEXT`,
     `ALTER TABLE nodes ADD COLUMN cert_mode TEXT NOT NULL DEFAULT 'self-signed'`,
@@ -63,6 +128,8 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
       // 字段已存在
     }
   }
+
+  migrateLegacyNodeIp(database)
 
   database.exec(`
     CREATE TABLE IF NOT EXISTS outbound_profiles (
@@ -162,7 +229,8 @@ function migrate(database: DatabaseSync) {
       obfs_max_packet_size INTEGER,
       insecure INTEGER NOT NULL DEFAULT 0 CHECK(insecure IN (0,1)),
       pin_sha256 TEXT,
-      node_ip TEXT,
+      node_ipv4 TEXT,
+      node_ipv6 TEXT,
       node_port INTEGER,
       node_port_hopping TEXT,
       cert_mode TEXT NOT NULL DEFAULT 'self-signed',
