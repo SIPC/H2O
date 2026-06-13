@@ -11,6 +11,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
+
 import { cn, formatBytes } from "@/lib/utils"
 
 type AdminOverview = {
@@ -304,7 +305,6 @@ export default function AdminPage() {
     yesterdayRxBytes: 0,
     hourly: [],
   })
-
   const [panelVersion, setPanelVersion] = useState("-")
   const [loading, setLoading] = useState(true)
 

@@ -5,10 +5,12 @@ import {
   FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react"
+import Link from "next/link"
 import {
   closestCenter,
   DndContext,
@@ -536,8 +538,13 @@ function hasAgentCapability(row: NodeRow, capability: string) {
   }
 }
 
-function getCountryOption(code: string | null) {
+function normalizeCountryFilter(code: string | null) {
   const normalized = code?.trim().toUpperCase()
+  return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : null
+}
+
+function getCountryOption(code: string | null) {
+  const normalized = normalizeCountryFilter(code)
   if (!normalized) return null
   return COUNTRY_OPTIONS.find((item) => item.code === normalized) ?? null
 }
@@ -2664,8 +2671,19 @@ function NodeForm({
   )
 }
 
+function getCountryFilterFromLocation() {
+  if (typeof window === "undefined") return null
+  return normalizeCountryFilter(
+    new URLSearchParams(window.location.search).get("country")
+  )
+}
+
 export default function AdminNodesPage() {
   const { confirm, alert } = useConfirm()
+  const [countryFilter, setCountryFilter] = useState<string | null>(
+    getCountryFilterFromLocation
+  )
+  const countryFilterOption = getCountryOption(countryFilter)
   const [rows, setRows] = useState<NodeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -2847,6 +2865,29 @@ export default function AdminNodesPage() {
       activationConstraint: { distance: 8 },
     })
   )
+
+  useEffect(() => {
+    const syncCountryFilter = () =>
+      setCountryFilter(getCountryFilterFromLocation())
+    window.addEventListener("popstate", syncCountryFilter)
+    window.addEventListener("pushstate", syncCountryFilter)
+    window.addEventListener("replacestate", syncCountryFilter)
+    return () => {
+      window.removeEventListener("popstate", syncCountryFilter)
+      window.removeEventListener("pushstate", syncCountryFilter)
+      window.removeEventListener("replacestate", syncCountryFilter)
+    }
+  }, [])
+  const visibleRows = useMemo(() => {
+    if (!countryFilter) return rows
+    return rows.filter(
+      (row) => normalizeCountryFilter(row.geo_country_code) === countryFilter
+    )
+  }, [countryFilter, rows])
+  const activeSortingMode = sortingMode && !countryFilter
+  const visibleOnlineCount = visibleRows.filter((row) =>
+    isFresh(row.last_report_at)
+  ).length
 
   function setNodeRows(nextRows: NodeRow[]) {
     rowsRef.current = nextRows
@@ -4082,11 +4123,17 @@ export default function AdminNodesPage() {
           <div>
             <h1 className="text-2xl font-bold">节点管理</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              共 {rows.length} 个节点
-              {rows.filter((r) => isFresh(r.last_report_at)).length > 0 && (
+              {countryFilter ? (
+                <>
+                  {countryFilterOption?.name ?? countryFilter} ·{" "}
+                  {visibleRows.length}/{rows.length} 个节点
+                </>
+              ) : (
+                <>共 {rows.length} 个节点</>
+              )}
+              {visibleOnlineCount > 0 && (
                 <span className="ml-2 text-emerald-600 dark:text-emerald-400">
-                  · {rows.filter((r) => isFresh(r.last_report_at)).length}{" "}
-                  个在线
+                  · {visibleOnlineCount} 个在线
                 </span>
               )}
             </p>
@@ -4105,11 +4152,22 @@ export default function AdminNodesPage() {
               )}
             </Button>
             <Button
-              variant={sortingMode ? "default" : "outline"}
+              variant={activeSortingMode ? "default" : "outline"}
               size="icon-sm"
               onClick={toggleSortingMode}
-              disabled={loading || rows.length < 2 || savingOrder}
-              title={sortingMode ? "完成排序" : "进入排序模式"}
+              disabled={
+                loading ||
+                visibleRows.length < 2 ||
+                savingOrder ||
+                Boolean(countryFilter)
+              }
+              title={
+                countryFilter
+                  ? "国家筛选下暂不支持排序"
+                  : activeSortingMode
+                    ? "完成排序"
+                    : "进入排序模式"
+              }
             >
               <ArrowUpDown className="h-4 w-4" />
             </Button>
@@ -4117,9 +4175,9 @@ export default function AdminNodesPage() {
               variant="outline"
               size="icon-sm"
               onClick={() => void handleRefresh()}
-              disabled={refreshing || savingOrder || sortingMode}
+              disabled={refreshing || savingOrder || activeSortingMode}
               title={
-                sortingMode
+                activeSortingMode
                   ? "排序模式下暂不刷新"
                   : savingOrder
                     ? "正在保存排序"
@@ -4135,13 +4193,26 @@ export default function AdminNodesPage() {
             </Button>
             <Button
               onClick={() => setCreateOpen(true)}
-              disabled={sortingMode || savingOrder}
+              disabled={activeSortingMode || savingOrder}
             >
               <Plus className="mr-1.5 h-4 w-4" />
               添加节点
             </Button>
           </div>
         </div>
+
+        {countryFilter ? (
+          <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="text-muted-foreground">
+              正在查看 {countryFilterOption?.name ?? countryFilter} 节点
+            </span>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/admin/nodes" onClick={() => setCountryFilter(null)}>
+                清除筛选
+              </Link>
+            </Button>
+          </div>
+        ) : null}
 
         {/* 节点卡片网格 */}
         {loading ? (
@@ -4167,13 +4238,19 @@ export default function AdminNodesPage() {
               </Card>
             ))}
           </div>
-        ) : rows.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Server className="mb-3 h-10 w-10 opacity-40" />
-            <p className="text-sm">暂无节点</p>
-            <p className="mt-1 text-xs">点击右上角「添加节点」创建第一个节点</p>
+            <p className="text-sm">
+              {rows.length === 0 ? "暂无节点" : "暂无匹配节点"}
+            </p>
+            <p className="mt-1 text-xs">
+              {rows.length === 0
+                ? "点击右上角「添加节点」创建第一个节点"
+                : "当前国家/地区没有可显示的节点"}
+            </p>
           </Card>
-        ) : sortingMode ? (
+        ) : activeSortingMode ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -4183,11 +4260,11 @@ export default function AdminNodesPage() {
             onDragCancel={handleDragCancel}
           >
             <SortableContext
-              items={rows.map((row) => row.id)}
+              items={visibleRows.map((row) => row.id)}
               strategy={rectSortingStrategy}
             >
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {rows.map((row) => {
+                {visibleRows.map((row) => {
                   const displayRow = {
                     ...row,
                     dns_status: dnsStatusMap[row.id]?.status ?? "skip",
@@ -4224,7 +4301,7 @@ export default function AdminNodesPage() {
           </DndContext>
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {rows.map((row) => {
+            {visibleRows.map((row) => {
               const displayRow = {
                 ...row,
                 dns_status: dnsStatusMap[row.id]?.status ?? "skip",
