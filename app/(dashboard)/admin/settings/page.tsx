@@ -635,7 +635,7 @@ export default function AdminSettingsPage() {
         </Card>
 
         {/* === 数据统计 === */}
-        <Card className="md:col-span-2">
+        <Card>
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-base leading-none font-semibold">
               数据统计
