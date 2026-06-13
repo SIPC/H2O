@@ -13,18 +13,9 @@ Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 
 ![Nodes](docs/imge/md/nodes.png)
 
-- 流量统计
+- 流量地图
 
-![Analysis](docs/imge/md/analysis.png)
-
-- 分流策略
-
-![Acls](docs/imge/md/acls.png)
-
-- 订阅分流
-
-![Rules](docs/imge/md/rules.png)
-
+![Flow](docs/imge/md/trafficmap.png)
 ---
 
 # TODO
