@@ -8,7 +8,6 @@ import {
   useState,
   type PointerEvent,
   type ReactNode,
-  type WheelEvent,
 } from "react"
 import { Minus, Plus, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
@@ -982,6 +981,9 @@ function FlowView({
   const [zoom, setZoom] = useState(1)
   const [dragging, setDragging] = useState(false)
   const [activeCardKey, setActiveCardKey] = useState<string | null>(null)
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const panRef = useRef(pan)
+  const zoomRef = useRef(zoom)
   const dragRef = useRef<{
     pointerId: number
     startX: number
@@ -1038,14 +1040,51 @@ function FlowView({
     setZoom(nextZoom)
   }
 
-  function handleCanvasWheel(event: WheelEvent<HTMLDivElement>) {
-    event.preventDefault()
-    const bounds = event.currentTarget.getBoundingClientRect()
-    applyZoomDelta(event.deltaY > 0 ? -0.08 : 0.08, {
-      x: event.clientX - bounds.left,
-      y: event.clientY - bounds.top,
+  useEffect(() => {
+    panRef.current = pan
+  }, [pan])
+
+  useEffect(() => {
+    zoomRef.current = zoom
+  }, [zoom])
+
+  useEffect(() => {
+    const element = canvasRef.current
+    if (!element) return
+    const canvasElement = element
+
+    function handleNativeWheel(event: globalThis.WheelEvent) {
+      event.preventDefault()
+      const bounds = canvasElement.getBoundingClientRect()
+      const currentPan = panRef.current
+      const currentZoom = zoomRef.current
+      const nextZoom = clampZoom(
+        currentZoom + (event.deltaY > 0 ? -0.08 : 0.08)
+      )
+      if (nextZoom === currentZoom) return
+
+      const origin = {
+        x: event.clientX - bounds.left,
+        y: event.clientY - bounds.top,
+      }
+      const worldX = (origin.x - currentPan.x) / currentZoom
+      const worldY = (origin.y - currentPan.y) / currentZoom
+      const nextPan = {
+        x: origin.x - worldX * nextZoom,
+        y: origin.y - worldY * nextZoom,
+      }
+
+      panRef.current = nextPan
+      zoomRef.current = nextZoom
+      setPan(nextPan)
+      setZoom(nextZoom)
+    }
+
+    canvasElement.addEventListener("wheel", handleNativeWheel, {
+      passive: false,
     })
-  }
+    return () => canvasElement.removeEventListener("wheel", handleNativeWheel)
+  }, [])
 
   useEffect(() => {
     function isEditableTarget(target: EventTarget | null) {
@@ -1481,6 +1520,7 @@ function FlowView({
 
   return (
     <div
+      ref={canvasRef}
       className={
         dragging
           ? "relative h-[calc(100svh-3rem)] cursor-grabbing overflow-hidden bg-muted/20 select-none"
@@ -1496,7 +1536,6 @@ function FlowView({
       onPointerMove={handleCanvasPointerMove}
       onPointerUp={handleCanvasPointerEnd}
       onPointerCancel={handleCanvasPointerEnd}
-      onWheel={handleCanvasWheel}
     >
       <ButtonGroup
         aria-label="画布新增操作"
@@ -2123,19 +2162,8 @@ export default function AdminSubscriptionRulesPage() {
 
   if (!loaded) {
     return (
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-8 w-36" />
-            <Skeleton className="h-4 w-80" />
-          </div>
-          <Skeleton className="h-8 w-20" />
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <Skeleton className="h-56" />
-          <Skeleton className="h-56" />
-        </div>
-        <Skeleton className="h-80" />
+      <div className="relative h-[calc(100svh-3rem)] overflow-hidden bg-background">
+        <Skeleton className="h-full w-full rounded-none" />
       </div>
     )
   }

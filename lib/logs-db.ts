@@ -34,6 +34,8 @@ function migrate(database: DatabaseSync) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_auth_logs_created ON auth_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_auth_logs_flow_window ON auth_logs(success, reason, created_at, node_id);
+    CREATE INDEX IF NOT EXISTS idx_auth_logs_ip_created ON auth_logs(ip, created_at);
 
     CREATE TABLE IF NOT EXISTS event_logs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,6 +100,7 @@ function migrate(database: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_agent_traffic_user_logs_created ON agent_traffic_user_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_traffic_user_logs_username_created ON agent_traffic_user_logs(username, created_at);
     CREATE INDEX IF NOT EXISTS idx_agent_traffic_user_logs_node_created ON agent_traffic_user_logs(node_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_traffic_user_logs_flow_window ON agent_traffic_user_logs(success, reason, created_at, node_id, username);
   `)
   maskExistingAgentAuthPaths(database)
 }

@@ -1,6 +1,6 @@
 {
   "name": "h2o",
-  "version": "2026.06.09.03",
+  "version": "2026.06.13.01",
   "type": "module",
   "private": true,
   "packageManager": "pnpm@10.33.0",

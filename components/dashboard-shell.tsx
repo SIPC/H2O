@@ -103,7 +103,7 @@ const adminSubMenus: AdminSubMenu[] = [
   {
     title: "数据分析",
     items: [
-      { title: "流量地图", href: "/admin/node-map" },
+      { title: "流量地图", href: "/admin/traffic-map" },
       { title: "流量分析", href: "/admin/traffic-analysis" },
     ],
   },

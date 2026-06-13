@@ -10,7 +10,7 @@ import {
 } from "@/components/admin/node-traffic-world-map"
 import { Skeleton } from "@/components/ui/skeleton"
 
-export default function AdminNodeMapPage() {
+export default function AdminTrafficMapPage() {
   const [data, setData] = useState<NodeTrafficMapData>(EMPTY_NODE_TRAFFIC_MAP)
   const [loading, setLoading] = useState(true)
 
