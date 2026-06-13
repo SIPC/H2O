@@ -5,11 +5,24 @@ import { toast } from "sonner"
 
 import { useConfirm } from "@/components/confirm-provider"
 import { TurnstileWidget } from "@/components/turnstile-widget"
+import {
+  ACME_CA_PROVIDER_LABELS,
+  ACME_CA_PROVIDERS,
+  type AcmeCaProvider,
+} from "@/lib/acme-config"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 
 type Settings = {
@@ -22,6 +35,8 @@ type Settings = {
   stats_retention_days: number
   cloudflare_api_token: string
   acme_email: string
+  acme_ca_provider: AcmeCaProvider
+  acme_ca_url: string
   geoip_enabled: boolean
 }
 
@@ -35,6 +50,8 @@ const DEFAULTS: Settings = {
   stats_retention_days: 30,
   cloudflare_api_token: "",
   acme_email: "",
+  acme_ca_provider: "letsencrypt",
+  acme_ca_url: "",
   geoip_enabled: true,
 }
 
@@ -108,6 +125,8 @@ export default function AdminSettingsPage() {
       draft.stats_retention_days !== saved.stats_retention_days ||
       draft.cloudflare_api_token !== saved.cloudflare_api_token ||
       draft.acme_email !== saved.acme_email ||
+      draft.acme_ca_provider !== saved.acme_ca_provider ||
+      draft.acme_ca_url !== saved.acme_ca_url ||
       draft.geoip_enabled !== saved.geoip_enabled
     )
   }, [draft, saved])
@@ -441,9 +460,7 @@ export default function AdminSettingsPage() {
                 <div className="space-y-1">
                   <Label>保存前测试验证</Label>
                   <p className="text-xs text-muted-foreground">
-                    请用上方新 Site Key 完成一次验证；组件返回 token
-                    后，后端会立刻用新 Secret Key 调用 Cloudflare
-                    校验，校验失败不会允许保存。
+                    请使用新的 Site Key 完成验证，验证通过后即可保存。
                   </p>
                 </div>
                 <TurnstileWidget
@@ -550,6 +567,52 @@ export default function AdminSettingsPage() {
                 }
               />
             </div>
+            <div className="space-y-1">
+              <Label>默认 ACME CA</Label>
+              <Select
+                value={draft.acme_ca_provider}
+                onValueChange={(value) =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    acme_ca_provider: value as AcmeCaProvider,
+                  }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectGroup>
+                    {ACME_CA_PROVIDERS.map((provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        {ACME_CA_PROVIDER_LABELS[provider]}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                选择默认 ACME CA，节点可单独覆盖此设置。
+              </p>
+            </div>
+            {draft.acme_ca_provider === "custom" && (
+              <div className="space-y-1">
+                <Label htmlFor="acme_ca_url">ACME Directory URL</Label>
+                <Input
+                  id="acme_ca_url"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="https://acme.example.com/directory"
+                  value={draft.acme_ca_url}
+                  onChange={(e) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      acme_ca_url: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            )}
             <div className="space-y-1">
               <Label htmlFor="cloudflare_api_token">Cloudflare API Token</Label>
               <Input

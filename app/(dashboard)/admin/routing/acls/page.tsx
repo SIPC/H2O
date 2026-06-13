@@ -521,7 +521,7 @@ function AclForm({
                       placeholder="例如：reject(all, udp/443)"
                     />
                     <p className="text-[11px] text-muted-foreground">
-                      原始规则会原样写入，适合高级 ACL 语法。
+                      适用于高级 ACL 规则。
                     </p>
                   </div>
                 )}

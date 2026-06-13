@@ -2,6 +2,11 @@ import { createHash, randomBytes } from "node:crypto"
 
 import { NextResponse } from "next/server"
 
+import {
+  normalizeAcmeDnsConfig,
+  normalizeAcmeDnsProvider,
+  resolveAcmeCa,
+} from "@/lib/acme-config"
 import { ensureNodeAgentSecrets } from "@/lib/agent-control"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -28,6 +33,8 @@ type NodeRow = {
   key_path: string | null
   acme_domains: string | null
   acme_email: string | null
+  acme_ca_provider: string | null
+  acme_ca_url: string | null
   acme_dns_provider: string | null
   acme_dns_config: string | null
   masquerade_type: string | null
@@ -212,7 +219,8 @@ export async function GET(
               obfs_min_packet_size, obfs_max_packet_size,
               node_port, node_port_hopping,
               cert_mode, cert_path, key_path,
-              acme_domains, acme_email, acme_dns_provider, acme_dns_config,
+              acme_domains, acme_email, acme_ca_provider, acme_ca_url,
+              acme_dns_provider, acme_dns_config,
               masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
               hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
               server_bandwidth_up_mbps, server_bandwidth_down_mbps, ignore_client_bandwidth,
@@ -316,20 +324,32 @@ export async function GET(
     node.acme_email?.trim() ||
     getSetting<string>(SETTING_KEYS.acmeEmail, "").trim()
 
-  // ACME DNS 配置解析（节点级 > 全局设置回退）
-  let acmeDnsConfig: Record<string, string> = {}
+  const acmeCa = resolveAcmeCa({
+    nodeProvider: node.acme_ca_provider,
+    nodeUrl: node.acme_ca_url,
+    globalProvider: getSetting<string>(SETTING_KEYS.acmeCaProvider, ""),
+    globalUrl: getSetting<string>(SETTING_KEYS.acmeCaUrl, ""),
+  })
+
+  // ACME DNS 配置解析（Cloudflare 支持节点级 > 全局设置回退）
+  let rawAcmeDnsConfig: Record<string, string> = {}
   if (node.acme_dns_config) {
     try {
-      acmeDnsConfig = JSON.parse(node.acme_dns_config) as Record<string, string>
+      rawAcmeDnsConfig = JSON.parse(node.acme_dns_config) as Record<
+        string,
+        string
+      >
     } catch {
-      acmeDnsConfig = {}
+      rawAcmeDnsConfig = {}
     }
   }
+  let acmeDnsProvider = normalizeAcmeDnsProvider(node.acme_dns_provider)
+  let acmeDnsConfig = normalizeAcmeDnsConfig(acmeDnsProvider, rawAcmeDnsConfig)
   // 节点未单独配置 CF Token 时回退到全局站点设置
   if (
-    (node.acme_dns_provider === "cloudflare" ||
-      node.cert_mode === "acme-dns" ||
-      node.cert_mode === "acme") &&
+    (acmeDnsProvider === "cloudflare" ||
+      (!acmeDnsProvider &&
+        (node.cert_mode === "acme-dns" || node.cert_mode === "acme"))) &&
     !acmeDnsConfig.cloudflare_api_token
   ) {
     const globalCfToken = getSetting<string>(
@@ -337,7 +357,11 @@ export async function GET(
       ""
     ).trim()
     if (globalCfToken) {
-      acmeDnsConfig = { cloudflare_api_token: globalCfToken }
+      acmeDnsProvider = "cloudflare"
+      acmeDnsConfig = {
+        ...acmeDnsConfig,
+        cloudflare_api_token: globalCfToken,
+      }
     }
   }
 
@@ -458,13 +482,13 @@ export async function GET(
     if (acmeEmail) {
       rawParams.set("acme_email", acmeEmail)
     }
+    if (acmeCa.yamlValue) {
+      rawParams.set("acme_ca", acmeCa.yamlValue)
+    }
     // acme-dns 需要 DNS 服务商配置
     if (node.cert_mode === "acme-dns" || node.cert_mode === "acme") {
-      const dnsProvider =
-        node.acme_dns_provider ||
-        (acmeDnsConfig.cloudflare_api_token ? "cloudflare" : "")
-      if (dnsProvider) {
-        rawParams.set("acme_dns_provider", dnsProvider)
+      if (acmeDnsProvider) {
+        rawParams.set("acme_dns_provider", acmeDnsProvider)
       }
       if (Object.keys(acmeDnsConfig).length > 0) {
         rawParams.set("acme_dns_config", JSON.stringify(acmeDnsConfig))
@@ -548,7 +572,8 @@ export async function GET(
         congestion_bbr_profile: node.congestion_bbr_profile,
         acme_domains: acmeDomains,
         acme_email: acmeEmail || null,
-        acme_dns_provider: node.acme_dns_provider || null,
+        acme_ca: acmeCa,
+        acme_dns_provider: acmeDnsProvider || null,
         routing: routingConfig
           ? {
               acl_profile_id: routingConfig.aclProfile.id,

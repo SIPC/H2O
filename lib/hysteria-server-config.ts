@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto"
 
+import {
+  ACME_DNS_PROVIDER_FIELDS,
+  normalizeAcmeDnsProvider,
+} from "@/lib/acme-config"
 import { resolveGeckoPacketSizes } from "@/lib/hysteria-obfs"
 
 export type HysteriaCertMode =
@@ -24,6 +28,7 @@ export type HysteriaServerConfigInput = {
   certMode: HysteriaCertMode | string
   acmeDomains: string[]
   acmeEmail: string
+  acmeCa?: string | null
   acmeDnsProvider: string | null
   acmeDnsConfig: Record<string, string>
   masqueradeType: string | null
@@ -78,9 +83,39 @@ export function getPortHoppingFallbackWarning(params: {
   return `检测到端口跳跃为 "${params.portHopping}"。当前脚本仅自动支持连续端口范围（如 20000-50000）；已回退为单端口 ${params.port}。`
 }
 
+function buildAcmeCaLine(value: string | null | undefined) {
+  const ca = value?.trim()
+  if (!ca || ca === "letsencrypt") return null
+  if (ca === "zerossl") return "  ca: zerossl"
+  return `  ca: ${yamlString(ca)}`
+}
+
+function buildAcmeDnsBlock(params: HysteriaServerConfigInput) {
+  const provider = normalizeAcmeDnsProvider(params.acmeDnsProvider)
+  if (!provider) return null
+
+  const fields = ACME_DNS_PROVIDER_FIELDS[provider]
+  const configLines = fields
+    .map((field) => {
+      const value = params.acmeDnsConfig[field.key]?.trim()
+      return value ? `      ${field.key}: ${yamlString(value)}` : null
+    })
+    .filter(Boolean)
+
+  if (configLines.length === 0) return null
+
+  return [
+    "  dns:",
+    `    name: ${provider}`,
+    "    config:",
+    ...configLines,
+  ].join("\n")
+}
+
 // 根据 certMode 构建 Hy2 config 中的 TLS/ACME 段
 export function buildTlsOrAcmeBlock(params: HysteriaServerConfigInput): string {
   const certMode = normalizeCertMode(params.certMode)
+  const acmeCaLine = buildAcmeCaLine(params.acmeCa)
   const domainsYaml = params.acmeDomains
     .map((d) => `    - ${yamlString(d)}`)
     .join("\n")
@@ -92,6 +127,7 @@ export function buildTlsOrAcmeBlock(params: HysteriaServerConfigInput): string {
       domainsYaml ||
         `    - ${yamlString(params.acmeDomains[0] || "example.com")}`,
       params.acmeEmail ? `  email: ${yamlString(params.acmeEmail)}` : null,
+      acmeCaLine,
       "  type: http",
     ]
       .filter(Boolean)
@@ -99,18 +135,7 @@ export function buildTlsOrAcmeBlock(params: HysteriaServerConfigInput): string {
   }
 
   if (certMode === "acme-dns") {
-    let dnsBlock = ""
-    if (
-      params.acmeDnsProvider === "cloudflare" &&
-      params.acmeDnsConfig.cloudflare_api_token
-    ) {
-      dnsBlock = [
-        "  dns:",
-        "    name: cloudflare",
-        "    config:",
-        `      cloudflare_api_token: ${yamlString(params.acmeDnsConfig.cloudflare_api_token)}`,
-      ].join("\n")
-    }
+    const dnsBlock = buildAcmeDnsBlock(params)
 
     return [
       "acme:",
@@ -118,6 +143,7 @@ export function buildTlsOrAcmeBlock(params: HysteriaServerConfigInput): string {
       domainsYaml ||
         `    - ${yamlString(`*.${params.acmeDomains[0] || "example.com"}`)}`,
       params.acmeEmail ? `  email: ${yamlString(params.acmeEmail)}` : null,
+      acmeCaLine,
       "  type: dns",
       dnsBlock || null,
     ]

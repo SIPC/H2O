@@ -1,3 +1,4 @@
+import { DEFAULT_ACME_CA_PROVIDER } from "@/lib/acme-config"
 import { getDb } from "@/lib/db"
 
 // 站点级设置，key-value 单表，值用 JSON.stringify/parse 存取
@@ -11,6 +12,8 @@ export const SETTING_KEYS = {
   statsRetentionDays: "stats_retention_days",
   cloudflareApiToken: "cloudflare_api_token",
   acmeEmail: "acme_email",
+  acmeCaProvider: "acme_ca_provider",
+  acmeCaUrl: "acme_ca_url",
   geoipEnabled: "geoip_enabled",
   subscriptionRuleConfig: "subscription_rule_config",
 } as const
@@ -29,6 +32,8 @@ export const SETTING_DEFAULTS = {
   [SETTING_KEYS.statsRetentionDays]: 30,
   [SETTING_KEYS.cloudflareApiToken]: "",
   [SETTING_KEYS.acmeEmail]: "",
+  [SETTING_KEYS.acmeCaProvider]: DEFAULT_ACME_CA_PROVIDER,
+  [SETTING_KEYS.acmeCaUrl]: "",
   [SETTING_KEYS.geoipEnabled]: true,
 } satisfies Partial<Record<SettingKey, unknown>>
 

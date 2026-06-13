@@ -21,6 +21,7 @@ Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 # TODO
 
 - [ ] DNS 解析 可视化配置
+- [x] ACME CA 与 DNS-01 多服务商配置（Let’s Encrypt / ZeroSSL / 自定义 CA，Cloudflare / Duck DNS / Gandi / GoDaddy / Name.com / Vultr）
 
 
 - [x] 订阅分流 可视化配置（Beta）

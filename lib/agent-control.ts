@@ -7,6 +7,11 @@ import {
 
 import type { DatabaseSync } from "node:sqlite"
 
+import {
+  normalizeAcmeDnsConfig,
+  normalizeAcmeDnsProvider,
+  resolveAcmeCa,
+} from "@/lib/acme-config"
 import { getDb } from "@/lib/db"
 import {
   buildHysteriaServerConfig,
@@ -56,6 +61,12 @@ export type NodeDesiredConfig = {
     deployPortHopping: string | null
     acmeDomains: string[]
     acmeEmail: string | null
+    acmeCa: {
+      provider: string
+      url: string | null
+      yamlValue: string | null
+      source: "node" | "global"
+    }
     acmeDnsProvider: string | null
     routing: {
       aclProfileId: number
@@ -85,6 +96,8 @@ export type NodeRuntimeRow = {
   key_path: string | null
   acme_domains: string | null
   acme_email: string | null
+  acme_ca_provider: string | null
+  acme_ca_url: string | null
   acme_dns_provider: string | null
   acme_dns_config: string | null
   masquerade_type: string | null
@@ -216,7 +229,8 @@ function getNodeRuntimeRow(nodeId: number, database: DatabaseSync) {
               obfs_password, obfs_min_packet_size, obfs_max_packet_size,
               node_port, node_port_hopping,
               cert_mode, cert_path, key_path,
-              acme_domains, acme_email, acme_dns_provider, acme_dns_config,
+              acme_domains, acme_email, acme_ca_provider, acme_ca_url,
+              acme_dns_provider, acme_dns_config,
               masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
               hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
               agent_config_revision, agent_desired_config_hash,
@@ -255,9 +269,21 @@ export function buildNodeDesiredConfig(params: {
     node.acme_email?.trim() ||
     getSetting<string>(SETTING_KEYS.acmeEmail, "").trim()
 
-  let acmeDnsConfig = parseStringRecord(node.acme_dns_config)
+  const acmeCa = resolveAcmeCa({
+    nodeProvider: node.acme_ca_provider,
+    nodeUrl: node.acme_ca_url,
+    globalProvider: getSetting<string>(SETTING_KEYS.acmeCaProvider, ""),
+    globalUrl: getSetting<string>(SETTING_KEYS.acmeCaUrl, ""),
+  })
+
+  let acmeDnsProvider = normalizeAcmeDnsProvider(node.acme_dns_provider)
+  let acmeDnsConfig = normalizeAcmeDnsConfig(
+    acmeDnsProvider,
+    parseStringRecord(node.acme_dns_config)
+  )
   if (
-    (node.acme_dns_provider === "cloudflare" || certMode === "acme-dns") &&
+    (acmeDnsProvider === "cloudflare" ||
+      (!acmeDnsProvider && certMode === "acme-dns")) &&
     !acmeDnsConfig.cloudflare_api_token
   ) {
     const globalCfToken = getSetting<string>(
@@ -265,7 +291,11 @@ export function buildNodeDesiredConfig(params: {
       ""
     ).trim()
     if (globalCfToken) {
-      acmeDnsConfig = { cloudflare_api_token: globalCfToken }
+      acmeDnsProvider = "cloudflare"
+      acmeDnsConfig = {
+        ...acmeDnsConfig,
+        cloudflare_api_token: globalCfToken,
+      }
     }
   }
 
@@ -291,7 +321,8 @@ export function buildNodeDesiredConfig(params: {
     certMode,
     acmeDomains,
     acmeEmail,
-    acmeDnsProvider: node.acme_dns_provider,
+    acmeCa: acmeCa.yamlValue,
+    acmeDnsProvider,
     acmeDnsConfig,
     masqueradeType: node.masquerade_type,
     masqueradeConfig,
@@ -362,7 +393,8 @@ export function buildNodeDesiredConfig(params: {
       deployPortHopping,
       acmeDomains,
       acmeEmail: acmeEmail || null,
-      acmeDnsProvider: node.acme_dns_provider || null,
+      acmeCa,
+      acmeDnsProvider,
       routing: routingConfig
         ? {
             aclProfileId: routingConfig.aclProfile.id,

@@ -821,7 +821,7 @@ export default function AdminRoutingOutboundsPage() {
           <SheetHeader>
             <SheetTitle>添加出站配置</SheetTitle>
             <SheetDescription>
-              配置 direct / SOCKS5 / HTTP 出站。第一个出站会作为 Hy2 默认出口。
+              支持 direct、SOCKS5、HTTP 出站配置，列表首项为默认出口。
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">

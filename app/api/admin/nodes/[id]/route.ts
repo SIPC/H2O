@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server"
 
+import {
+  validateAcmeDnsConfig,
+  validateNodeAcmeCaInput,
+} from "@/lib/acme-config"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 import {
@@ -75,6 +79,8 @@ type UpdateNodeBody = {
   keyPath?: string | null
   acmeDomains?: string[] | null
   acmeEmail?: string | null
+  acmeCaProvider?: string | null
+  acmeCaUrl?: string | null
   acmeDnsProvider?: string | null
   acmeDnsConfig?: Record<string, string> | null
   masqueradeType?: string | null
@@ -394,19 +400,68 @@ export async function PATCH(
     changedFields.push("acme_email")
   }
 
-  if (body.acmeDnsProvider !== undefined) {
-    updates.push("acme_dns_provider = ?")
-    values.push(
-      body.acmeDnsProvider && body.acmeDnsProvider.trim()
-        ? body.acmeDnsProvider.trim()
-        : null
-    )
-    changedFields.push("acme_dns_provider")
+  if (body.acmeCaProvider !== undefined || body.acmeCaUrl !== undefined) {
+    const acmeCa = validateNodeAcmeCaInput({
+      provider: body.acmeCaProvider,
+      url: body.acmeCaUrl,
+    })
+    if (!acmeCa.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId, field: "acmeCa" },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: acmeCa.message },
+        },
+        { status: 400 }
+      )
+    }
+
+    updates.push("acme_ca_provider = ?")
+    values.push(acmeCa.provider === "inherit" ? null : acmeCa.provider)
+    changedFields.push("acme_ca_provider")
+
+    updates.push("acme_ca_url = ?")
+    values.push(acmeCa.url)
+    changedFields.push("acme_ca_url")
   }
 
-  if (body.acmeDnsConfig !== undefined) {
+  if (body.acmeDnsProvider !== undefined || body.acmeDnsConfig !== undefined) {
+    const acmeDns = validateAcmeDnsConfig({
+      provider: body.acmeDnsProvider,
+      config: body.acmeDnsConfig,
+      allowEmptyCloudflareToken: true,
+    })
+    if (!acmeDns.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId, field: "acmeDns" },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: acmeDns.message },
+        },
+        { status: 400 }
+      )
+    }
+
+    updates.push("acme_dns_provider = ?")
+    values.push(acmeDns.provider)
+    changedFields.push("acme_dns_provider")
+
     updates.push("acme_dns_config = ?")
-    values.push(body.acmeDnsConfig ? JSON.stringify(body.acmeDnsConfig) : null)
+    values.push(acmeDns.config ? JSON.stringify(acmeDns.config) : null)
     changedFields.push("acme_dns_config")
   }
 
@@ -454,6 +509,7 @@ export async function PATCH(
       `SELECT port, port_hopping, obfs, obfs_password, obfs_min_packet_size,
               obfs_max_packet_size, node_port, node_port_hopping,
               cert_mode, cert_path, key_path, acme_domains, acme_email,
+              acme_ca_provider, acme_ca_url,
               acme_dns_provider, acme_dns_config, masquerade_type,
               masquerade_config, agent_interval, agent_auto_update_enabled,
               hy2_auto_update_enabled,
@@ -1102,6 +1158,8 @@ export async function PATCH(
     "key_path",
     "acme_domains",
     "acme_email",
+    "acme_ca_provider",
+    "acme_ca_url",
     "acme_dns_provider",
     "acme_dns_config",
     "masquerade_type",

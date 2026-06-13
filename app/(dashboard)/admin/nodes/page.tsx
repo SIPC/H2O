@@ -54,6 +54,15 @@ import {
 
 import { useConfirm } from "@/components/confirm-provider"
 import {
+  ACME_CA_PROVIDERS,
+  ACME_DNS_PROVIDER_FIELDS,
+  ACME_DNS_PROVIDERS,
+  ACME_DNS_PROVIDER_LABELS,
+  NODE_ACME_CA_PROVIDER_LABELS,
+  isAcmeDnsProvider,
+  type NodeAcmeCaProvider,
+} from "@/lib/acme-config"
+import {
   parseAgentTaskOutput,
   type AgentLogEntry,
 } from "@/lib/agent-task-output"
@@ -164,8 +173,14 @@ type HostTrafficResetCycle =
 type HostTrafficBillingMode = "tx_rx" | "tx" | "rx"
 type CongestionType = "default" | "bbr" | "reno"
 type CongestionBbrProfile = "standard" | "conservative" | "aggressive"
+type AcmeDnsConfigDraft = Record<string, string>
 
 type HostTrafficUnit = "GB" | "TB"
+
+const NODE_ACME_CA_PROVIDERS: NodeAcmeCaProvider[] = [
+  "inherit",
+  ...ACME_CA_PROVIDERS,
+]
 
 type AgentTaskRow = {
   id: number
@@ -265,6 +280,8 @@ type NodeRow = {
   key_path: string | null
   acme_domains: string | null
   acme_email: string | null
+  acme_ca_provider: NodeAcmeCaProvider | null
+  acme_ca_url: string | null
   acme_dns_provider: string | null
   acme_dns_config: string | null
   masquerade_type: string | null
@@ -695,6 +712,28 @@ function certModeLabel(value: string | undefined) {
   if (value === "acme-dns" || value === "acme") return "ACME DNS"
   if (value === "custom") return "自定义证书"
   return "自签证书"
+}
+
+function acmeDnsProviderLabel(value: string | null | undefined) {
+  if (!value) return "未设置"
+  return isAcmeDnsProvider(value) ? ACME_DNS_PROVIDER_LABELS[value] : value
+}
+
+function acmeCaLabel(
+  value:
+    | {
+        provider?: string
+        url?: string | null
+        source?: "node" | "global"
+      }
+    | null
+    | undefined
+) {
+  const source = value?.source === "node" ? "节点覆盖" : "全局默认"
+  if (value?.provider === "custom")
+    return `${source} · ${value.url ?? "自定义"}`
+  if (value?.provider === "zerossl") return `${source} · ZeroSSL`
+  return `${source} · Let’s Encrypt`
 }
 
 function DeployInfoItem({
@@ -1564,10 +1603,14 @@ function NodeForm({
   setAcmeDomainsInput,
   acmeEmail,
   setAcmeEmail,
+  acmeCaProvider,
+  setAcmeCaProvider,
+  acmeCaUrl,
+  setAcmeCaUrl,
   acmeDnsProvider,
   setAcmeDnsProvider,
-  acmeCfToken,
-  setAcmeCfToken,
+  acmeDnsConfig,
+  setAcmeDnsConfig,
   // 伪装
   masqueradeType,
   setMasqueradeType,
@@ -1684,10 +1727,14 @@ function NodeForm({
   setAcmeDomainsInput: (v: string) => void
   acmeEmail: string
   setAcmeEmail: (v: string) => void
+  acmeCaProvider: NodeAcmeCaProvider
+  setAcmeCaProvider: (v: NodeAcmeCaProvider) => void
+  acmeCaUrl: string
+  setAcmeCaUrl: (v: string) => void
   acmeDnsProvider: string
   setAcmeDnsProvider: (v: string) => void
-  acmeCfToken: string
-  setAcmeCfToken: (v: string) => void
+  acmeDnsConfig: AcmeDnsConfigDraft
+  setAcmeDnsConfig: (v: AcmeDnsConfigDraft) => void
   // 伪装
   masqueradeType: string
   setMasqueradeType: (v: string) => void
@@ -1799,6 +1846,17 @@ function NodeForm({
 
     lastAutoDomainRef.current = domain
   }, [certMode, ip, setAcmeDomainsInput, setSni])
+
+  const selectedAcmeDnsProvider = isAcmeDnsProvider(acmeDnsProvider)
+    ? acmeDnsProvider
+    : null
+  const selectedAcmeDnsFields = selectedAcmeDnsProvider
+    ? ACME_DNS_PROVIDER_FIELDS[selectedAcmeDnsProvider]
+    : []
+
+  function setAcmeDnsConfigField(key: string, value: string) {
+    setAcmeDnsConfig({ ...acmeDnsConfig, [key]: value })
+  }
 
   return (
     <form
@@ -2013,6 +2071,41 @@ function NodeForm({
                 </Button>
               </div>
             </div>
+            <div className="space-y-1">
+              <Label>ACME CA</Label>
+              <Select
+                value={acmeCaProvider}
+                onValueChange={(value) =>
+                  setAcmeCaProvider(value as NodeAcmeCaProvider)
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper">
+                  <SelectGroup>
+                    {NODE_ACME_CA_PROVIDERS.map((provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        {NODE_ACME_CA_PROVIDER_LABELS[provider]}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                选择签发证书使用的 ACME CA，节点配置优先于全局设置。
+              </p>
+            </div>
+            {acmeCaProvider === "custom" && (
+              <div className="space-y-1">
+                <Label>ACME Directory URL</Label>
+                <Input
+                  value={acmeCaUrl}
+                  onChange={(e) => setAcmeCaUrl(e.target.value)}
+                  placeholder="https://acme.example.com/directory"
+                />
+              </div>
+            )}
           </>
         )}
         {certMode === "acme-dns" && (
@@ -2021,32 +2114,45 @@ function NodeForm({
               <Label>DNS 服务商</Label>
               <Select
                 value={acmeDnsProvider}
-                onValueChange={setAcmeDnsProvider}
+                onValueChange={(value) => {
+                  setAcmeDnsProvider(value)
+                  setAcmeDnsConfig({})
+                }}
               >
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="选择 DNS 服务商" />
                 </SelectTrigger>
                 <SelectContent position="popper">
                   <SelectGroup>
-                    <SelectItem value="cloudflare">Cloudflare</SelectItem>
+                    {ACME_DNS_PROVIDERS.map((provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        {ACME_DNS_PROVIDER_LABELS[provider]}
+                      </SelectItem>
+                    ))}
                   </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                DNS-01 证书签发需要可用的 DNS 服务商凭据，用于自动创建验证记录。
+                DNS-01 证书签发需要可用的 DNS
+                服务商凭据；同一张证书的所有域名需使用同一服务商。 Cloudflare
+                Token 留空时可使用全局设置。
               </p>
             </div>
-            {acmeDnsProvider === "cloudflare" && (
-              <div className="space-y-1">
-                <Label>Cloudflare API Token</Label>
+            {selectedAcmeDnsFields.map((field) => (
+              <div key={field.key} className="space-y-1">
+                <Label>{field.label}</Label>
                 <Input
-                  type="password"
-                  value={acmeCfToken}
-                  onChange={(e) => setAcmeCfToken(e.target.value)}
-                  placeholder="留空则使用全局设置"
+                  type={field.secret ? "password" : "text"}
+                  value={acmeDnsConfig[field.key] ?? ""}
+                  onChange={(e) =>
+                    setAcmeDnsConfigField(field.key, e.target.value)
+                  }
+                  placeholder={
+                    field.placeholder ?? (field.required ? "必填" : "可选")
+                  }
                 />
               </div>
-            )}
+            ))}
           </>
         )}
         {certMode === "custom" && (
@@ -2154,7 +2260,7 @@ function NodeForm({
                 />
               </div>
               <p className="text-[11px] text-muted-foreground sm:col-span-2">
-                留空使用 Hy2 默认值 512 / 1200；maxPacketSize 必须大于等于
+                默认范围为 512 / 1200；maxPacketSize 不小于
                 minPacketSize，且不超过 2048。
               </p>
             </div>
@@ -2165,8 +2271,7 @@ function NodeForm({
           <div>
             <p className="text-sm font-medium">伪装 Masquerade</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              定义非协议流量访问节点时的 HTTP/HTTPS
-              响应行为，用于服务端伪装场景。
+              配置非协议流量的 HTTP/HTTPS 响应，用于服务端伪装。
             </p>
           </div>
           <div className="space-y-1">
@@ -2275,8 +2380,7 @@ function NodeForm({
           <div>
             <p className="text-sm font-medium">服务端带宽</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              配置 Hy2 服务端 bandwidth；0
-              或留空表示该方向不限。服务端上传对应客户端下载，服务端下载对应客户端上传。
+              设置服务端上下行带宽限制；0 或留空表示不限速。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2307,8 +2411,7 @@ function NodeForm({
             <div>
               <Label>忽略客户端带宽配置</Label>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                启用后 Hy2 会忽略订阅中客户端自行设置的 bandwidth，改用非 Brutal
-                拥塞控制。
+                启用后统一采用服务端带宽策略，并使用非 Brutal 拥塞控制。
               </p>
             </div>
             <Switch
@@ -2322,7 +2425,7 @@ function NodeForm({
           <div>
             <p className="text-sm font-medium">拥塞控制</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              留空使用 Hy2 默认；BBR 预设仅在选择 BBR 时生效。
+              未配置时使用默认拥塞控制；BBR 预设仅对 BBR 生效。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2368,7 +2471,7 @@ function NodeForm({
           <div>
             <p className="text-sm font-medium">QUIC 参数</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              不填则使用 Hy2 默认值。除非明确了解影响，不建议随意修改窗口大小。
+              未配置时使用默认参数。请根据实际网络环境调整窗口大小。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2730,8 +2833,11 @@ export default function AdminNodesPage() {
   const [keyPath, setKeyPath] = useState("")
   const [acmeDomainsInput, setAcmeDomainsInput] = useState("")
   const [acmeEmail, setAcmeEmail] = useState("")
+  const [acmeCaProvider, setAcmeCaProvider] =
+    useState<NodeAcmeCaProvider>("inherit")
+  const [acmeCaUrl, setAcmeCaUrl] = useState("")
   const [acmeDnsProvider, setAcmeDnsProvider] = useState("")
-  const [acmeCfToken, setAcmeCfToken] = useState("")
+  const [acmeDnsConfig, setAcmeDnsConfig] = useState<AcmeDnsConfigDraft>({})
   const [masqueradeType, setMasqueradeType] = useState("string")
   const [masqContent, setMasqContent] = useState("ok")
   const [masqContentType, setMasqContentType] = useState(
@@ -2800,8 +2906,12 @@ export default function AdminNodesPage() {
   const [editKeyPath, setEditKeyPath] = useState("")
   const [editAcmeDomainsInput, setEditAcmeDomainsInput] = useState("")
   const [editAcmeEmail, setEditAcmeEmail] = useState("")
+  const [editAcmeCaProvider, setEditAcmeCaProvider] =
+    useState<NodeAcmeCaProvider>("inherit")
+  const [editAcmeCaUrl, setEditAcmeCaUrl] = useState("")
   const [editAcmeDnsProvider, setEditAcmeDnsProvider] = useState("")
-  const [editAcmeCfToken, setEditAcmeCfToken] = useState("")
+  const [editAcmeDnsConfig, setEditAcmeDnsConfig] =
+    useState<AcmeDnsConfigDraft>({})
   const [editMasqueradeType, setEditMasqueradeType] = useState("string")
   const [editMasqContent, setEditMasqContent] = useState("ok")
   const [editMasqContentType, setEditMasqContentType] = useState(
@@ -3070,11 +3180,15 @@ export default function AdminNodesPage() {
     src: "create" | "edit"
   ): Record<string, string> | null {
     const provider = src === "create" ? acmeDnsProvider : editAcmeDnsProvider
-    const token = src === "create" ? acmeCfToken : editAcmeCfToken
-    if (provider === "cloudflare" && token.trim()) {
-      return { cloudflare_api_token: token.trim() }
+    if (!isAcmeDnsProvider(provider)) return null
+
+    const draft = src === "create" ? acmeDnsConfig : editAcmeDnsConfig
+    const out: Record<string, string> = {}
+    for (const field of ACME_DNS_PROVIDER_FIELDS[provider]) {
+      const value = draft[field.key]?.trim()
+      if (value) out[field.key] = value
     }
-    return null
+    return Object.keys(out).length > 0 ? out : null
   }
 
   function parseAcmeDomainsInput(raw: string): string[] {
@@ -3288,6 +3402,8 @@ export default function AdminNodesPage() {
         keyPath: keyPath || null,
         acmeDomains: acmeDomains.length > 0 ? acmeDomains : null,
         acmeEmail: acmeEmail || null,
+        acmeCaProvider,
+        acmeCaUrl: acmeCaProvider === "custom" ? acmeCaUrl || null : null,
         acmeDnsProvider: acmeDnsProvider || null,
         acmeDnsConfig: buildAcmeDnsConfig("create"),
         masqueradeType,
@@ -3372,8 +3488,10 @@ export default function AdminNodesPage() {
     setKeyPath("")
     setAcmeDomainsInput("")
     setAcmeEmail("")
+    setAcmeCaProvider("inherit")
+    setAcmeCaUrl("")
     setAcmeDnsProvider("")
-    setAcmeCfToken("")
+    setAcmeDnsConfig({})
     setMasqueradeType("string")
     setMasqContent("ok")
     setMasqContentType("text/plain; charset=utf-8")
@@ -3493,15 +3611,17 @@ export default function AdminNodesPage() {
       setEditAcmeDomainsInput("")
     }
     setEditAcmeEmail(row.acme_email ?? "")
+    setEditAcmeCaProvider(row.acme_ca_provider ?? "inherit")
+    setEditAcmeCaUrl(row.acme_ca_url ?? "")
     setEditAcmeDnsProvider(row.acme_dns_provider ?? "")
     // acme_dns_config 是 JSON 字符串
     try {
       const config = row.acme_dns_config
         ? (JSON.parse(row.acme_dns_config) as Record<string, string>)
         : {}
-      setEditAcmeCfToken(config.cloudflare_api_token ?? "")
+      setEditAcmeDnsConfig(config)
     } catch {
-      setEditAcmeCfToken("")
+      setEditAcmeDnsConfig({})
     }
     // 伪装配置
     setEditMasqueradeType(row.masquerade_type || "string")
@@ -3661,6 +3781,8 @@ export default function AdminNodesPage() {
       keyPath: editKeyPath || null,
       acmeDomains: editAcmeDomains.length > 0 ? editAcmeDomains : null,
       acmeEmail: editAcmeEmail || null,
+      acmeCaProvider: editAcmeCaProvider,
+      acmeCaUrl: editAcmeCaProvider === "custom" ? editAcmeCaUrl || null : null,
       acmeDnsProvider: editAcmeDnsProvider || null,
       acmeDnsConfig: buildAcmeDnsConfig("edit"),
       masqueradeType: editMasqueradeType,
@@ -3920,6 +4042,11 @@ export default function AdminNodesPage() {
           congestion_bbr_profile?: string | null
           acme_domains?: string[]
           acme_email?: string | null
+          acme_ca?: {
+            provider?: string
+            url?: string | null
+            source?: "node" | "global"
+          }
           acme_dns_provider?: string | null
         }
       | undefined
@@ -4055,10 +4182,14 @@ export default function AdminNodesPage() {
                     label="ACME 邮箱"
                     value={meta?.acme_email ?? "未设置"}
                   />
+                  <DeployInfoItem
+                    label="ACME CA"
+                    value={acmeCaLabel(meta?.acme_ca)}
+                  />
                   {meta?.cert_mode === "acme-dns" && (
                     <DeployInfoItem
                       label="DNS 服务商"
-                      value={meta?.acme_dns_provider ?? "未设置"}
+                      value={acmeDnsProviderLabel(meta?.acme_dns_provider)}
                     />
                   )}
                 </>
@@ -4383,10 +4514,14 @@ export default function AdminNodesPage() {
                 setAcmeDomainsInput={setAcmeDomainsInput}
                 acmeEmail={acmeEmail}
                 setAcmeEmail={setAcmeEmail}
+                acmeCaProvider={acmeCaProvider}
+                setAcmeCaProvider={setAcmeCaProvider}
+                acmeCaUrl={acmeCaUrl}
+                setAcmeCaUrl={setAcmeCaUrl}
                 acmeDnsProvider={acmeDnsProvider}
                 setAcmeDnsProvider={setAcmeDnsProvider}
-                acmeCfToken={acmeCfToken}
-                setAcmeCfToken={setAcmeCfToken}
+                acmeDnsConfig={acmeDnsConfig}
+                setAcmeDnsConfig={setAcmeDnsConfig}
                 masqueradeType={masqueradeType}
                 setMasqueradeType={setMasqueradeType}
                 masqContent={masqContent}
@@ -4726,10 +4861,14 @@ export default function AdminNodesPage() {
                 setAcmeDomainsInput={setEditAcmeDomainsInput}
                 acmeEmail={editAcmeEmail}
                 setAcmeEmail={setEditAcmeEmail}
+                acmeCaProvider={editAcmeCaProvider}
+                setAcmeCaProvider={setEditAcmeCaProvider}
+                acmeCaUrl={editAcmeCaUrl}
+                setAcmeCaUrl={setEditAcmeCaUrl}
                 acmeDnsProvider={editAcmeDnsProvider}
                 setAcmeDnsProvider={setEditAcmeDnsProvider}
-                acmeCfToken={editAcmeCfToken}
-                setAcmeCfToken={setEditAcmeCfToken}
+                acmeDnsConfig={editAcmeDnsConfig}
+                setAcmeDnsConfig={setEditAcmeDnsConfig}
                 masqueradeType={editMasqueradeType}
                 setMasqueradeType={setEditMasqueradeType}
                 masqContent={editMasqContent}

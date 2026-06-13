@@ -2,6 +2,11 @@ import { createHash, randomBytes } from "node:crypto"
 
 import { NextResponse } from "next/server"
 
+import {
+  normalizeAcmeCaUrl,
+  normalizeAcmeDnsConfig,
+  normalizeAcmeDnsProvider,
+} from "@/lib/acme-config"
 import { getDb } from "@/lib/db"
 import {
   isSupportedHysteriaObfs,
@@ -43,7 +48,8 @@ type InstallParams = {
   certMode: "self-signed" | "acme-http" | "acme-dns" | "acme" | "custom"
   acmeDomains: string[]
   acmeEmail: string
-  acmeDnsProvider: string
+  acmeCa: string | null
+  acmeDnsProvider: string | null
   acmeDnsConfig: Record<string, string>
   masqueradeType: string
   masqueradeConfig: Record<string, unknown>
@@ -911,18 +917,36 @@ export async function GET(request: Request) {
   }
 
   const acmeEmail = query.get("acme_email")?.trim() ?? ""
-  const acmeDnsProvider = query.get("acme_dns_provider")?.trim() ?? ""
+  const acmeCaRaw = query.get("acme_ca")?.trim() ?? ""
+  const acmeCa =
+    !acmeCaRaw || acmeCaRaw === "letsencrypt"
+      ? null
+      : acmeCaRaw === "zerossl"
+        ? "zerossl"
+        : normalizeAcmeCaUrl(acmeCaRaw)
+  if (acmeCaRaw && acmeCaRaw !== "letsencrypt" && !acmeCa) {
+    return errorJson("INVALID_PAYLOAD", "acme_ca 不合法")
+  }
+  const acmeDnsProviderRaw = query.get("acme_dns_provider")?.trim() ?? ""
+  const acmeDnsProvider = normalizeAcmeDnsProvider(acmeDnsProviderRaw)
+  if (acmeDnsProviderRaw && !acmeDnsProvider) {
+    return errorJson("INVALID_PAYLOAD", "acme_dns_provider 不支持")
+  }
 
-  let acmeDnsConfig: Record<string, string> = {}
+  let rawAcmeDnsConfig: Record<string, string> = {}
   const acmeDnsConfigRaw = query.get("acme_dns_config")?.trim() ?? ""
   if (acmeDnsConfigRaw) {
     try {
       const parsed = JSON.parse(acmeDnsConfigRaw)
-      if (parsed && typeof parsed === "object") acmeDnsConfig = parsed
+      if (parsed && typeof parsed === "object") rawAcmeDnsConfig = parsed
     } catch {
       // 忽略
     }
   }
+  const acmeDnsConfig = normalizeAcmeDnsConfig(
+    acmeDnsProvider,
+    rawAcmeDnsConfig
+  )
 
   const masqueradeType = query.get("masquerade_type")?.trim() || "string"
 
@@ -1065,6 +1089,7 @@ export async function GET(request: Request) {
     certMode,
     acmeDomains,
     acmeEmail,
+    acmeCa,
     acmeDnsProvider,
     acmeDnsConfig,
     masqueradeType,

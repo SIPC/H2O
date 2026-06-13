@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 
+import { validateGlobalAcmeCaInput } from "@/lib/acme-config"
 import { getSessionTokenHashFromRequest, requireAdmin } from "@/lib/auth"
 import { cleanupExpiredLogsBySetting, writeAdminEvent } from "@/lib/logs-db"
 import {
@@ -197,6 +198,38 @@ export async function PATCH(request: Request) {
   }
 
   const currentSettings = getAllSettings()
+  const nextAcmeCa = validateGlobalAcmeCaInput({
+    provider:
+      body[SETTING_KEYS.acmeCaProvider] ??
+      currentSettings[SETTING_KEYS.acmeCaProvider],
+    url:
+      body[SETTING_KEYS.acmeCaUrl] ?? currentSettings[SETTING_KEYS.acmeCaUrl],
+  })
+  if (!nextAcmeCa.ok) {
+    writeAdminEvent({
+      event: "SETTINGS_UPDATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { key: "acme_ca" },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: nextAcmeCa.message },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (body[SETTING_KEYS.acmeCaProvider] !== undefined) {
+    body[SETTING_KEYS.acmeCaProvider] = nextAcmeCa.provider
+  }
+  if (body[SETTING_KEYS.acmeCaUrl] !== undefined) {
+    body[SETTING_KEYS.acmeCaUrl] = nextAcmeCa.url
+  }
+
   const currentTurnstileSiteKey = String(
     currentSettings[SETTING_KEYS.turnstileSiteKey] ?? ""
   ).trim()

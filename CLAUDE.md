@@ -98,8 +98,10 @@ H2O 是企业内网使用的 Hysteria2 订阅与节点认证管理面板：后�
 | `key_path` | `TEXT` | nullable |
 | `acme_domains` | `TEXT` | nullable（JSON 字符串数组） |
 | `acme_email` | `TEXT` | nullable |
-| `acme_dns_provider` | `TEXT` | nullable |
-| `acme_dns_config` | `TEXT` | nullable（JSON 字符串，Cloudflare token 可节点级覆盖） |
+| `acme_ca_provider` | `TEXT` | nullable（节点级 ACME CA 覆盖：`letsencrypt` / `zerossl` / `custom`；空表示继承全局） |
+| `acme_ca_url` | `TEXT` | nullable（`acme_ca_provider = custom` 时的 ACME Directory URL） |
+| `acme_dns_provider` | `TEXT` | nullable（`cloudflare` / `duckdns` / `gandi` / `godaddy` / `namedotcom` / `vultr`） |
+| `acme_dns_config` | `TEXT` | nullable（JSON 字符串；Cloudflare token 可节点级覆盖，其他 DNS provider 保存各自 Hy2 配置键） |
 | `masquerade_type` | `TEXT` | nullable |
 | `masquerade_config` | `TEXT` | nullable（JSON 字符串） |
 | `agent_interval` | `INTEGER` | nullable（Agent 上报/同步间隔秒数，默认 120） |
@@ -608,8 +610,10 @@ Agent 执行任务要点：
 | `stats_retention_days` | `statsRetentionDays` | number | `30` | | |
 | `cloudflare_api_token` | `cloudflareApiToken` | string | `""` | ✓ | |
 | `acme_email` | `acmeEmail` | string | `""` | | |
+| `acme_ca_provider` | `acmeCaProvider` | string | `"letsencrypt"` | | |
+| `acme_ca_url` | `acmeCaUrl` | string | `""` | | |
 
-- `PATCH /api/admin/settings` 只接受白名单 key，并按默认值类型校验；`stats_retention_days` 范围是 1~365。
+- `PATCH /api/admin/settings` 只接受白名单 key，并按默认值类型校验；`stats_retention_days` 范围是 1~365；`acme_ca_provider` 只能为 `letsencrypt` / `zerossl` / `custom`，自定义 CA 必须提供合法 Directory URL。
 - 敏感 key（`turnstile_secret_key`, `cloudflare_api_token`）在事件日志中只记录 `[SET]` / `[CLEARED]`。
 - `POST /api/admin/settings` 是 Turnstile 新 key 保存前的在线测试接口，入参为 `turnstileVerifySiteKey` / `turnstileVerifySecretKey` / `turnstileVerifyToken`，成功返回 `{ proof }`；`PATCH` 修改 Turnstile key 时需要带 `turnstileVerifyProof`。
 
@@ -655,7 +659,7 @@ Agent 执行任务要点：
 - `/admin/traffic-analysis`：日期范围流量分析、节点/用户排行、节点分日趋势
 - `/admin/auth-logs` / `/admin/event-logs` / `/admin/report-logs`：服务端分页筛选，详情 Sheet
 - `/admin/agent-tasks`：全局 Agent 任务队列，任务参数/执行输出/结构化日志详情
-- `/admin/settings`：基础开关、Turnstile、Agent 安装包地址、Cloudflare Token、ACME 邮箱、统计/日志保留天数
+- `/admin/settings`：基础开关、Turnstile、Agent 安装包地址、Cloudflare Token、ACME 邮箱、默认 ACME CA、统计/日志保留天数
 
 **shadcn/ui 组件列表**：Badge, Breadcrumb, Button, Card, Chart, Checkbox, Collapsible, Command, Dialog, DropdownMenu, Input, InputGroup, Label, Popover, Select, Separator, Sheet, Sidebar, Skeleton, Sonner, Switch, Table, Textarea, Tooltip
 

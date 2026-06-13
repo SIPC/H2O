@@ -2,6 +2,10 @@ import { randomBytes } from "node:crypto"
 
 import { NextResponse } from "next/server"
 
+import {
+  validateAcmeDnsConfig,
+  validateNodeAcmeCaInput,
+} from "@/lib/acme-config"
 import { requireAdmin } from "@/lib/auth"
 import { createAgentSecret, createHy2StatsSecret } from "@/lib/agent-control"
 import { getDb } from "@/lib/db"
@@ -61,6 +65,8 @@ type CreateNodeBody = {
   keyPath?: string | null
   acmeDomains?: string[] | null
   acmeEmail?: string | null
+  acmeCaProvider?: string | null
+  acmeCaUrl?: string | null
   acmeDnsProvider?: string | null
   acmeDnsConfig?: Record<string, string> | null
   masqueradeType?: string | null
@@ -105,7 +111,8 @@ export async function GET(request: Request) {
               n.insecure, n.pin_sha256, n.sort_order, n.created_at,
               n.node_ipv4, n.node_ipv6, n.node_port, n.node_port_hopping,
               n.cert_mode, n.cert_path, n.key_path,
-              n.acme_domains, n.acme_email, n.acme_dns_provider, n.acme_dns_config,
+              n.acme_domains, n.acme_email, n.acme_ca_provider, n.acme_ca_url,
+              n.acme_dns_provider, n.acme_dns_config,
               n.masquerade_type, n.masquerade_config, n.agent_interval, n.agent_auto_update_enabled,
               n.hy2_auto_update_enabled,
               n.agent_control_enabled, n.agent_config_revision, n.agent_desired_config_hash,
@@ -433,10 +440,53 @@ export async function POST(request: Request) {
       ? JSON.stringify(body.acmeDomains)
       : null
   const acmeEmail = body.acmeEmail?.trim() || null
-  const acmeDnsProvider = body.acmeDnsProvider?.trim() || null
-  const acmeDnsConfig = body.acmeDnsConfig
-    ? JSON.stringify(body.acmeDnsConfig)
-    : null
+  const acmeCa = validateNodeAcmeCaInput({
+    provider: body.acmeCaProvider,
+    url: body.acmeCaUrl,
+  })
+  if (!acmeCa.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null, field: "acmeCa" },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: acmeCa.message },
+      },
+      { status: 400 }
+    )
+  }
+  const acmeDns = validateAcmeDnsConfig({
+    provider: body.acmeDnsProvider,
+    config: body.acmeDnsConfig,
+    allowEmptyCloudflareToken: true,
+  })
+  if (!acmeDns.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null, field: "acmeDns" },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: acmeDns.message },
+      },
+      { status: 400 }
+    )
+  }
+  const acmeCaProvider = acmeCa.provider === "inherit" ? null : acmeCa.provider
+  const acmeCaUrl = acmeCa.url
+  const acmeDnsProvider = acmeDns.provider
+  const acmeDnsConfig = acmeDns.config ? JSON.stringify(acmeDns.config) : null
 
   const masqueradeType = body.masqueradeType?.trim() || null
   const masqueradeConfig = body.masqueradeConfig
@@ -678,7 +728,8 @@ export async function POST(request: Request) {
         `INSERT INTO nodes(name, remark, ip, port, port_hopping, auth_path, status, sni, obfs, obfs_password,
            obfs_min_packet_size, obfs_max_packet_size, insecure, pin_sha256,
            node_ipv4, node_ipv6, node_port, node_port_hopping, cert_mode, cert_path, key_path,
-           acme_domains, acme_email, acme_dns_provider, acme_dns_config,
+           acme_domains, acme_email, acme_ca_provider, acme_ca_url,
+           acme_dns_provider, acme_dns_config,
            masquerade_type, masquerade_config, agent_interval, agent_auto_update_enabled,
            hy2_auto_update_enabled, hy2_stats_secret, agent_secret, agent_control_enabled,
            server_bandwidth_up_mbps, server_bandwidth_down_mbps, ignore_client_bandwidth,
@@ -689,7 +740,7 @@ export async function POST(request: Request) {
            host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
            host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor,
            sort_order, geo_override)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         nodeName,
@@ -714,6 +765,8 @@ export async function POST(request: Request) {
         keyPath,
         acmeDomains,
         acmeEmail,
+        acmeCaProvider,
+        acmeCaUrl,
         acmeDnsProvider,
         acmeDnsConfig,
         masqueradeType,
