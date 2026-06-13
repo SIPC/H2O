@@ -10,7 +10,9 @@ import {
   verifyAgentRequestSignature,
 } from "@/lib/agent-control"
 import { getDb } from "@/lib/db"
+import { ensureIpGeoCached, normalizePublicIp } from "@/lib/ip-geo"
 import { readTextWithLimit, RequestBodyTooLargeError } from "@/lib/request-body"
+import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
 const MAX_AGENT_SYNC_BODY_BYTES = 512 * 1024
 
@@ -28,6 +30,7 @@ type AgentSyncPayload = {
   last_config_apply_at?: unknown
   last_error?: unknown
   capabilities?: unknown
+  public_ip?: unknown
   current_config_revision?: unknown
   task_results?: unknown
 }
@@ -119,6 +122,21 @@ function normalizeTaskResults(input: unknown): TaskResultPayload[] | false {
 function normalizeTaskResultStatus(input: unknown) {
   if (input === "succeeded" || input === "failed") return input
   return false
+}
+
+function getRequestPublicIp(request: Request) {
+  const candidates = [
+    request.headers.get("cf-connecting-ip"),
+    request.headers.get("x-real-ip"),
+    request.headers.get("x-forwarded-for")?.split(",")[0],
+  ]
+
+  for (const candidate of candidates) {
+    const normalized = normalizePublicIp(candidate)
+    if (normalized) return normalized
+  }
+
+  return null
 }
 
 function trimTextToJsonLength(
@@ -249,6 +267,14 @@ export async function POST(
   const lastConfigApplyAt = normalizeString(body.last_config_apply_at, 64)
   const lastError = normalizeMultilineString(body.last_error, 4096)
   const capabilities = normalizeCapabilities(body.capabilities)
+  const reportedPublicIp = normalizePublicIp(body.public_ip)
+  const requestPublicIp = getRequestPublicIp(request)
+  const publicIp = reportedPublicIp || requestPublicIp
+  const publicIpSource = reportedPublicIp
+    ? "agent"
+    : requestPublicIp
+      ? "sync_request"
+      : null
   const taskResults = normalizeTaskResults(body.task_results)
 
   if (
@@ -279,8 +305,9 @@ export async function POST(
       `INSERT INTO node_agent_state(
          node_id, last_seen_at, agent_version, hostname, os, arch, service_manager,
          hy2_status, hy2_version, hysteria_config_path, hysteria_config_hash,
-         applied_config_revision, last_config_apply_at, last_error, capabilities, updated_at
-       ) VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         applied_config_revision, last_config_apply_at, last_error, capabilities,
+         public_ip, public_ip_source, public_ip_updated_at, updated_at
+       ) VALUES (?, datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE datetime('now') END, datetime('now'))
        ON CONFLICT(node_id) DO UPDATE SET
          last_seen_at = datetime('now'),
          agent_version = COALESCE(excluded.agent_version, node_agent_state.agent_version),
@@ -296,6 +323,20 @@ export async function POST(
          last_config_apply_at = COALESCE(excluded.last_config_apply_at, node_agent_state.last_config_apply_at),
          last_error = excluded.last_error,
          capabilities = COALESCE(excluded.capabilities, node_agent_state.capabilities),
+         public_ip = COALESCE(excluded.public_ip, node_agent_state.public_ip),
+         public_ip_source = CASE
+           WHEN excluded.public_ip IS NOT NULL THEN excluded.public_ip_source
+           ELSE node_agent_state.public_ip_source
+         END,
+         public_ip_updated_at = CASE
+           WHEN excluded.public_ip IS NOT NULL
+             AND excluded.public_ip <> COALESCE(node_agent_state.public_ip, '')
+             THEN datetime('now')
+           WHEN excluded.public_ip IS NOT NULL
+             AND node_agent_state.public_ip_updated_at IS NULL
+             THEN datetime('now')
+           ELSE node_agent_state.public_ip_updated_at
+         END,
          updated_at = datetime('now')`
     ).run(
       node.id,
@@ -311,7 +352,10 @@ export async function POST(
       appliedConfigRevision,
       lastConfigApplyAt,
       lastError,
-      capabilities
+      capabilities,
+      publicIp,
+      publicIpSource,
+      publicIp
     )
 
     const updateTask = db.prepare(
@@ -338,6 +382,15 @@ export async function POST(
   } catch {
     db.exec("ROLLBACK")
     return jsonError("INTERNAL", "处理失败", 500)
+  }
+
+  if (publicIp && getSetting(SETTING_KEYS.geoipEnabled, true)) {
+    // GeoIP 解析失败不影响 Agent 控制面同步。
+    try {
+      await ensureIpGeoCached(db, publicIp)
+    } catch {
+      // 忽略外部 GeoIP 服务异常
+    }
   }
 
   const desired = buildNodeDesiredConfig({

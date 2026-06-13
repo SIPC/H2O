@@ -133,6 +133,10 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
     `ALTER TABLE nodes ADD COLUMN host_traffic_reset_anchor TEXT`,
     `ALTER TABLE nodes ADD COLUMN host_traffic_last_reset_at TEXT`,
     `ALTER TABLE nodes ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE nodes ADD COLUMN geo_override TEXT`,
+    `ALTER TABLE node_agent_state ADD COLUMN public_ip TEXT`,
+    `ALTER TABLE node_agent_state ADD COLUMN public_ip_source TEXT`,
+    `ALTER TABLE node_agent_state ADD COLUMN public_ip_updated_at TEXT`,
   ]) {
     try {
       database.exec(alter)
@@ -198,6 +202,22 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
       last_updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY (node_id, username),
       FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ip_geo_cache (
+      ip TEXT PRIMARY KEY,
+      country_code TEXT,
+      country_name TEXT,
+      region TEXT,
+      city TEXT,
+      latitude REAL,
+      longitude REAL,
+      timezone TEXT,
+      asn TEXT,
+      org TEXT,
+      provider TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_nodes_sort_order ON nodes(sort_order, id);
@@ -283,6 +303,7 @@ function migrate(database: DatabaseSync) {
       host_traffic_reset_anchor TEXT,
       host_traffic_last_reset_at TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      geo_override TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -489,6 +510,9 @@ function migrate(database: DatabaseSync) {
       last_config_apply_at TEXT,
       last_error TEXT,
       capabilities TEXT,
+      public_ip TEXT,
+      public_ip_source TEXT,
+      public_ip_updated_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       FOREIGN KEY(node_id) REFERENCES nodes(id) ON DELETE CASCADE
     );

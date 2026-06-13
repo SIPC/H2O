@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"h2o-agent/hy2update"
@@ -64,6 +66,7 @@ type SyncRequest struct {
 	LastConfigApplyAt     string       `json:"last_config_apply_at,omitempty"`
 	LastError             string       `json:"last_error,omitempty"`
 	Capabilities          []string     `json:"capabilities"`
+	PublicIP              string       `json:"public_ip,omitempty"`
 	TaskResults           []TaskResult `json:"task_results,omitempty"`
 }
 
@@ -113,6 +116,94 @@ type applyConfigPayload struct {
 	ServiceName string `json:"service_name"`
 }
 
+const publicIPCacheTTL = 6 * time.Hour
+
+var publicIPCache struct {
+	mu        sync.Mutex
+	value     string
+	expiresAt time.Time
+}
+
+func cachedPublicIP(ctx context.Context) string {
+	publicIPCache.mu.Lock()
+	if publicIPCache.value != "" && time.Now().Before(publicIPCache.expiresAt) {
+		value := publicIPCache.value
+		publicIPCache.mu.Unlock()
+		return value
+	}
+	publicIPCache.mu.Unlock()
+
+	value := detectPublicIP(ctx)
+	if value == "" {
+		return ""
+	}
+
+	publicIPCache.mu.Lock()
+	publicIPCache.value = value
+	publicIPCache.expiresAt = time.Now().Add(publicIPCacheTTL)
+	publicIPCache.mu.Unlock()
+	return value
+}
+
+func detectPublicIP(ctx context.Context) string {
+	endpoints := []string{
+		"https://api.ipify.org",
+		"https://api64.ipify.org",
+		"https://ifconfig.me/ip",
+	}
+
+	for _, endpoint := range endpoints {
+		value, err := fetchPublicIP(ctx, endpoint)
+		if err == nil && value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func fetchPublicIP(ctx context.Context, endpoint string) (string, error) {
+	requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "h2o-agent")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("public ip endpoint returned HTTP %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 128))
+	if err != nil {
+		return "", err
+	}
+
+	value := normalizePublicIP(string(data))
+	if value == "" {
+		return "", fmt.Errorf("public ip endpoint returned invalid ip")
+	}
+	return value, nil
+}
+
+func normalizePublicIP(value string) string {
+	ip := net.ParseIP(strings.TrimSpace(value))
+	if ip == nil {
+		return ""
+	}
+	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() {
+		return ""
+	}
+	return ip.String()
+}
+
 func Sync(
 	ctx context.Context,
 	cfg Config,
@@ -135,6 +226,7 @@ func Sync(
 		lastError = fmt.Sprintf("修正 Hy2 配置权限失败: %v", err)
 	}
 	configHash := hashFile(cfg.HysteriaConfigPath)
+	publicIP := cachedPublicIP(requestCtx)
 
 	body := SyncRequest{
 		AgentVersion:          version,
@@ -161,7 +253,9 @@ func Sync(
 			"agent-restart",
 			"self-update",
 			"hy2-update",
+			"public-ip",
 		},
+		PublicIP:    publicIP,
 		TaskResults: pending,
 	}
 
@@ -235,6 +329,7 @@ func submitTaskResults(ctx context.Context, cfg Config, version string, results 
 	if err := ensureExistingConfigReadable(requestCtx, cfg.HysteriaConfigPath, cfg.HysteriaServiceName); err != nil {
 		lastError = fmt.Sprintf("修正 Hy2 配置权限失败: %v", err)
 	}
+	publicIP := cachedPublicIP(requestCtx)
 
 	body := SyncRequest{
 		AgentVersion:          version,
@@ -261,7 +356,9 @@ func submitTaskResults(ctx context.Context, cfg Config, version string, results 
 			"agent-restart",
 			"self-update",
 			"hy2-update",
+			"public-ip",
 		},
+		PublicIP:    publicIP,
 		TaskResults: results,
 	}
 

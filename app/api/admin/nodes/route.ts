@@ -15,6 +15,11 @@ import { parseHysteriaNetworkConfig } from "@/lib/hysteria-network-config"
 import { writeAdminEvent } from "@/lib/logs-db"
 import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
+  parseStoredNodeGeoOverride,
+  normalizeNodeGeoOverride,
+  stringifyNodeGeoOverride,
+} from "@/lib/node-geo-override"
+import {
   parseOptionalNodeIpv4,
   parseOptionalNodeIpv6,
 } from "@/lib/node-public-address"
@@ -30,6 +35,7 @@ import {
   validateHostTrafficResetConfig,
 } from "@/lib/node-traffic-quota"
 import { parseUnifiedPortInput } from "@/lib/port-hopping"
+import { getSetting, SETTING_KEYS } from "@/lib/settings"
 import { getClientIp } from "@/lib/turnstile"
 
 type CreateNodeBody = {
@@ -81,6 +87,7 @@ type CreateNodeBody = {
   hostTrafficResetCycle?: string | null
   hostTrafficResetIntervalDays?: number | null
   hostTrafficResetAnchor?: string | null
+  geoOverride?: Record<string, unknown> | null
 }
 
 export async function GET(request: Request) {
@@ -88,6 +95,7 @@ export async function GET(request: Request) {
   if (!auth.ok) return auth.response
 
   const db = getDb()
+  const geoipEnabled = getSetting(SETTING_KEYS.geoipEnabled, true)
   ensureAllNodeHostTrafficPeriods(db)
 
   const rows = db
@@ -113,6 +121,7 @@ export async function GET(request: Request) {
               n.host_traffic_billing_mode,
               n.host_traffic_reset_cycle, n.host_traffic_reset_interval_days,
               n.host_traffic_reset_anchor, n.host_traffic_last_reset_at,
+              n.geo_override,
               ns.last_report_at, ns.online_count,
               nas.last_seen_at AS agent_last_seen_at,
               nas.agent_version AS control_agent_version,
@@ -120,11 +129,24 @@ export async function GET(request: Request) {
               nas.hy2_status, nas.hy2_version, nas.hysteria_config_path,
               nas.hysteria_config_hash, nas.applied_config_revision,
               nas.last_config_apply_at, nas.last_error, nas.capabilities,
+              nas.public_ip, nas.public_ip_source, nas.public_ip_updated_at,
+              igc.country_code AS geo_country_code,
+              igc.country_name AS geo_country_name,
+              igc.region AS geo_region,
+              igc.city AS geo_city,
+              igc.latitude AS geo_latitude,
+              igc.longitude AS geo_longitude,
+              igc.timezone AS geo_timezone,
+              igc.asn AS geo_asn,
+              igc.org AS geo_org,
+              igc.provider AS geo_provider,
+              igc.updated_at AS geo_updated_at,
               nab.acl_profile_id, ap.name AS acl_profile_name,
               ap.outbound_profile_id, op.name AS outbound_profile_name
        FROM nodes n
        LEFT JOIN node_stats ns ON ns.node_id = n.id
        LEFT JOIN node_agent_state nas ON nas.node_id = n.id
+       LEFT JOIN ip_geo_cache igc ON igc.ip = nas.public_ip
        LEFT JOIN node_acl_bindings nab ON nab.node_id = n.id
        LEFT JOIN acl_profiles ap ON ap.id = nab.acl_profile_id
        LEFT JOIN outbound_profiles op ON op.id = ap.outbound_profile_id
@@ -134,12 +156,46 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
-    data: rows.map((row) => ({
-      ...row,
-      ...buildNodeHostTrafficSummary(
-        row as Parameters<typeof buildNodeHostTrafficSummary>[0]
-      ),
-    })),
+    data: rows.map((row) => {
+      const item = {
+        ...row,
+        ...buildNodeHostTrafficSummary(
+          row as Parameters<typeof buildNodeHostTrafficSummary>[0]
+        ),
+      }
+      const visibleItem = geoipEnabled
+        ? item
+        : {
+            ...item,
+            geo_country_code: null,
+            geo_country_name: null,
+            geo_region: null,
+            geo_city: null,
+            geo_latitude: null,
+            geo_longitude: null,
+            geo_timezone: null,
+            geo_asn: null,
+            geo_org: null,
+            geo_provider: null,
+            geo_updated_at: null,
+          }
+      const override = parseStoredNodeGeoOverride(row.geo_override)
+      if (!override) return visibleItem
+      return {
+        ...visibleItem,
+        geo_country_code: override.countryCode,
+        geo_country_name: override.countryName,
+        geo_region: override.region,
+        geo_city: override.city,
+        geo_latitude: override.latitude,
+        geo_longitude: override.longitude,
+        geo_timezone: null,
+        geo_asn: null,
+        geo_org: null,
+        geo_provider: "manual",
+        geo_updated_at: null,
+      }
+    }),
   })
 }
 
@@ -590,6 +646,25 @@ export async function POST(request: Request) {
     ? (hostTrafficAnchor.value ?? new Date().toISOString())
     : hostTrafficAnchor.value
 
+  const geoOverride = normalizeNodeGeoOverride(body.geoOverride)
+  if (!geoOverride.ok) {
+    writeAdminEvent({
+      event: "NODE_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { name: body.name ?? null, field: "geoOverride" },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: geoOverride.message },
+      },
+      { status: 400 }
+    )
+  }
+
   const hy2StatsSecret = createHy2StatsSecret()
   const agentSecret = createAgentSecret()
   const sortRow = db
@@ -613,8 +688,8 @@ export async function POST(request: Request) {
            quic_disable_path_mtu_discovery, congestion_type, congestion_bbr_profile,
            host_traffic_limit_bytes, host_traffic_used_bytes, host_traffic_billing_mode,
            host_traffic_reset_cycle, host_traffic_reset_interval_days, host_traffic_reset_anchor,
-           sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           sort_order, geo_override)
+         VALUES (?, ?, ?, ?, ?, ?, 'enabled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         nodeName,
@@ -667,7 +742,8 @@ export async function POST(request: Request) {
         hostTrafficCycle.value,
         hostTrafficInterval.value,
         hostTrafficAnchorValue,
-        sortOrder
+        sortOrder,
+        stringifyNodeGeoOverride(geoOverride.value)
       )
 
     const newNodeId = Number(result.lastInsertRowid)

@@ -55,6 +55,7 @@ import {
   parseAgentTaskOutput,
   type AgentLogEntry,
 } from "@/lib/agent-task-output"
+import { COUNTRY_OPTIONS } from "@/lib/country-options"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -237,6 +238,21 @@ type NodeRow = {
   last_config_apply_at: string | null
   last_error: string | null
   capabilities: string | null
+  public_ip: string | null
+  public_ip_source: string | null
+  public_ip_updated_at: string | null
+  geo_country_code: string | null
+  geo_country_name: string | null
+  geo_region: string | null
+  geo_city: string | null
+  geo_latitude: number | null
+  geo_longitude: number | null
+  geo_timezone: string | null
+  geo_asn: string | null
+  geo_org: string | null
+  geo_provider: string | null
+  geo_updated_at: string | null
+  geo_override: string | null
   // 节点配置
   node_ipv4: string | null
   node_ipv6: string | null
@@ -517,6 +533,114 @@ function hasAgentCapability(row: NodeRow, capability: string) {
     return Array.isArray(parsed) && parsed.includes(capability)
   } catch {
     return false
+  }
+}
+
+function getCountryOption(code: string | null) {
+  const normalized = code?.trim().toUpperCase()
+  if (!normalized) return null
+  return COUNTRY_OPTIONS.find((item) => item.code === normalized) ?? null
+}
+
+function getCountryFlagUrl(countryCode: string | null) {
+  const code = countryCode?.trim().toLowerCase()
+  if (!code || !/^[a-z]{2}$/.test(code)) return null
+  return `https://flagcdn.com/w40/${code}.png`
+}
+
+function getNodeGeoTitle(row: NodeRow, hideIp: boolean) {
+  const manual = row.geo_provider === "manual"
+  const lines = [
+    row.geo_country_name || row.geo_country_code
+      ? `位置：${[row.geo_country_name, row.geo_region, row.geo_city]
+          .filter(Boolean)
+          .join(" / ")}`
+      : null,
+    manual ? "来源：手动覆盖" : null,
+    row.geo_asn ? `ASN：${row.geo_asn}` : null,
+    row.geo_org ? `运营商：${row.geo_org}` : null,
+    !hideIp && row.public_ip ? `公网 IP：${row.public_ip}` : null,
+    !manual && row.public_ip_source
+      ? `来源：${row.public_ip_source === "agent" ? "Agent 探测" : "面板观测"}`
+      : null,
+    !manual && row.geo_updated_at
+      ? `GeoIP 更新时间：${row.geo_updated_at}`
+      : null,
+  ].filter(Boolean)
+
+  return lines.length > 0 ? lines.join("\n") : undefined
+}
+
+type GeoOverrideDraft = {
+  countryCode: string
+  countryName: string
+  region: string
+  city: string
+  latitude: string
+  longitude: string
+}
+
+function emptyGeoOverrideDraft(): GeoOverrideDraft {
+  return {
+    countryCode: "",
+    countryName: "",
+    region: "",
+    city: "",
+    latitude: "",
+    longitude: "",
+  }
+}
+
+function parseGeoOverrideDraft(raw: string | null): GeoOverrideDraft {
+  if (!raw) return emptyGeoOverrideDraft()
+  try {
+    const parsed = JSON.parse(raw) as Partial<{
+      countryCode: string | null
+      countryName: string | null
+      region: string | null
+      city: string | null
+      latitude: number | null
+      longitude: number | null
+    }>
+    return {
+      countryCode: parsed.countryCode ?? "",
+      countryName: parsed.countryName ?? "",
+      region: "",
+      city: "",
+      latitude: "",
+      longitude: "",
+    }
+  } catch {
+    return emptyGeoOverrideDraft()
+  }
+}
+
+function buildGeoOverridePayload(draft: GeoOverrideDraft) {
+  const countryCode = draft.countryCode.trim().toUpperCase()
+  const countryName = draft.countryName.trim()
+  const region = draft.region.trim()
+  const city = draft.city.trim()
+  const latitude = draft.latitude.trim()
+  const longitude = draft.longitude.trim()
+
+  if (
+    !countryCode &&
+    !countryName &&
+    !region &&
+    !city &&
+    !latitude &&
+    !longitude
+  ) {
+    return null
+  }
+
+  return {
+    countryCode: countryCode || null,
+    countryName: countryName || null,
+    region: region || null,
+    city: city || null,
+    latitude: latitude ? Number(latitude) : null,
+    longitude: longitude ? Number(longitude) : null,
   }
 }
 
@@ -1060,6 +1184,8 @@ function NodeCard({
   const onlineCount = row.online_count ?? 0
   const dnsStatusMeta = getDnsStatusMeta(row.dns_status)
   const dnsStatusTitle = row.dns_status_detail || dnsStatusMeta?.description
+  const countryFlagUrl = getCountryFlagUrl(row.geo_country_code)
+  const geoTitle = getNodeGeoTitle(row, hideIp)
   const statusLight = getNodeStatusLight(fresh, agentFresh, row.hy2_status)
 
   // 计算今日上传/下载
@@ -1104,6 +1230,16 @@ function NodeCard({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-1.5">
+              {countryFlagUrl && (
+                <span
+                  aria-label={
+                    row.geo_country_name ?? row.geo_country_code ?? "节点位置"
+                  }
+                  title={geoTitle}
+                  className="inline-block h-3.5 w-5 shrink-0 rounded-xs bg-cover bg-center shadow-sm"
+                  style={{ backgroundImage: `url(${countryFlagUrl})` }}
+                />
+              )}
               <h3 className="truncate text-sm font-semibold">{row.name}</h3>
               {row.remark && (
                 <Tooltip>
@@ -1409,6 +1545,8 @@ function NodeForm({
   setNodeIpv6,
   nodePortInput,
   setNodePortInput,
+  geoOverride,
+  setGeoOverride,
   certMode,
   setCertMode,
   certPath,
@@ -1527,6 +1665,8 @@ function NodeForm({
   setNodeIpv6: (v: string) => void
   nodePortInput: string
   setNodePortInput: (v: string) => void
+  geoOverride: GeoOverrideDraft
+  setGeoOverride: (v: GeoOverrideDraft) => void
   certMode: string
   setCertMode: (v: string) => void
   certPath: string
@@ -1677,6 +1817,41 @@ function NodeForm({
             placeholder="可选，仅管理员可见"
             rows={2}
           />
+        </div>
+        <div className="space-y-1">
+          <Label>国家覆盖</Label>
+          <Select
+            value={geoOverride.countryCode || "auto"}
+            onValueChange={(value) => {
+              if (value === "auto") {
+                setGeoOverride(emptyGeoOverrideDraft())
+                return
+              }
+              const option = getCountryOption(value)
+              setGeoOverride({
+                ...emptyGeoOverrideDraft(),
+                countryCode: value,
+                countryName: option?.name ?? value,
+              })
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="自动 GeoIP" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              <SelectGroup>
+                <SelectItem value="auto">自动 GeoIP</SelectItem>
+                {COUNTRY_OPTIONS.map((country) => (
+                  <SelectItem key={country.code} value={country.code}>
+                    {country.code} · {country.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <p className="text-[11px] text-muted-foreground">
+            GeoIP 不准时手动选择国家；留空自动使用 GeoIP。
+          </p>
         </div>
       </NodeFormSection>
 
@@ -2529,6 +2704,9 @@ export default function AdminNodesPage() {
   const [nodeIpv4, setNodeIpv4] = useState("")
   const [nodeIpv6, setNodeIpv6] = useState("")
   const [nodePortInput, setNodePortInput] = useState("")
+  const [geoOverride, setGeoOverride] = useState<GeoOverrideDraft>(
+    emptyGeoOverrideDraft()
+  )
   const [certMode, setCertMode] = useState("self-signed")
   const [certPath, setCertPath] = useState("")
   const [keyPath, setKeyPath] = useState("")
@@ -2596,6 +2774,9 @@ export default function AdminNodesPage() {
   const [editNodeIpv4, setEditNodeIpv4] = useState("")
   const [editNodeIpv6, setEditNodeIpv6] = useState("")
   const [editNodePortInput, setEditNodePortInput] = useState("")
+  const [editGeoOverride, setEditGeoOverride] = useState<GeoOverrideDraft>(
+    emptyGeoOverrideDraft()
+  )
   const [editCertMode, setEditCertMode] = useState("self-signed")
   const [editCertPath, setEditCertPath] = useState("")
   const [editKeyPath, setEditKeyPath] = useState("")
@@ -3060,6 +3241,7 @@ export default function AdminNodesPage() {
         nodeIpv4: nodeIpv4 || null,
         nodeIpv6: nodeIpv6 || null,
         nodePort: nodePortInput || null,
+        geoOverride: buildGeoOverridePayload(geoOverride),
         certMode,
         certPath: certPath || null,
         keyPath: keyPath || null,
@@ -3143,6 +3325,7 @@ export default function AdminNodesPage() {
     setNodeIpv4("")
     setNodeIpv6("")
     setNodePortInput("")
+    setGeoOverride(emptyGeoOverrideDraft())
     setCertMode("self-signed")
     setCertPath("")
     setKeyPath("")
@@ -3253,6 +3436,7 @@ export default function AdminNodesPage() {
     setEditNodePortInput(
       row.node_port_hopping ?? (row.node_port ? String(row.node_port) : "")
     )
+    setEditGeoOverride(parseGeoOverrideDraft(row.geo_override))
     // 旧值兼容：acme → acme-dns
     const rawCertMode = row.cert_mode || "self-signed"
     setEditCertMode(rawCertMode === "acme" ? "acme-dns" : rawCertMode)
@@ -3430,6 +3614,7 @@ export default function AdminNodesPage() {
       nodeIpv4: editNodeIpv4 || null,
       nodeIpv6: editNodeIpv6 || null,
       nodePort: editNodePortInput || null,
+      geoOverride: buildGeoOverridePayload(editGeoOverride),
       certMode: editCertMode,
       certPath: editCertPath || null,
       keyPath: editKeyPath || null,
@@ -4109,6 +4294,8 @@ export default function AdminNodesPage() {
                 setNodeIpv6={setNodeIpv6}
                 nodePortInput={nodePortInput}
                 setNodePortInput={setNodePortInput}
+                geoOverride={geoOverride}
+                setGeoOverride={setGeoOverride}
                 certMode={certMode}
                 setCertMode={setCertMode}
                 certPath={certPath}
@@ -4450,6 +4637,8 @@ export default function AdminNodesPage() {
                 setNodeIpv6={setEditNodeIpv6}
                 nodePortInput={editNodePortInput}
                 setNodePortInput={setEditNodePortInput}
+                geoOverride={editGeoOverride}
+                setGeoOverride={setEditGeoOverride}
                 certMode={editCertMode}
                 setCertMode={setEditCertMode}
                 certPath={editCertPath}

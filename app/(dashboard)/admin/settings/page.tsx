@@ -22,6 +22,7 @@ type Settings = {
   stats_retention_days: number
   cloudflare_api_token: string
   acme_email: string
+  geoip_enabled: boolean
 }
 
 const DEFAULTS: Settings = {
@@ -34,6 +35,7 @@ const DEFAULTS: Settings = {
   stats_retention_days: 30,
   cloudflare_api_token: "",
   acme_email: "",
+  geoip_enabled: true,
 }
 
 // 根据两 key 填写情况推断 Turnstile 当前状态，与后端 getTurnstileStatus 一致
@@ -105,7 +107,8 @@ export default function AdminSettingsPage() {
       draft.agent_bundle_url !== saved.agent_bundle_url ||
       draft.stats_retention_days !== saved.stats_retention_days ||
       draft.cloudflare_api_token !== saved.cloudflare_api_token ||
-      draft.acme_email !== saved.acme_email
+      draft.acme_email !== saved.acme_email ||
+      draft.geoip_enabled !== saved.geoip_enabled
     )
   }, [draft, saved])
 
@@ -496,6 +499,26 @@ export default function AdminSettingsPage() {
                 }
               />
             </div>
+          </CardContent>
+        </Card>
+
+        {/* === GeoIP 与地图 === */}
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-base leading-none font-semibold">
+              GeoIP 与地图
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <ToggleRow
+              id="geoip_enabled"
+              label="启用 GeoIP 解析"
+              description="启用后会把节点公网 IP 发送到第三方 GeoIP 服务获取国家、城市和经纬度，用于节点卡片和后续地图；关闭后只保存公网 IP，不再请求第三方 GeoIP。"
+              checked={draft.geoip_enabled}
+              onChange={(next) =>
+                setDraft((prev) => ({ ...prev, geoip_enabled: next }))
+              }
+            />
           </CardContent>
         </Card>
 

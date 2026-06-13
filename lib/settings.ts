@@ -11,6 +11,7 @@ export const SETTING_KEYS = {
   statsRetentionDays: "stats_retention_days",
   cloudflareApiToken: "cloudflare_api_token",
   acmeEmail: "acme_email",
+  geoipEnabled: "geoip_enabled",
   subscriptionRuleConfig: "subscription_rule_config",
 } as const
 
@@ -28,6 +29,7 @@ export const SETTING_DEFAULTS = {
   [SETTING_KEYS.statsRetentionDays]: 30,
   [SETTING_KEYS.cloudflareApiToken]: "",
   [SETTING_KEYS.acmeEmail]: "",
+  [SETTING_KEYS.geoipEnabled]: true,
 } satisfies Partial<Record<SettingKey, unknown>>
 
 export const SENSITIVE_SETTING_KEYS: SettingKey[] = [

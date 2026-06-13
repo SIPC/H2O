@@ -15,6 +15,10 @@ import {
 import { writeAdminEvent } from "@/lib/logs-db"
 import { normalizeNodeName, validateNodeName } from "@/lib/node-name"
 import {
+  normalizeNodeGeoOverride,
+  stringifyNodeGeoOverride,
+} from "@/lib/node-geo-override"
+import {
   parseOptionalNodeIpv4,
   parseOptionalNodeIpv6,
 } from "@/lib/node-public-address"
@@ -98,6 +102,7 @@ type UpdateNodeBody = {
   hostTrafficResetIntervalDays?: number | null
   hostTrafficResetAnchor?: string | null
   resetHostTrafficUsed?: boolean
+  geoOverride?: Record<string, unknown> | null
 }
 
 export async function PATCH(
@@ -417,6 +422,30 @@ export async function PATCH(
       body.masqueradeConfig ? JSON.stringify(body.masqueradeConfig) : null
     )
     changedFields.push("masquerade_config")
+  }
+
+  if (body.geoOverride !== undefined) {
+    const geoOverride = normalizeNodeGeoOverride(body.geoOverride)
+    if (!geoOverride.ok) {
+      writeAdminEvent({
+        event: "NODE_UPDATE",
+        actor: auth.user,
+        ip: clientIp,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { nodeId, field: "geoOverride" },
+      })
+      return NextResponse.json(
+        {
+          ok: false,
+          error: { code: "INVALID_PAYLOAD", message: geoOverride.message },
+        },
+        { status: 400 }
+      )
+    }
+    updates.push("geo_override = ?")
+    values.push(stringifyNodeGeoOverride(geoOverride.value))
+    changedFields.push("geo_override")
   }
 
   const db = getDb()
