@@ -1915,7 +1915,7 @@ function NodeForm({
             </SelectContent>
           </Select>
           <p className="text-[11px] text-muted-foreground">
-            GeoIP 不准时手动选择国家；留空自动使用 GeoIP。
+            如需修正 GeoIP 识别结果，可手动选择国家；留空时自动识别。
           </p>
         </div>
       </NodeFormSection>
@@ -1955,7 +1955,7 @@ function NodeForm({
           <div>
             <p className="text-sm font-medium">节点公网地址</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              用于 Cloudflare DNS 解析；IPv4 / IPv6 可二选一，也可以都填写。
+              用于 Cloudflare DNS 解析；IPv4 与 IPv6 可单独或同时填写。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2260,7 +2260,7 @@ function NodeForm({
                 />
               </div>
               <p className="text-[11px] text-muted-foreground sm:col-span-2">
-                默认范围为 512 / 1200；maxPacketSize 不小于
+                建议保持默认范围 512 / 1200；maxPacketSize 不小于
                 minPacketSize，且不超过 2048。
               </p>
             </div>
@@ -2348,7 +2348,7 @@ function NodeForm({
                     setMasqProxyInsecure(next === true)
                   }
                 />
-                <span>跳过后端证书校验 (Insecure)</span>
+                <span>跳过代理目标证书校验 (Insecure)</span>
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <Checkbox
@@ -2425,7 +2425,7 @@ function NodeForm({
           <div>
             <p className="text-sm font-medium">拥塞控制</p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              未配置时使用默认拥塞控制；BBR 预设仅对 BBR 生效。
+              未选择控制器时使用默认拥塞控制；选择 BBR 后可配置预设参数。
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -2546,7 +2546,7 @@ function NodeForm({
             <div>
               <Label>禁用 Path MTU Discovery</Label>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                对应 Hy2 quic.disablePathMTUDiscovery。
+                开启后将关闭路径 MTU 探测，适用于特定网络兼容场景。
               </p>
             </div>
             <Switch
@@ -2724,8 +2724,8 @@ function NodeForm({
           <div>
             <Label>控制面同步</Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              启用后，Agent 可从面板拉取目标配置并执行白名单内的 Hysteria2
-              管理任务。
+              启用后，Agent 可从面板拉取目标配置并执行受支持的 Hysteria2
+              管理操作。
             </p>
           </div>
           <Switch
@@ -2749,8 +2749,7 @@ function NodeForm({
           <div>
             <Label>Hysteria2 每日自动更新</Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              启用后，Agent 会每日检查 Hysteria2 Release，更新成功后会重启 Hy2
-              服务。
+              启用后，Agent 将每日检查 Hysteria2 新版本；更新成功后会重启服务。
             </p>
           </div>
           <Switch
@@ -3870,7 +3869,7 @@ export default function AdminNodesPage() {
     }
 
     await alert({
-      title: `${row.name} 的 agent 配置${copied ? "（已复制）" : ""}`,
+      title: `${row.name} 的 Agent 配置${copied ? "（已复制）" : ""}`,
       description: (
         <pre className="max-h-100 min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
           {config}
@@ -3887,7 +3886,7 @@ export default function AdminNodesPage() {
       AGENT_RESTART: "重启 Agent 会短暂中断控制面同步和流量上报，确认继续？",
       AGENT_SELF_UPDATE: "更新 Agent 成功后会自动重启服务，确认继续？",
       HY2_SELF_UPDATE:
-        "更新 Hysteria2 会重启 Hy2 服务并短暂中断节点连接，确认继续？",
+        "更新 Hysteria2 会重启服务并短暂中断节点连接，确认继续？",
     }
     const confirmDescription = confirmDescriptions[type]
     if (confirmDescription) {
@@ -4000,7 +3999,7 @@ export default function AdminNodesPage() {
     if (!command) {
       await alert({
         title: "获取一键部署命令失败",
-        description: "接口返回异常，请检查后端日志",
+        description: "未获取到部署命令，请稍后重试或联系管理员。",
         variant: "destructive",
       })
       return
@@ -4102,8 +4101,7 @@ export default function AdminNodesPage() {
               执行下面命令，将自动安装并配置 Hysteria2 与 H2O Agent。
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              命令只携带短期部署 token，完整节点密钥和配置会由服务端按 token
-              获取。
+              该命令仅包含短期部署凭证，节点密钥与配置将在执行时安全获取。
             </p>
           </div>
 
@@ -4211,8 +4209,7 @@ export default function AdminNodesPage() {
           </div>
 
           <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-800 dark:text-yellow-200">
-            如果命令过期或泄露，请回到节点管理页重新生成；新命令会使该节点旧部署
-            token 失效。
+            如部署命令过期或可能泄露，请重新生成；新命令将使旧部署凭证失效。
           </div>
         </div>
       ),

@@ -368,7 +368,7 @@ export default function AdminSettingsPage() {
             <ToggleRow
               id="registration_enabled"
               label="允许新用户注册"
-              description="关闭后注册页不可用，注册接口直接返回错误"
+              description="关闭后，用户将无法通过注册页面创建账号"
               checked={draft.registration_enabled}
               onChange={(next) =>
                 setDraft((prev) => ({ ...prev, registration_enabled: next }))
@@ -386,7 +386,7 @@ export default function AdminSettingsPage() {
             <ToggleRow
               id="new_user_default_active"
               label="新注册用户自动启用"
-              description="关闭后新注册用户为 disabled 状态，需要管理员手动启用才能登录"
+              description="关闭后，新注册用户需由管理员启用后才能登录"
               checked={draft.new_user_default_active}
               onChange={(next) =>
                 setDraft((prev) => ({
@@ -420,7 +420,8 @@ export default function AdminSettingsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground">
-              两者都填=启用；都留空=关闭；只填一个视为配置错误。保存后立即生效。
+              同时填写 Site Key 与 Secret Key
+              后启用；全部留空则关闭。保存后立即生效。
             </p>
             <div className="space-y-1">
               <Label htmlFor="turnstile_site_key">Site Key</Label>
@@ -499,14 +500,14 @@ export default function AdminSettingsPage() {
             <div className="space-y-1">
               <Label htmlFor="agent_bundle_url">安装包地址</Label>
               <p className="text-xs text-muted-foreground">
-                用于节点「一键部署」下载 h2o-agent 安装包。留空时默认使用 GitHub
-                Releases 最新地址。
+                用于节点一键部署时下载 H2O Agent
+                安装包；留空则使用官方默认地址。
               </p>
               <Input
                 id="agent_bundle_url"
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="默认使用 GitHub Releases"
+                placeholder="使用官方默认地址"
                 value={draft.agent_bundle_url}
                 onChange={(e) =>
                   setDraft((prev) => ({
@@ -530,7 +531,7 @@ export default function AdminSettingsPage() {
             <ToggleRow
               id="geoip_enabled"
               label="启用 GeoIP 解析"
-              description="启用后会把节点公网 IP 发送到第三方 GeoIP 服务获取国家、城市和经纬度，用于节点卡片和后续地图；关闭后只保存公网 IP，不再请求第三方 GeoIP。"
+              description="启用后将节点公网 IP 提交至第三方 GeoIP 服务，用于获取地理位置并展示；关闭后仅保存公网 IP。"
               checked={draft.geoip_enabled}
               onChange={(next) =>
                 setDraft((prev) => ({ ...prev, geoip_enabled: next }))
@@ -699,7 +700,7 @@ export default function AdminSettingsPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-muted-foreground">
-            使用中遇到问题或有功能建议，欢迎加入交流群反馈。
+            如需帮助或提交建议，请通过官方反馈渠道联系我们。
           </p>
           <Button asChild variant="outline">
             <a href="https://t.me/h2o_msg" target="_blank" rel="noreferrer">

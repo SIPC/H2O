@@ -442,7 +442,7 @@ function PolicyGroupForm({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            选择这个策略组可以继续流向哪些出口。选择“全部节点”表示使用用户订阅内所有可用节点；选择具体节点则只使用这些节点。
+            配置该策略组可转发到的出口。选择“全部节点”表示使用用户订阅内所有可用节点；选择指定节点则仅使用所选节点。
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="flex cursor-pointer items-center gap-3 rounded-md border p-2">
@@ -659,7 +659,7 @@ function RuleForm({
           required
         />
         <p className="text-xs text-muted-foreground">
-          GEOIP 第一版仅支持 CN；IP-CIDR 支持 IPv4 / IPv6 CIDR。
+          GEOIP 支持国家代码（如 CN）；IP-CIDR 支持 IPv4 / IPv6 CIDR。
         </p>
       </div>
 
@@ -2197,8 +2197,8 @@ export default function AdminSubscriptionRulesPage() {
           <SheetHeader>
             <SheetTitle>编辑内置策略</SheetTitle>
             <SheetDescription>
-              内置策略的 ID 会被 Clash / sing-box
-              规则引用，不能修改；可调整显示名称、节点范围和出口。
+              内置策略 ID
+              用于客户端规则引用，不支持修改；可调整显示名称、节点范围和出口。
             </SheetDescription>
           </SheetHeader>
           {editingBuiltinPolicy ? (
@@ -2284,7 +2284,7 @@ export default function AdminSubscriptionRulesPage() {
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  内置规则的匹配内容由默认模板维护；如需完全自定义匹配内容，可删除此内置规则后新增普通规则或远程规则。
+                  内置规则由默认模板维护；如需自定义匹配内容，请删除该规则后新增普通规则或远程规则。
                 </p>
               </div>
               <div className="flex flex-col gap-2">
@@ -2340,7 +2340,7 @@ export default function AdminSubscriptionRulesPage() {
               <div className="rounded-lg border p-3">
                 <p className="text-sm font-medium">未匹配流量</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  这是订阅分流的最后一条 MATCH / final 规则。
+                  未匹配其他规则的流量将按此策略处理。
                 </p>
               </div>
               <div className="flex flex-col gap-2">
@@ -2371,7 +2371,7 @@ export default function AdminSubscriptionRulesPage() {
               {editingPolicyGroup?.index === null ? "添加策略组" : "编辑策略组"}
             </SheetTitle>
             <SheetDescription>
-              策略组会输出为 Clash proxy-group 和 sing-box selector / urltest。
+              策略组将应用于 Clash 与 sing-box 订阅中的代理选择配置。
             </SheetDescription>
           </SheetHeader>
           {editingPolicyGroup ? (
@@ -2404,7 +2404,7 @@ export default function AdminSubscriptionRulesPage() {
               {editingRule?.index === null ? "添加规则" : "编辑规则"}
             </SheetTitle>
             <SheetDescription>
-              规则会转换为 Clash 和 sing-box 各自支持的订阅分流语法。
+              规则将应用于 Clash 与 sing-box 订阅分流配置。
             </SheetDescription>
           </SheetHeader>
           {editingRule ? (
@@ -2437,8 +2437,7 @@ export default function AdminSubscriptionRulesPage() {
               {editingRuleSet?.index === null ? "添加远程规则" : "编辑远程规则"}
             </SheetTitle>
             <SheetDescription>
-              Clash 使用 rule-provider，sing-box 使用 rule_set；两者 URL
-              可独立配置。
+              可分别配置 Clash 与 sing-box 使用的远程规则地址。
             </SheetDescription>
           </SheetHeader>
           {editingRuleSet ? (

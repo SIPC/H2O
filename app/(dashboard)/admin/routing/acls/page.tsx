@@ -349,7 +349,7 @@ function AclForm({
               </SelectTrigger>
               <SelectContent position="popper">
                 <SelectItem value={NONE_VALUE}>
-                  不关联（仅使用内置 direct/reject/default）
+                  不关联（使用内置直连/拒绝/默认出口）
                 </SelectItem>
                 {outboundProfiles.map((profile) => (
                   <SelectItem key={profile.id} value={String(profile.id)}>
@@ -409,7 +409,7 @@ function AclForm({
         <CardContent className="space-y-3">
           {rules.length === 0 ? (
             <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              暂无 ACL 规则。未命中规则时 Hy2 使用默认出口。
+              暂无 ACL 规则。未命中规则时将使用默认出口。
             </div>
           ) : null}
           {rules.map((rule, index) => (
@@ -1060,7 +1060,7 @@ export default function AdminRoutingAclsPage() {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full flex-col gap-4 p-6 max-w-450">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">ACL 策略</h1>
@@ -1099,7 +1099,7 @@ export default function AdminRoutingAclsPage() {
           <SheetHeader>
             <SheetTitle>添加 ACL 策略</SheetTitle>
             <SheetDescription>
-              ACL 从上到下匹配；规则可引用内置出口或关联出站配置中的稳定 ID。
+              ACL 按顺序匹配；规则可引用内置出口或关联出站配置的出口 ID。
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1138,7 +1138,7 @@ export default function AdminRoutingAclsPage() {
                 : "编辑 ACL 策略"}
             </SheetTitle>
             <SheetDescription>
-              保存后会自动 bump 所有绑定节点的 Agent 配置版本。
+              保存后将自动更新所有绑定节点的 Agent 配置版本。
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">

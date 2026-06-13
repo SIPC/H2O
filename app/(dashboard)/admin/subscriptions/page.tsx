@@ -219,7 +219,7 @@ const SubscriptionHistorySpark = memo(function SubscriptionHistorySpark({
   const config = dataKey === "txBytes" ? TX_SPARK_CONFIG : RX_SPARK_CONFIG
 
   return (
-    <ChartContainer config={config} className="aspect-auto h-7 w-[160px]">
+    <ChartContainer config={config} className="aspect-auto h-7 w-40">
       <LineChart
         accessibilityLayer
         data={data}
@@ -702,7 +702,7 @@ export default function AdminSubscriptionsPage() {
       cell: ({ row }) => {
         const hourly = historyBySub[row.original.id] ?? EMPTY_HISTORY
         return (
-          <div className="min-w-[170px] py-1">
+          <div className="min-w-42.5 py-1">
             <SubscriptionHistorySpark hourly={hourly} dataKey="txBytes" />
           </div>
         )
@@ -715,7 +715,7 @@ export default function AdminSubscriptionsPage() {
       cell: ({ row }) => {
         const hourly = historyBySub[row.original.id] ?? EMPTY_HISTORY
         return (
-          <div className="min-w-[170px] py-1">
+          <div className="min-w-42.5 py-1">
             <SubscriptionHistorySpark hourly={hourly} dataKey="rxBytes" />
           </div>
         )
@@ -803,7 +803,7 @@ export default function AdminSubscriptionsPage() {
   ]
 
   return (
-    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-450 flex-col gap-4 p-6">
       {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>
@@ -843,7 +843,7 @@ export default function AdminSubscriptionsPage() {
                 onChange={(e) =>
                   table.getColumn("username")?.setFilterValue(e.target.value)
                 }
-                className="h-8 max-w-[200px]"
+                className="h-8 max-w-50"
               />
               <DataTableFacetedFilter
                 column={table.getColumn("plan_name")}

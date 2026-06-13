@@ -700,7 +700,7 @@ export default function AdminPlansPage() {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-450 flex-col gap-4 p-6">
       {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>

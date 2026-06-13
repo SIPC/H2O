@@ -1043,7 +1043,7 @@ function FlowTrafficReportSheet({
             <SheetTitle>{flow ? getFlowTitle(flow) : "流向报告"}</SheetTitle>
           </div>
           <SheetDescription>
-            谁从哪里连接、用了哪个节点，以及对应的估算流量
+            展示连接来源、目标节点及对应的估算流量。
           </SheetDescription>
         </SheetHeader>
 
@@ -1053,7 +1053,7 @@ function FlowTrafficReportSheet({
               <ReportMetric
                 label="估算流量"
                 value={formatBytes(flow.estimatedBytes)}
-                hint="按认证次数比例分摊节点真实流量"
+                hint="根据认证次数估算流量分布"
               />
               <ReportMetric
                 label="账号数量"

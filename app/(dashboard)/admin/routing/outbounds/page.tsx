@@ -219,7 +219,7 @@ function OutboundForm({
         <CardContent className="space-y-3">
           {outbounds.length === 0 ? (
             <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              暂无自定义出站。未绑定 ACL 时 Hy2 会使用内置 direct。
+              暂无自定义出站。未绑定 ACL 时将使用默认直连出口。
             </div>
           ) : null}
           {outbounds.map((outbound, index) => (
@@ -231,7 +231,7 @@ function OutboundForm({
                       #{index + 1} {index === 0 ? "默认出口" : "出站"}
                     </CardTitle>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      ACL 规则引用稳定 ID；可安全修改实际名称。
+                      ACL 规则按 ID 引用该出站；名称仅用于展示。
                     </p>
                   </div>
                   <div className="flex gap-1">
@@ -277,7 +277,7 @@ function OutboundForm({
               <CardContent className="space-y-3 p-3">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1">
-                    <Label>稳定 ID</Label>
+                    <Label>出口 ID</Label>
                     <Input
                       value={outbound.id}
                       onChange={(e) =>
@@ -289,7 +289,7 @@ function OutboundForm({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>Hy2 出站名称</Label>
+                    <Label>出站名称</Label>
                     <Input
                       value={outbound.name}
                       onChange={(e) =>
@@ -782,12 +782,12 @@ export default function AdminRoutingOutboundsPage() {
   )
 
   return (
-    <div className="mx-auto flex w-full max-w-[1800px] flex-col gap-4 p-6">
+    <div className="mx-auto flex w-full max-w-450 flex-col gap-4 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">出站配置</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            定义可复用的 Hysteria2 outbounds，供 ACL 策略引用。
+            定义可复用的 Hysteria2 出站配置，供 ACL 策略引用。
           </p>
         </div>
         <Button
@@ -851,7 +851,7 @@ export default function AdminRoutingOutboundsPage() {
                 : "编辑出站配置"}
             </SheetTitle>
             <SheetDescription>
-              保存后会自动 bump 所有关联节点的 Agent 配置版本。
+              保存后将自动更新关联节点的 Agent 配置版本。
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
