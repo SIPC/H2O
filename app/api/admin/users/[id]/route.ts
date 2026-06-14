@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { isUserLocalePreference, type Locale } from "@/lib/i18n/locales"
 import { writeAdminEvent } from "@/lib/logs-db"
 import { hashPassword } from "@/lib/password"
 import { createUserAuthToken } from "@/lib/tokens"
@@ -12,6 +13,7 @@ type UpdateUserBody = {
   role?: "user" | "admin"
   newPassword?: string
   resetAuthToken?: boolean
+  preferredLocale?: "inherit" | Locale
 }
 
 export async function PATCH(
@@ -26,7 +28,8 @@ export async function PATCH(
   const userId = Number(id)
 
   if (!Number.isInteger(userId) || userId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "用户ID不合法" } },
       { status: 400 }
     )
@@ -35,7 +38,8 @@ export async function PATCH(
   const body = (await request.json().catch(() => ({}))) as UpdateUserBody
 
   if (!body || typeof body !== "object") {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "请求体格式不合法" },
@@ -57,10 +61,33 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { targetUserId: userId, status: body.status },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "用户状态不合法" },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (
+    body.preferredLocale !== undefined &&
+    !isUserLocalePreference(body.preferredLocale)
+  ) {
+    writeAdminEvent({
+      event: "USER_UPDATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { targetUserId: userId, preferredLocale: body.preferredLocale },
+    })
+    return localizedJson(
+      request,
+      {
+        ok: false,
+        error: { code: "INVALID_LOCALE", message: "语言设置不合法" },
       },
       { status: 400 }
     )
@@ -79,7 +106,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { targetUserId: userId, role: body.role },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "用户角色不合法" },
@@ -99,7 +127,8 @@ export async function PATCH(
         reason: "SELF_DEMOTE_FORBIDDEN",
         detail: { targetUserId: userId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -119,7 +148,8 @@ export async function PATCH(
         reason: "SELF_DISABLE_FORBIDDEN",
         detail: { targetUserId: userId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -133,7 +163,7 @@ export async function PATCH(
   }
 
   const updates: string[] = []
-  const values: Array<string | number> = []
+  const values: Array<string | number | null> = []
   // 收集本次改动的字段名，用于日志 detail
   const changedFields: string[] = []
 
@@ -149,6 +179,14 @@ export async function PATCH(
     changedFields.push("role")
   }
 
+  if (body.preferredLocale !== undefined) {
+    updates.push("preferred_locale = ?")
+    values.push(
+      body.preferredLocale === "inherit" ? null : body.preferredLocale
+    )
+    changedFields.push("preferred_locale")
+  }
+
   if (body.newPassword) {
     if (body.newPassword.length < 6) {
       writeAdminEvent({
@@ -159,7 +197,8 @@ export async function PATCH(
         reason: "INVALID_PASSWORD",
         detail: { targetUserId: userId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PASSWORD", message: "密码至少 6 位" },
@@ -188,7 +227,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { targetUserId: userId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "没有可更新字段" },
@@ -214,7 +254,8 @@ export async function PATCH(
       reason: "NOT_FOUND",
       detail: { targetUserId: userId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NOT_FOUND", message: "用户不存在" } },
       { status: 404 }
     )
@@ -269,7 +310,7 @@ export async function PATCH(
     })
   }
 
-  return NextResponse.json({ ok: true, data: { id: userId } })
+  return localizedJson(request, { ok: true, data: { id: userId } })
 }
 
 export async function DELETE(
@@ -284,7 +325,8 @@ export async function DELETE(
   const userId = Number(id)
 
   if (!Number.isInteger(userId) || userId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "用户ID不合法" } },
       { status: 400 }
     )
@@ -300,7 +342,8 @@ export async function DELETE(
       reason: "CANNOT_DELETE_SELF",
       detail: { targetUserId: userId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "CANNOT_DELETE_SELF", message: "不能删除当前登录用户" },
@@ -328,7 +371,8 @@ export async function DELETE(
         reason: "NOT_FOUND",
         detail: { targetUserId: userId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         { ok: false, error: { code: "NOT_FOUND", message: "用户不存在" } },
         { status: 404 }
       )
@@ -345,7 +389,7 @@ export async function DELETE(
         targetUsername: target?.username ?? null,
       },
     })
-    return NextResponse.json({ ok: true, data: { id: userId } })
+    return localizedJson(request, { ok: true, data: { id: userId } })
   } catch {
     writeAdminEvent({
       event: "USER_DELETE",
@@ -355,7 +399,8 @@ export async function DELETE(
       reason: "DELETE_FAILED",
       detail: { targetUserId: userId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "DELETE_FAILED", message: "用户删除失败" } },
       { status: 400 }
     )

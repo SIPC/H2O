@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { useEffect, useState } from "react"
 
+import { useI18n } from "@/components/i18n-provider"
+import { LanguageSwitcher } from "@/components/language-switcher"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -17,6 +19,7 @@ const DEFAULTS: PublicSettings = {
 }
 
 export default function Page() {
+  const { t } = useI18n()
   const [settings, setSettings] = useState<PublicSettings>(DEFAULTS)
   const [loaded, setLoaded] = useState(false)
 
@@ -41,11 +44,12 @@ export default function Page() {
   }, [])
 
   return (
-    <div className="flex min-h-svh p-6">
+    <div className="relative flex min-h-svh p-6">
+      <LanguageSwitcher className="absolute top-4 right-4" />
       <div className="flex max-w-2xl min-w-0 flex-col gap-4 text-sm leading-loose">
         <div>
-          <h1 className="font-medium">H2O</h1>
-          <p>仅限企业内网使用，禁止部署外网</p>
+          <h1 className="font-medium">{t("app.name")}</h1>
+          <p>{t("app.description")}</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -58,12 +62,12 @@ export default function Page() {
             <>
               {settings.login_enabled ? (
                 <Button asChild>
-                  <Link href="/login">登录</Link>
+                  <Link href="/login">{t("auth.login")}</Link>
                 </Button>
               ) : null}
               {settings.registration_enabled ? (
                 <Button asChild variant="outline">
-                  <Link href="/register">注册</Link>
+                  <Link href="/register">{t("auth.register")}</Link>
                 </Button>
               ) : null}
             </>

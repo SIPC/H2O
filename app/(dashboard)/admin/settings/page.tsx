@@ -4,12 +4,10 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { TurnstileWidget } from "@/components/turnstile-widget"
-import {
-  ACME_CA_PROVIDER_LABELS,
-  ACME_CA_PROVIDERS,
-  type AcmeCaProvider,
-} from "@/lib/acme-config"
+import { ACME_CA_PROVIDERS, type AcmeCaProvider } from "@/lib/acme-config"
+import type { Locale } from "@/lib/i18n/locales"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,6 +48,7 @@ type Settings = {
   telegram_notify_host_traffic_exceeded: boolean
   telegram_notify_agent_task_failed: boolean
   telegram_node_offline_threshold_minutes: number
+  ui_language: Locale
 }
 
 const DEFAULTS: Settings = {
@@ -75,16 +74,25 @@ const DEFAULTS: Settings = {
   telegram_notify_host_traffic_exceeded: true,
   telegram_notify_agent_task_failed: true,
   telegram_node_offline_threshold_minutes: 5,
+  ui_language: "zh-CN",
 }
 
 // 根据两 key 填写情况推断 Turnstile 当前状态，与后端 getTurnstileStatus 一致
 function turnstileStatus(site: string, secret: string) {
   const s = site.trim()
   const k = secret.trim()
-  if (!s && !k) return { label: "未启用", tone: "muted" as const }
-  if (s && k) return { label: "已启用", tone: "ok" as const }
+  if (!s && !k)
+    return {
+      labelKey: "adminSettings.turnstile.status.disabled",
+      tone: "muted" as const,
+    }
+  if (s && k)
+    return {
+      labelKey: "adminSettings.turnstile.status.enabled",
+      tone: "ok" as const,
+    }
   return {
-    label: "配置错误：仅填了一个 key，登录/注册会被拒绝",
+    labelKey: "adminSettings.turnstile.status.misconfigured",
     tone: "err" as const,
   }
 }
@@ -148,6 +156,7 @@ function SettingsSection({
 
 export default function AdminSettingsPage() {
   const { confirm } = useConfirm()
+  const { setLocale, t } = useI18n()
   const [loaded, setLoaded] = useState(false)
   const [saved, setSaved] = useState<Settings>(DEFAULTS)
   const [draft, setDraft] = useState<Settings>(DEFAULTS)
@@ -190,7 +199,8 @@ export default function AdminSettingsPage() {
       draft.telegram_notify_agent_task_failed !==
         saved.telegram_notify_agent_task_failed ||
       draft.telegram_node_offline_threshold_minutes !==
-        saved.telegram_node_offline_threshold_minutes
+        saved.telegram_node_offline_threshold_minutes ||
+      draft.ui_language !== saved.ui_language
     )
   }, [draft, saved])
 
@@ -246,7 +256,7 @@ export default function AdminSettingsPage() {
     setTurnstileVerifyProof("")
     setTurnstileVerifiedKeys(null)
     setTurnstileVerifying(true)
-    setTurnstileVerifyMessage("正在用 Secret Key 验证...")
+    setTurnstileVerifyMessage(t("adminSettings.turnstile.verify.verifying"))
 
     try {
       const response = await fetch("/api/admin/settings", {
@@ -263,19 +273,19 @@ export default function AdminSettingsPage() {
 
       if (!response.ok || !json?.ok || typeof json.data?.proof !== "string") {
         setTurnstileVerifyMessage(
-          json?.error?.message ?? "Secret Key 校验失败，请检查后重试"
+          json?.error?.message ?? t("adminSettings.turnstile.verify.failed")
         )
         return
       }
 
       setTurnstileVerifyProof(json.data.proof)
       setTurnstileVerifiedKeys({ siteKey, secretKey })
-      setTurnstileVerifyMessage(
-        "Site Key 与 Secret Key 均已通过 Cloudflare 校验，可以保存。"
-      )
+      setTurnstileVerifyMessage(t("adminSettings.turnstile.verify.success"))
     } catch {
       if (requestSeq !== turnstileVerifySeq.current) return
-      setTurnstileVerifyMessage("校验请求失败，请稍后重试")
+      setTurnstileVerifyMessage(
+        t("adminSettings.turnstile.verify.requestFailed")
+      )
     } finally {
       if (requestSeq === turnstileVerifySeq.current) {
         setTurnstileVerifying(false)
@@ -285,10 +295,9 @@ export default function AdminSettingsPage() {
 
   async function resetSubscriptionRules() {
     const ok = await confirm({
-      title: "重置订阅分流策略",
-      description:
-        "确定要重置订阅分流策略吗？所有自定义规则、远程规则、策略组和内置策略修改都会恢复默认。",
-      confirmText: "重置",
+      title: t("adminSettings.resetRules.confirmTitle"),
+      description: t("adminSettings.resetRules.confirmDescription"),
+      confirmText: t("common.reset"),
     })
     if (!ok) return
 
@@ -300,25 +309,25 @@ export default function AdminSettingsPage() {
       })
       const json = await response.json()
       if (!response.ok || !json.ok) {
-        toast.error("重置失败", {
-          description: json?.error?.message ?? "请稍后重试",
+        toast.error(t("adminSettings.resetRules.failedTitle"), {
+          description: json?.error?.message ?? t("common.retryLater"),
         })
         return
       }
-      toast.success("已重置", {
-        description: "订阅分流策略已恢复默认",
+      toast.success(t("adminSettings.resetRules.successTitle"), {
+        description: t("adminSettings.resetRules.successDescription"),
       })
     } catch {
-      toast.error("重置失败", {
-        description: "网络错误，请稍后重试",
+      toast.error(t("adminSettings.resetRules.failedTitle"), {
+        description: t("common.networkError"),
       })
     }
   }
 
   async function testTelegram() {
     if (!draft.telegram_bot_token.trim() || !draft.telegram_chat_id.trim()) {
-      toast.error("无法测试", {
-        description: "请先填写 Telegram Bot Token 和 Chat ID",
+      toast.error(t("adminSettings.telegram.cannotTestTitle"), {
+        description: t("adminSettings.telegram.cannotTestDescription"),
       })
       return
     }
@@ -336,17 +345,18 @@ export default function AdminSettingsPage() {
       })
       const json = await response.json()
       if (!response.ok || !json?.ok) {
-        toast.error("测试通知失败", {
-          description: json?.error?.message ?? "请检查 Telegram 配置",
+        toast.error(t("adminSettings.telegram.testFailedTitle"), {
+          description:
+            json?.error?.message ?? t("adminSettings.telegram.checkConfig"),
         })
         return
       }
-      toast.success("测试通知已发送", {
-        description: "可在 Telegram 和通知历史中查看结果",
+      toast.success(t("adminSettings.telegram.testSuccessTitle"), {
+        description: t("adminSettings.telegram.testSuccessDescription"),
       })
     } catch {
-      toast.error("测试通知失败", {
-        description: "网络错误，请稍后重试",
+      toast.error(t("adminSettings.telegram.testFailedTitle"), {
+        description: t("common.networkError"),
       })
     } finally {
       setTelegramTesting(false)
@@ -355,9 +365,8 @@ export default function AdminSettingsPage() {
 
   async function save() {
     if (requiresTurnstileVerification && !turnstileProofValidForDraft) {
-      toast.error("无法保存", {
-        description:
-          "请先完成 Turnstile 配置测试，确认 Site Key 与 Secret Key 都有效",
+      toast.error(t("adminSettings.save.cannotSaveTitle"), {
+        description: t("adminSettings.save.turnstileRequired"),
       })
       return
     }
@@ -377,8 +386,8 @@ export default function AdminSettingsPage() {
       const json = await response.json()
 
       if (!response.ok || !json.ok) {
-        toast.error("保存失败", {
-          description: json?.error?.message ?? "请稍后重试",
+        toast.error(t("adminSettings.save.failedTitle"), {
+          description: json?.error?.message ?? t("common.retryLater"),
         })
         return
       }
@@ -387,12 +396,13 @@ export default function AdminSettingsPage() {
       setSaved(next)
       setDraft(next)
       resetTurnstileVerification()
-      toast.success("已保存", {
-        description: "站点设置已更新",
+      setLocale(next.ui_language)
+      toast.success(t("adminSettings.save.successTitle"), {
+        description: t("adminSettings.save.successDescription"),
       })
     } catch {
-      toast.error("保存失败", {
-        description: "网络错误，请稍后重试",
+      toast.error(t("adminSettings.save.failedTitle"), {
+        description: t("common.networkError"),
       })
     } finally {
       setSaving(false)
@@ -405,12 +415,12 @@ export default function AdminSettingsPage() {
         <div className="rounded-xl border bg-card p-4 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-2xl font-bold">站点设置</h1>
+              <h1 className="text-2xl font-bold">{t("adminSettings.title")}</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                全局配置项，修改后需点击保存生效。
+                {t("adminSettings.loadingDescription")}
               </p>
             </div>
-            <Button disabled>保存</Button>
+            <Button disabled>{t("common.save")}</Button>
           </div>
         </div>
 
@@ -448,9 +458,9 @@ export default function AdminSettingsPage() {
       <div className="sticky top-12 z-10 rounded-xl border bg-card/95 p-4 shadow-sm backdrop-blur">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex max-w-3xl flex-col gap-1">
-            <h1 className="text-2xl font-bold">站点设置</h1>
+            <h1 className="text-2xl font-bold">{t("adminSettings.title")}</h1>
             <p className="text-sm text-muted-foreground">
-              集中管理访问安全、通知、节点部署与数据保留策略。修改后统一保存生效。
+              {t("adminSettings.description")}
             </p>
           </div>
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
@@ -459,10 +469,12 @@ export default function AdminSettingsPage() {
                 dirty ? "bg-primary/15 text-primary" : "text-muted-foreground"
               )}
             >
-              {dirty ? "有未保存更改" : "已保存"}
+              {dirty ? t("adminSettings.dirty") : t("adminSettings.saved")}
             </Badge>
             <Button onClick={save} disabled={saveDisabled}>
-              {saving ? "保存中..." : "保存更改"}
+              {saving
+                ? t("adminSettings.saving")
+                : t("adminSettings.saveChanges")}
             </Button>
           </div>
         </div>
@@ -470,21 +482,60 @@ export default function AdminSettingsPage() {
 
       <div className="flex flex-col gap-8">
         <SettingsSection
-          title="访问与安全"
-          description="控制账号入口、人机验证和新用户默认启用策略。"
+          title={t("adminSettings.language.sectionTitle")}
+          description={t("adminSettings.language.sectionDescription")}
+        >
+          <Card className="flex h-full flex-col md:col-span-2 lg:col-span-6">
+            <CardHeader className="p-4 pb-1">
+              <CardTitle className="text-base leading-none font-semibold">
+                {t("adminSettings.language.globalTitle")}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3 p-4">
+              <p className="text-sm text-muted-foreground">
+                {t("adminSettings.language.globalDescription")}
+              </p>
+              <Select
+                value={draft.ui_language}
+                onValueChange={(value) =>
+                  setDraft((current) => ({
+                    ...current,
+                    ui_language: value as Locale,
+                  }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="zh-CN">
+                    {t("adminSettings.language.locale.zhCN")}
+                  </SelectItem>
+                  <SelectItem value="en-US">
+                    {t("adminSettings.language.locale.enUS")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+        </SettingsSection>
+
+        <SettingsSection
+          title={t("adminSettings.access.sectionTitle")}
+          description={t("adminSettings.access.sectionDescription")}
         >
           {/* === 基础设置：中卡 === */}
           <Card className="flex h-full flex-col md:col-span-1 lg:col-span-4">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                基础设置
+                {t("adminSettings.access.basicTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-3">
               <ToggleRow
                 id="registration_enabled"
-                label="允许新用户注册"
-                description="关闭后，用户将无法通过注册页面创建账号"
+                label={t("adminSettings.access.registrationLabel")}
+                description={t("adminSettings.access.registrationDescription")}
                 checked={draft.registration_enabled}
                 onChange={(next) =>
                   setDraft((prev) => ({ ...prev, registration_enabled: next }))
@@ -492,8 +543,8 @@ export default function AdminSettingsPage() {
               />
               <ToggleRow
                 id="login_enabled"
-                label="允许用户登录"
-                description="关闭后普通用户无法登录；管理员账号不受影响，可用于维护"
+                label={t("adminSettings.access.loginLabel")}
+                description={t("adminSettings.access.loginDescription")}
                 checked={draft.login_enabled}
                 onChange={(next) =>
                   setDraft((prev) => ({ ...prev, login_enabled: next }))
@@ -501,8 +552,8 @@ export default function AdminSettingsPage() {
               />
               <ToggleRow
                 id="new_user_default_active"
-                label="新注册用户自动启用"
-                description="关闭后，新注册用户需由管理员启用后才能登录"
+                label={t("adminSettings.access.newUserActiveLabel")}
+                description={t("adminSettings.access.newUserActiveDescription")}
                 checked={draft.new_user_default_active}
                 onChange={(next) =>
                   setDraft((prev) => ({
@@ -518,7 +569,7 @@ export default function AdminSettingsPage() {
           <Card className="flex h-full flex-col md:col-span-2 lg:col-span-8">
             <CardHeader className="flex flex-col gap-2 p-4 pb-1 sm:flex-row sm:items-start sm:justify-between">
               <CardTitle className="text-base leading-none font-semibold">
-                Turnstile 人机验证
+                {t("adminSettings.turnstile.title")}
               </CardTitle>
               <Badge
                 className={cn(
@@ -527,13 +578,12 @@ export default function AdminSettingsPage() {
                   ts.tone === "muted" && "text-muted-foreground"
                 )}
               >
-                {ts.label}
+                {t(ts.labelKey)}
               </Badge>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-3">
               <p className="text-xs text-muted-foreground">
-                同时填写 Site Key 与 Secret Key
-                后启用；全部留空则关闭。保存后立即生效。
+                {t("adminSettings.turnstile.description")}
               </p>
               <div className="flex flex-col gap-1">
                 <Label htmlFor="turnstile_site_key">Site Key</Label>
@@ -571,9 +621,9 @@ export default function AdminSettingsPage() {
               {turnstileKeysChanged && turnstileDraftEnabled && (
                 <div className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3">
                   <div className="flex flex-col gap-1">
-                    <Label>保存前测试验证</Label>
+                    <Label>{t("adminSettings.turnstile.testTitle")}</Label>
                     <p className="text-xs text-muted-foreground">
-                      请使用新的 Site Key 完成验证，验证通过后即可保存。
+                      {t("adminSettings.turnstile.testDescription")}
                     </p>
                   </div>
                   <TurnstileWidget
@@ -595,7 +645,8 @@ export default function AdminSettingsPage() {
                             : "text-muted-foreground"
                     )}
                   >
-                    {turnstileVerifyMessage || "等待完成测试验证。"}
+                    {turnstileVerifyMessage ||
+                      t("adminSettings.turnstile.verify.waiting")}
                   </p>
                 </div>
               )}
@@ -604,21 +655,21 @@ export default function AdminSettingsPage() {
         </SettingsSection>
 
         <SettingsSection
-          title="通知触达"
-          description="配置 Telegram Bot 通知接收人、触发事件和节点离线阈值。"
+          title={t("adminSettings.notifications.sectionTitle")}
+          description={t("adminSettings.notifications.sectionDescription")}
         >
           {/* === Telegram 接收配置：大卡 === */}
           <Card className="flex h-full flex-col md:col-span-2 lg:col-span-7">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                接收配置
+                {t("adminSettings.telegram.receiverTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-4">
               <ToggleRow
                 id="telegram_notifications_enabled"
-                label="启用 Telegram Bot 通知"
-                description="启用后，节点上下线、流量超限和 Agent 异常会发送到指定 Telegram 会话"
+                label={t("adminSettings.telegram.enableLabel")}
+                description={t("adminSettings.telegram.enableDescription")}
                 checked={draft.telegram_notifications_enabled}
                 onChange={(next) =>
                   setDraft((prev) => ({
@@ -651,7 +702,7 @@ export default function AdminSettingsPage() {
                     id="telegram_chat_id"
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder="-100... 或 @channel"
+                    placeholder={t("adminSettings.telegram.chatIdPlaceholder")}
                     value={draft.telegram_chat_id}
                     onChange={(e) =>
                       setDraft((prev) => ({
@@ -663,13 +714,13 @@ export default function AdminSettingsPage() {
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="telegram_message_thread_id">
-                    Topic ID（可选）
+                    {t("adminSettings.telegram.topicLabel")}
                   </Label>
                   <Input
                     id="telegram_message_thread_id"
                     autoComplete="off"
                     spellCheck={false}
-                    placeholder="群组话题 ID"
+                    placeholder={t("adminSettings.telegram.topicPlaceholder")}
                     value={draft.telegram_message_thread_id}
                     onChange={(e) =>
                       setDraft((prev) => ({
@@ -681,7 +732,7 @@ export default function AdminSettingsPage() {
                 </div>
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="telegram_node_offline_threshold_minutes">
-                    离线阈值（分钟）
+                    {t("adminSettings.telegram.offlineThresholdLabel")}
                   </Label>
                   <Input
                     id="telegram_node_offline_threshold_minutes"
@@ -712,13 +763,14 @@ export default function AdminSettingsPage() {
                     disabled={telegramTesting}
                     onClick={() => void testTelegram()}
                   >
-                    {telegramTesting ? "发送中..." : "发送测试通知"}
+                    {telegramTesting
+                      ? t("adminSettings.telegram.sending")
+                      : t("adminSettings.telegram.sendTest")}
                   </Button>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Bot Token
-                会保存到站点设置中，事件日志只记录是否已设置，不记录明文。
+                {t("adminSettings.telegram.secretNotice")}
               </p>
             </CardContent>
           </Card>
@@ -727,13 +779,13 @@ export default function AdminSettingsPage() {
           <Card className="flex h-full flex-col md:col-span-2 lg:col-span-5">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                通知事件
+                {t("adminSettings.notifications.eventsTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-3">
               <ToggleRow
                 id="telegram_notify_node_status"
-                label="节点上线 / 离线"
+                label={t("adminSettings.notifications.nodeStatus")}
                 checked={draft.telegram_notify_node_status}
                 onChange={(next) =>
                   setDraft((prev) => ({
@@ -744,7 +796,7 @@ export default function AdminSettingsPage() {
               />
               <ToggleRow
                 id="telegram_notify_hy2_status"
-                label="Hysteria2 异常 / 恢复"
+                label={t("adminSettings.notifications.hy2Status")}
                 checked={draft.telegram_notify_hy2_status}
                 onChange={(next) =>
                   setDraft((prev) => ({
@@ -755,7 +807,7 @@ export default function AdminSettingsPage() {
               />
               <ToggleRow
                 id="telegram_notify_subscription_traffic_exceeded"
-                label="订阅流量超限"
+                label={t("adminSettings.notifications.subscriptionExceeded")}
                 checked={draft.telegram_notify_subscription_traffic_exceeded}
                 onChange={(next) =>
                   setDraft((prev) => ({
@@ -766,7 +818,7 @@ export default function AdminSettingsPage() {
               />
               <ToggleRow
                 id="telegram_notify_host_traffic_exceeded"
-                label="节点宿主机流量超限"
+                label={t("adminSettings.notifications.hostExceeded")}
                 checked={draft.telegram_notify_host_traffic_exceeded}
                 onChange={(next) =>
                   setDraft((prev) => ({
@@ -777,7 +829,7 @@ export default function AdminSettingsPage() {
               />
               <ToggleRow
                 id="telegram_notify_agent_task_failed"
-                label="Agent 任务失败"
+                label={t("adminSettings.notifications.agentTaskFailed")}
                 checked={draft.telegram_notify_agent_task_failed}
                 onChange={(next) =>
                   setDraft((prev) => ({
@@ -791,28 +843,30 @@ export default function AdminSettingsPage() {
         </SettingsSection>
 
         <SettingsSection
-          title="证书、DNS 与订阅"
-          description="管理节点证书默认值、Cloudflare DNS Token 和订阅分流维护操作。"
+          title={t("adminSettings.certs.sectionTitle")}
+          description={t("adminSettings.certs.sectionDescription")}
         >
           {/* === 证书与 DNS：大卡 === */}
           <Card className="flex h-full flex-col md:col-span-2 lg:col-span-8">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                证书与 DNS
+                {t("adminSettings.certs.cardTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-3">
               <p className="text-xs text-muted-foreground">
-                全局默认配置，节点未单独填写时使用这些值。
+                {t("adminSettings.certs.description")}
               </p>
               <div className="flex flex-col gap-1">
-                <Label htmlFor="acme_email">ACME 邮箱</Label>
+                <Label htmlFor="acme_email">
+                  {t("adminSettings.certs.acmeEmailLabel")}
+                </Label>
                 <Input
                   id="acme_email"
                   type="email"
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="邮箱"
+                  placeholder={t("adminSettings.certs.acmeEmailPlaceholder")}
                   value={draft.acme_email}
                   onChange={(e) =>
                     setDraft((prev) => ({
@@ -823,7 +877,7 @@ export default function AdminSettingsPage() {
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <Label>默认 ACME CA</Label>
+                <Label>{t("adminSettings.certs.acmeCaLabel")}</Label>
                 <Select
                   value={draft.acme_ca_provider}
                   onValueChange={(value) =>
@@ -840,14 +894,14 @@ export default function AdminSettingsPage() {
                     <SelectGroup>
                       {ACME_CA_PROVIDERS.map((provider) => (
                         <SelectItem key={provider} value={provider}>
-                          {ACME_CA_PROVIDER_LABELS[provider]}
+                          {t(`adminSettings.acmeCa.${provider}`)}
                         </SelectItem>
                       ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  选择默认 ACME CA，节点可单独覆盖此设置。
+                  {t("adminSettings.certs.acmeCaDescription")}
                 </p>
               </div>
               {draft.acme_ca_provider === "custom" && (
@@ -877,7 +931,9 @@ export default function AdminSettingsPage() {
                   type="password"
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="留空表示不使用"
+                  placeholder={t(
+                    "adminSettings.certs.cloudflareTokenPlaceholder"
+                  )}
                   value={draft.cloudflare_api_token}
                   onChange={(e) =>
                     setDraft((prev) => ({
@@ -894,46 +950,47 @@ export default function AdminSettingsPage() {
           <Card className="flex h-full flex-col md:col-span-2 lg:col-span-4">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                订阅分流
+                {t("adminSettings.certs.subscriptionRoutingTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col justify-between gap-4">
               <p className="text-sm text-muted-foreground">
-                一键恢复默认订阅分流策略，包括被删除的内置策略、规则、远程规则和策略组。
+                {t("adminSettings.certs.subscriptionRoutingDescription")}
               </p>
               <Button
                 variant="outline"
                 onClick={() => void resetSubscriptionRules()}
               >
-                重置策略
+                {t("adminSettings.certs.resetPolicy")}
               </Button>
             </CardContent>
           </Card>
         </SettingsSection>
 
         <SettingsSection
-          title="节点部署与数据"
-          description="管理 Agent 安装包、GeoIP 地图能力和统计数据保留周期。"
+          title={t("adminSettings.deploy.sectionTitle")}
+          description={t("adminSettings.deploy.sectionDescription")}
         >
           {/* === Agent 配置：中卡 === */}
           <Card className="flex h-full flex-col md:col-span-2 lg:col-span-6">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                Agent 配置
+                {t("adminSettings.agent.cardTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-3">
               <div className="flex flex-col gap-1">
-                <Label htmlFor="agent_bundle_url">安装包地址</Label>
+                <Label htmlFor="agent_bundle_url">
+                  {t("adminSettings.agent.bundleUrlLabel")}
+                </Label>
                 <p className="text-xs text-muted-foreground">
-                  用于节点一键部署时下载 H2O Agent
-                  安装包；留空则使用官方默认地址。
+                  {t("adminSettings.agent.bundleUrlDescription")}
                 </p>
                 <Input
                   id="agent_bundle_url"
                   autoComplete="off"
                   spellCheck={false}
-                  placeholder="使用官方默认地址"
+                  placeholder={t("adminSettings.agent.bundleUrlPlaceholder")}
                   value={draft.agent_bundle_url}
                   onChange={(e) =>
                     setDraft((prev) => ({
@@ -950,14 +1007,14 @@ export default function AdminSettingsPage() {
           <Card className="flex h-full flex-col md:col-span-1 lg:col-span-3">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                GeoIP 与地图
+                {t("adminSettings.geoip.cardTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-3">
               <ToggleRow
                 id="geoip_enabled"
-                label="启用 GeoIP 解析"
-                description="启用后将节点公网 IP 提交至第三方 GeoIP 服务，用于获取地理位置并展示；关闭后仅保存公网 IP。"
+                label={t("adminSettings.geoip.enableLabel")}
+                description={t("adminSettings.geoip.enableDescription")}
                 checked={draft.geoip_enabled}
                 onChange={(next) =>
                   setDraft((prev) => ({ ...prev, geoip_enabled: next }))
@@ -970,15 +1027,16 @@ export default function AdminSettingsPage() {
           <Card className="flex h-full flex-col md:col-span-1 lg:col-span-3">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                数据统计
+                {t("adminSettings.stats.cardTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-3">
               <div className="flex flex-col gap-1">
-                <Label htmlFor="stats_retention_days">统计保留天数</Label>
+                <Label htmlFor="stats_retention_days">
+                  {t("adminSettings.stats.retentionLabel")}
+                </Label>
                 <p className="text-xs text-muted-foreground">
-                  超过该天数的面板小时统计会自动清理（全局/节点/订阅趋势）。建议
-                  30~90 天。
+                  {t("adminSettings.stats.retentionDescription")}
                 </p>
                 <Input
                   id="stats_retention_days"
@@ -1004,23 +1062,23 @@ export default function AdminSettingsPage() {
         </SettingsSection>
 
         <SettingsSection
-          title="支持"
-          description="遇到问题或有建议时，可通过官方反馈渠道联系我们。"
+          title={t("adminSettings.support.sectionTitle")}
+          description={t("adminSettings.support.sectionDescription")}
         >
           {/* 问题反馈：小卡 */}
           <Card className="flex h-full flex-col md:col-span-1 lg:col-span-4">
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                问题反馈
+                {t("adminSettings.support.feedbackTitle")}
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col justify-between gap-4">
               <p className="text-sm text-muted-foreground">
-                如需帮助或提交建议，请通过官方反馈渠道联系我们。
+                {t("adminSettings.support.feedbackDescription")}
               </p>
               <Button asChild variant="outline">
                 <a href="https://t.me/h2o_msg" target="_blank" rel="noreferrer">
-                  前往反馈群
+                  {t("adminSettings.support.feedbackButton")}
                 </a>
               </Button>
             </CardContent>

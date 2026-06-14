@@ -5,6 +5,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { ChevronsUpDown, X } from "lucide-react"
 
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
+import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -88,49 +89,57 @@ type NodeRow = { id: number; name: string }
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 
-const TASK_LABEL: Record<AgentTaskType, string> = {
-  HY2_STATUS: "检查 Hysteria2 状态",
-  HY2_START: "启动 Hysteria2",
-  HY2_STOP: "停止 Hysteria2",
-  HY2_RESTART: "重启 Hysteria2",
-  HY2_LOGS: "查看 Hysteria2 日志",
-  HY2_SELF_UPDATE: "更新 Hysteria2",
-  AGENT_LOGS: "查看 Agent 日志",
-  AGENT_RESTART: "重启 Agent",
-  APPLY_CONFIG: "应用配置",
-  AGENT_SELF_UPDATE: "更新 Agent",
+type TFunction = ReturnType<typeof useI18n>["t"]
+
+const TASK_LABEL_KEY: Record<AgentTaskType, string> = {
+  HY2_STATUS: "logs.agentTasks.task.HY2_STATUS",
+  HY2_START: "logs.agentTasks.task.HY2_START",
+  HY2_STOP: "logs.agentTasks.task.HY2_STOP",
+  HY2_RESTART: "logs.agentTasks.task.HY2_RESTART",
+  HY2_LOGS: "logs.agentTasks.task.HY2_LOGS",
+  HY2_SELF_UPDATE: "logs.agentTasks.task.HY2_SELF_UPDATE",
+  AGENT_LOGS: "logs.agentTasks.task.AGENT_LOGS",
+  AGENT_RESTART: "logs.agentTasks.task.AGENT_RESTART",
+  APPLY_CONFIG: "logs.agentTasks.task.APPLY_CONFIG",
+  AGENT_SELF_UPDATE: "logs.agentTasks.task.AGENT_SELF_UPDATE",
 }
 
-const TASK_STATUS_LABEL: Record<AgentTaskStatus, string> = {
-  queued: "排队中",
-  claimed: "执行中",
-  succeeded: "成功",
-  failed: "失败",
-  cancelled: "已取消",
+const TASK_STATUS_LABEL_KEY: Record<AgentTaskStatus, string> = {
+  queued: "logs.agentTasks.status.queued",
+  claimed: "logs.agentTasks.status.claimed",
+  succeeded: "logs.agentTasks.status.succeeded",
+  failed: "logs.agentTasks.status.failed",
+  cancelled: "logs.agentTasks.status.cancelled",
 }
 
-const taskTypeOptions: Array<{ label: string; value: TaskTypeFilter }> = [
-  { label: "全部任务", value: "all" },
-  { label: "检查 Hysteria2 状态", value: "HY2_STATUS" },
-  { label: "启动 Hysteria2", value: "HY2_START" },
-  { label: "停止 Hysteria2", value: "HY2_STOP" },
-  { label: "重启 Hysteria2", value: "HY2_RESTART" },
-  { label: "查看 Hysteria2 日志", value: "HY2_LOGS" },
-  { label: "更新 Hysteria2", value: "HY2_SELF_UPDATE" },
-  { label: "查看 Agent 日志", value: "AGENT_LOGS" },
-  { label: "重启 Agent", value: "AGENT_RESTART" },
-  { label: "应用配置", value: "APPLY_CONFIG" },
-  { label: "更新 Agent", value: "AGENT_SELF_UPDATE" },
+const taskTypeOptions: Array<{ labelKey: string; value: TaskTypeFilter }> = [
+  { labelKey: "logs.common.allTasks", value: "all" },
+  { labelKey: "logs.agentTasks.task.HY2_STATUS", value: "HY2_STATUS" },
+  { labelKey: "logs.agentTasks.task.HY2_START", value: "HY2_START" },
+  { labelKey: "logs.agentTasks.task.HY2_STOP", value: "HY2_STOP" },
+  { labelKey: "logs.agentTasks.task.HY2_RESTART", value: "HY2_RESTART" },
+  { labelKey: "logs.agentTasks.task.HY2_LOGS", value: "HY2_LOGS" },
+  {
+    labelKey: "logs.agentTasks.task.HY2_SELF_UPDATE",
+    value: "HY2_SELF_UPDATE",
+  },
+  { labelKey: "logs.agentTasks.task.AGENT_LOGS", value: "AGENT_LOGS" },
+  { labelKey: "logs.agentTasks.task.AGENT_RESTART", value: "AGENT_RESTART" },
+  { labelKey: "logs.agentTasks.task.APPLY_CONFIG", value: "APPLY_CONFIG" },
+  {
+    labelKey: "logs.agentTasks.task.AGENT_SELF_UPDATE",
+    value: "AGENT_SELF_UPDATE",
+  },
 ]
 
-const statusOptions: Array<{ label: string; value: StatusFilter }> = [
-  { label: "全部状态", value: "all" },
-  { label: "排队中", value: "queued" },
-  { label: "执行中", value: "claimed" },
-  { label: "成功", value: "succeeded" },
-  { label: "失败", value: "failed" },
-  { label: "超时", value: "timeout" },
-  { label: "已取消", value: "cancelled" },
+const statusOptions: Array<{ labelKey: string; value: StatusFilter }> = [
+  { labelKey: "logs.common.allStatuses", value: "all" },
+  { labelKey: "logs.agentTasks.status.queued", value: "queued" },
+  { labelKey: "logs.agentTasks.status.claimed", value: "claimed" },
+  { labelKey: "logs.agentTasks.status.succeeded", value: "succeeded" },
+  { labelKey: "logs.agentTasks.status.failed", value: "failed" },
+  { labelKey: "logs.agentTasks.status.timeout", value: "timeout" },
+  { labelKey: "logs.agentTasks.status.cancelled", value: "cancelled" },
 ]
 
 function formatDate(value: string | null) {
@@ -154,12 +163,12 @@ function renderJsonLike(raw: string | null): string {
   return JSON.stringify(parsed, null, 2)
 }
 
-function parseTaskOutput(row: AgentTaskRow) {
-  return renderAgentTaskOutput(row.result, row.error)
+function parseTaskOutput(t: TFunction, row: AgentTaskRow) {
+  return renderAgentTaskOutput(row.result, row.error, t)
 }
 
-function getTaskSummary(row: AgentTaskRow) {
-  const output = parseTaskOutput(row)
+function getTaskSummary(t: TFunction, row: AgentTaskRow) {
+  const output = parseTaskOutput(t, row)
   if (output) return output.length > 120 ? `${output.slice(0, 120)}...` : output
   if (row.payload) {
     const payload = renderJsonLike(row.payload)
@@ -172,9 +181,13 @@ function isTimedOutTask(row: AgentTaskRow) {
   return row.status === "failed" && isAgentTaskTimeoutError(row.error)
 }
 
-function getTaskStatusLabel(row: AgentTaskRow) {
-  if (isTimedOutTask(row)) return "超时"
-  return TASK_STATUS_LABEL[row.status] ?? row.status
+function getTaskLabel(t: TFunction, type: AgentTaskType) {
+  return t(TASK_LABEL_KEY[type] ?? type)
+}
+
+function getTaskStatusLabel(t: TFunction, row: AgentTaskRow) {
+  if (isTimedOutTask(row)) return t("logs.agentTasks.status.timeout")
+  return t(TASK_STATUS_LABEL_KEY[row.status] ?? row.status)
 }
 
 function statusBadgeClass(row: AgentTaskRow) {
@@ -196,15 +209,16 @@ function OptionCombobox<T extends string>({
   value,
   onChange,
   options,
-  placeholder,
+  placeholderKey,
   className,
 }: {
   value: T
   onChange: (value: T) => void
-  options: Array<{ label: string; value: T }>
-  placeholder: string
+  options: Array<{ labelKey: string; value: T }>
+  placeholderKey: string
   className?: string
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const current = options.find((option) => option.value === value)
 
@@ -216,14 +230,14 @@ function OptionCombobox<T extends string>({
           role="combobox"
           className={cn("justify-between font-normal", className)}
         >
-          {current?.label ?? placeholder}
+          {current ? t(current.labelKey) : t(placeholderKey)}
           <ChevronsUpDown className="size-4 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-56 p-0">
         <Command>
           <CommandList>
-            <CommandEmpty>无匹配项</CommandEmpty>
+            <CommandEmpty>{t("logs.common.noMatches")}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
                 <CommandItem
@@ -235,7 +249,7 @@ function OptionCombobox<T extends string>({
                     setOpen(false)
                   }}
                 >
-                  {option.label}
+                  {t(option.labelKey)}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -257,6 +271,7 @@ function NodeCombobox({
   onChange: (value: string) => void
   className?: string
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const selected = nodes.find((node) => node.name === value)
 
@@ -269,16 +284,18 @@ function NodeCombobox({
           className={cn("justify-between font-normal", className)}
         >
           <span className={selected ? "" : "text-muted-foreground"}>
-            {selected ? `#${selected.id} ${selected.name}` : "全部节点"}
+            {selected
+              ? `#${selected.id} ${selected.name}`
+              : t("logs.common.allNodes")}
           </span>
           <ChevronsUpDown className="size-4 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-65 p-0">
         <Command>
-          <CommandInput placeholder="搜索节点名" />
+          <CommandInput placeholder={t("logs.common.searchNodeName")} />
           <CommandList>
-            <CommandEmpty>无匹配节点</CommandEmpty>
+            <CommandEmpty>{t("logs.common.noMatchingNodes")}</CommandEmpty>
             <CommandGroup>
               <CommandItem
                 value="__clear__"
@@ -288,7 +305,7 @@ function NodeCombobox({
                 }}
               >
                 <X className="size-4 opacity-60" />
-                全部节点
+                {t("logs.common.allNodes")}
               </CommandItem>
               {nodes.map((node) => (
                 <CommandItem
@@ -312,6 +329,7 @@ function NodeCombobox({
 }
 
 export default function AdminAgentTasksPage() {
+  const { t } = useI18n()
   const [rows, setRows] = useState<AgentTaskRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -436,56 +454,59 @@ export default function AdminAgentTasksPage() {
   const columns: ColumnDef<AgentTaskRow>[] = [
     {
       accessorKey: "created_at",
-      header: "创建时间",
+      header: t("logs.common.createdAt"),
       cell: ({ row }) => formatDate(row.original.created_at),
     },
     {
       accessorKey: "node_name",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="节点" />
+        <DataTableColumnHeader column={column} title={t("logs.common.node")} />
       ),
       cell: ({ row }) => row.original.node_name ?? `#${row.original.node_id}`,
     },
     {
       accessorKey: "type",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="任务" />
+        <DataTableColumnHeader column={column} title={t("logs.common.task")} />
       ),
-      cell: ({ row }) => TASK_LABEL[row.original.type] ?? row.original.type,
+      cell: ({ row }) => getTaskLabel(t, row.original.type),
     },
     {
       accessorKey: "status",
-      header: "状态",
+      header: t("logs.common.status"),
       cell: ({ row }) => (
         <Badge className={cn(statusBadgeClass(row.original))}>
-          {getTaskStatusLabel(row.original)}
+          {getTaskStatusLabel(t, row.original)}
         </Badge>
       ),
     },
     {
       accessorKey: "created_by_username",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="创建者" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("logs.common.creator")}
+        />
       ),
       cell: ({ row }) => row.original.created_by_username ?? "-",
     },
     {
       id: "finished_at",
-      header: "完成时间",
+      header: t("logs.common.finishedAt"),
       cell: ({ row }) => formatDate(row.original.finished_at),
     },
     {
       id: "summary",
-      header: "结果摘要",
+      header: t("logs.common.resultSummary"),
       cell: ({ row }) => (
         <span className="line-clamp-2 max-w-90 font-mono text-xs whitespace-pre-wrap">
-          {getTaskSummary(row.original)}
+          {getTaskSummary(t, row.original)}
         </span>
       ),
     },
     {
-      id: "操作",
-      header: "操作",
+      id: "actions",
+      header: t("logs.common.actions"),
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => (
@@ -495,7 +516,7 @@ export default function AdminAgentTasksPage() {
           variant="outline"
           onClick={() => setActiveRow(row.original)}
         >
-          详情
+          {t("logs.common.details")}
         </Button>
       ),
     },
@@ -504,15 +525,15 @@ export default function AdminAgentTasksPage() {
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
       <div>
-        <h1 className="text-2xl font-bold">Agent 队列日志</h1>
+        <h1 className="text-2xl font-bold">{t("logs.agentTasks.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          查看所有节点 Agent 任务的排队、领取、执行结果和输出。
+          {t("logs.agentTasks.description")}
         </p>
       </div>
 
       <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
         <div className="space-y-1">
-          <Label>节点</Label>
+          <Label>{t("logs.common.node")}</Label>
           <NodeCombobox
             nodes={nodes}
             value={nodeName}
@@ -521,27 +542,27 @@ export default function AdminAgentTasksPage() {
           />
         </div>
         <div className="space-y-1">
-          <Label>任务类型</Label>
+          <Label>{t("logs.common.taskType")}</Label>
           <OptionCombobox
             value={typeFilter}
             onChange={(next) => void switchType(next)}
             options={taskTypeOptions}
-            placeholder="全部任务"
+            placeholderKey="logs.common.allTasks"
             className="w-full"
           />
         </div>
         <div className="space-y-1">
-          <Label>状态</Label>
+          <Label>{t("logs.common.status")}</Label>
           <OptionCombobox
             value={statusFilter}
             onChange={(next) => void switchStatus(next)}
             options={statusOptions}
-            placeholder="全部状态"
+            placeholderKey="logs.common.allStatuses"
             className="w-full"
           />
         </div>
         <div className="flex items-end gap-2">
-          <Button type="submit">查询</Button>
+          <Button type="submit">{t("logs.common.query")}</Button>
           <Button
             type="button"
             variant="outline"
@@ -552,7 +573,7 @@ export default function AdminAgentTasksPage() {
               void load({ page: 1, nodeName: "", type: "all", status: "all" })
             }}
           >
-            重置
+            {t("logs.common.reset")}
           </Button>
         </div>
       </form>
@@ -584,7 +605,8 @@ function TaskDetailSheet({
   row: AgentTaskRow | null
   onClose: () => void
 }) {
-  const taskOutput = row ? parseAgentTaskOutput(row.result, row.error) : null
+  const { t } = useI18n()
+  const taskOutput = row ? parseAgentTaskOutput(row.result, row.error, t) : null
   const output = taskOutput?.value ?? ""
 
   return (
@@ -596,10 +618,13 @@ function TaskDetailSheet({
     >
       <SheetContent className="data-[side=right]:sm:max-w-3xl">
         <SheetHeader>
-          <SheetTitle>任务详情</SheetTitle>
+          <SheetTitle>{t("logs.agentTasks.detailTitle")}</SheetTitle>
           <SheetDescription>
             {row
-              ? `#${row.id} · ${TASK_LABEL[row.type] ?? row.type} · ${row.node_name ?? `节点 #${row.node_id}`}`
+              ? `#${row.id} · ${getTaskLabel(t, row.type)} · ${
+                  row.node_name ??
+                  t("logs.agentTasks.nodeFallback", { id: row.node_id })
+                }`
               : ""}
           </SheetDescription>
         </SheetHeader>
@@ -607,55 +632,65 @@ function TaskDetailSheet({
           {row ? (
             <div className="grid gap-4 text-sm">
               <div className="grid gap-3 md:grid-cols-2">
-                <DetailField label="节点" value={row.node_name ?? "-"} />
-                <DetailField label="节点 ID" value={String(row.node_id)} mono />
                 <DetailField
-                  label="任务"
-                  value={TASK_LABEL[row.type] ?? row.type}
+                  label={t("logs.common.node")}
+                  value={row.node_name ?? "-"}
                 />
-                <DetailField label="状态" value={getTaskStatusLabel(row)} />
                 <DetailField
-                  label="创建者"
+                  label={t("logs.common.nodeId")}
+                  value={String(row.node_id)}
+                  mono
+                />
+                <DetailField
+                  label={t("logs.common.task")}
+                  value={getTaskLabel(t, row.type)}
+                />
+                <DetailField
+                  label={t("logs.common.status")}
+                  value={getTaskStatusLabel(t, row)}
+                />
+                <DetailField
+                  label={t("logs.common.creator")}
                   value={row.created_by_username ?? "-"}
                 />
                 <DetailField
-                  label="创建时间"
+                  label={t("logs.common.createdAt")}
                   value={formatDate(row.created_at)}
                 />
                 <DetailField
-                  label="领取时间"
+                  label={t("logs.common.claimedAt")}
                   value={formatDate(row.claimed_at)}
                 />
                 <DetailField
-                  label="租约到期"
+                  label={t("logs.common.leaseExpiresAt")}
                   value={formatDate(row.lease_expires_at)}
                 />
                 <DetailField
-                  label="完成时间"
+                  label={t("logs.common.finishedAt")}
                   value={formatDate(row.finished_at)}
                 />
                 <DetailField
-                  label="更新时间"
+                  label={t("logs.common.updatedAt")}
                   value={formatDate(row.updated_at)}
                 />
               </div>
 
               {row.payload ? (
                 <DetailBlock
-                  title="任务参数"
+                  title={t("logs.agentTasks.taskParams")}
                   value={renderJsonLike(row.payload)}
                 />
               ) : null}
               {output ? (
                 <DetailBlock
-                  title="执行输出"
+                  title={t("logs.agentTasks.executionOutput")}
                   value={output}
                   logEntries={taskOutput?.logEntries}
                 />
               ) : null}
               {row.result && row.error ? (
                 <DetailBlock
-                  title="错误信息"
+                  title={t("logs.agentTasks.errorInfo")}
                   value={renderJsonLike(row.error)}
                 />
               ) : null}
@@ -732,6 +767,8 @@ function LogLevelBadge({ level }: { level?: string }) {
 }
 
 function AgentLogTable({ entries }: { entries: AgentLogEntry[] }) {
+  const { t } = useI18n()
+
   return (
     <div className="max-h-105 overflow-auto">
       <Table className="min-w-[920px] table-fixed text-xs [&_td]:px-2 [&_td]:py-1.5 [&_th]:px-2 [&_th]:py-1.5">
@@ -746,13 +783,13 @@ function AgentLogTable({ entries }: { entries: AgentLogEntry[] }) {
         </colgroup>
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
-            <TableHead>时间</TableHead>
-            <TableHead>级别</TableHead>
-            <TableHead>事件</TableHead>
-            <TableHead>用户</TableHead>
-            <TableHead>来源</TableHead>
-            <TableHead>目标</TableHead>
-            <TableHead>错误 / 详情</TableHead>
+            <TableHead>{t("logs.common.time")}</TableHead>
+            <TableHead>{t("logs.common.level")}</TableHead>
+            <TableHead>{t("logs.common.event")}</TableHead>
+            <TableHead>{t("logs.common.user")}</TableHead>
+            <TableHead>{t("logs.common.source")}</TableHead>
+            <TableHead>{t("logs.common.destination")}</TableHead>
+            <TableHead>{t("logs.common.errorDetails")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

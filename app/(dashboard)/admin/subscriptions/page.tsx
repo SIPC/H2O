@@ -14,6 +14,7 @@ import { Line, LineChart, XAxis } from "recharts"
 
 import { Badge } from "@/components/ui/badge"
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -79,22 +80,22 @@ type HourPoint = {
   rxBytes: number
 }
 
-const statusOptions: Array<{ label: string; value: SubscriptionStatus }> = [
-  { label: "启用 (active)", value: "active" },
-  { label: "过期 (expired)", value: "expired" },
-  { label: "封禁 (blocked)", value: "blocked" },
+const statusOptions: Array<{ labelKey: string; value: SubscriptionStatus }> = [
+  { labelKey: "adminBasic.status.activeOption", value: "active" },
+  { labelKey: "adminBasic.status.expiredOption", value: "expired" },
+  { labelKey: "adminBasic.status.blockedOption", value: "blocked" },
 ]
 
-const statusLabel: Record<SubscriptionStatus, string> = {
-  active: "启用",
-  expired: "过期",
-  blocked: "封禁",
+const statusLabelKey: Record<SubscriptionStatus, string> = {
+  active: "adminBasic.status.enabled",
+  expired: "adminBasic.status.expired",
+  blocked: "adminBasic.status.blocked",
 }
 
-const TRAFFIC_BILLING_LABEL: Record<TrafficBillingMode, string> = {
-  tx_rx: "上行 + 下行",
-  tx: "仅上行",
-  rx: "仅下行",
+const TRAFFIC_BILLING_LABEL_KEY: Record<TrafficBillingMode, string> = {
+  tx_rx: "adminBasic.trafficBilling.txRx",
+  tx: "adminBasic.trafficBilling.tx",
+  rx: "adminBasic.trafficBilling.rx",
 }
 
 function normalizeTrafficBillingMode(
@@ -103,32 +104,17 @@ function normalizeTrafficBillingMode(
   return value === "tx" || value === "rx" ? value : "tx_rx"
 }
 
-function formatTrafficBillingMode(value: string | null | undefined) {
-  return TRAFFIC_BILLING_LABEL[normalizeTrafficBillingMode(value)]
+function trafficBillingModeKey(value: string | null | undefined) {
+  return TRAFFIC_BILLING_LABEL_KEY[normalizeTrafficBillingMode(value)]
 }
 
 const HISTORY_CHUNK_SIZE = 200
 const EMPTY_HISTORY: HourPoint[] = []
 
-const TX_SPARK_CONFIG = {
-  txBytes: {
-    label: "总出",
-    theme: {
-      light: "#171717",
-      dark: "#ffffff",
-    },
-  },
-} satisfies ChartConfig
-
-const RX_SPARK_CONFIG = {
-  rxBytes: {
-    label: "总入",
-    theme: {
-      light: "#171717",
-      dark: "#ffffff",
-    },
-  },
-} satisfies ChartConfig
+const MONO_SPARK_THEME = {
+  light: "#171717",
+  dark: "#ffffff",
+} as const
 
 // 字节数按单位自适应：B/KB/MB/GB/TB/PB
 function formatBytes(bytes: number): string {
@@ -215,8 +201,21 @@ const SubscriptionHistorySpark = memo(function SubscriptionHistorySpark({
   hourly: HourPoint[]
   dataKey: "txBytes" | "rxBytes"
 }) {
+  const { t } = useI18n()
   const data = hourly
-  const config = dataKey === "txBytes" ? TX_SPARK_CONFIG : RX_SPARK_CONFIG
+  const config = useMemo<ChartConfig>(
+    () => ({
+      [dataKey]: {
+        label: t(
+          dataKey === "txBytes"
+            ? "adminSubscriptions.chart.tx"
+            : "adminSubscriptions.chart.rx"
+        ),
+        theme: MONO_SPARK_THEME,
+      },
+    }),
+    [dataKey, t]
+  )
 
   return (
     <ChartContainer config={config} className="aspect-auto h-7 w-40">
@@ -292,6 +291,8 @@ function SubscriptionForm({
   submitLabel: string
   onCancel?: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <form
       className="space-y-4 **:data-[slot=label]:text-xs"
@@ -301,20 +302,22 @@ function SubscriptionForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            基础信息
+            {t("adminSubscriptions.form.basicInfo")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {!isEdit && (
             <>
               <div className="space-y-1">
-                <Label>用户</Label>
+                <Label>{t("adminSubscriptions.form.user")}</Label>
                 <Select
                   value={userId !== null ? String(userId) : ""}
                   onValueChange={(v) => setUserId(Number(v))}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择用户" />
+                    <SelectValue
+                      placeholder={t("adminSubscriptions.form.userPlaceholder")}
+                    />
                   </SelectTrigger>
                   <SelectContent position="popper">
                     <SelectGroup>
@@ -328,13 +331,15 @@ function SubscriptionForm({
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>套餐</Label>
+                <Label>{t("adminSubscriptions.form.plan")}</Label>
                 <Select
                   value={planId !== null ? String(planId) : ""}
                   onValueChange={(v) => setPlanId(Number(v))}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="选择套餐" />
+                    <SelectValue
+                      placeholder={t("adminSubscriptions.form.planPlaceholder")}
+                    />
                   </SelectTrigger>
                   <SelectContent position="popper">
                     <SelectGroup>
@@ -352,7 +357,7 @@ function SubscriptionForm({
           {isEdit && (
             <>
               <div className="space-y-1">
-                <Label>状态</Label>
+                <Label>{t("adminSubscriptions.form.status")}</Label>
                 <div className="flex gap-2">
                   {statusOptions.map((option) => (
                     <Button
@@ -362,13 +367,13 @@ function SubscriptionForm({
                       size="sm"
                       onClick={() => setStatus(option.value)}
                     >
-                      {option.label}
+                      {t(option.labelKey)}
                     </Button>
                   ))}
                 </div>
               </div>
               <div className="space-y-1">
-                <Label>到期时间</Label>
+                <Label>{t("adminSubscriptions.form.expiresAt")}</Label>
                 <Input
                   type="datetime-local"
                   value={editExpire}
@@ -378,7 +383,7 @@ function SubscriptionForm({
                 />
               </div>
               <div className="space-y-1">
-                <Label>已用流量 (bytes)</Label>
+                <Label>{t("adminSubscriptions.form.usedTrafficBytes")}</Label>
                 <Input
                   value={editUsed}
                   onChange={(e) => setEditUsed(e.target.value)}
@@ -394,7 +399,7 @@ function SubscriptionForm({
         <Button type="submit">{submitLabel}</Button>
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel}>
-            取消
+            {t("common.cancel")}
           </Button>
         )}
       </div>
@@ -404,6 +409,7 @@ function SubscriptionForm({
 
 export default function AdminSubscriptionsPage() {
   const { confirm, alert } = useConfirm()
+  const { locale, t } = useI18n()
   const [rows, setRows] = useState<Row[]>([])
   const [users, setUsers] = useState<UserRow[]>([])
   const [plans, setPlans] = useState<PlanRow[]>([])
@@ -545,8 +551,8 @@ export default function AdminSubscriptionsPage() {
     event.preventDefault()
     if (userId === null || planId === null) {
       await alert({
-        title: "请选择用户和套餐",
-        description: "创建订阅前必须同时选择目标用户与套餐。",
+        title: t("adminSubscriptions.createMissing.title"),
+        description: t("adminSubscriptions.createMissing.description"),
       })
       return
     }
@@ -604,9 +610,12 @@ export default function AdminSubscriptionsPage() {
 
   async function remove(row: Row) {
     const ok = await confirm({
-      title: `删除订阅 #${row.id}？`,
-      description: `用户 ${row.username} / 套餐 ${row.plan_name}；该订阅删除后节点无法再通过它认证。`,
-      confirmText: "删除",
+      title: t("adminSubscriptions.delete.confirmTitle", { id: row.id }),
+      description: t("adminSubscriptions.delete.confirmDescription", {
+        username: row.username,
+        plan: row.plan_name,
+      }),
+      confirmText: t("common.delete"),
       variant: "destructive",
     })
     if (!ok) return
@@ -617,8 +626,8 @@ export default function AdminSubscriptionsPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) {
       await alert({
-        title: "删除失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("adminSubscriptions.delete.failedTitle"),
+        description: json?.error?.message ?? t("common.retryLater"),
         variant: "destructive",
       })
       return
@@ -642,62 +651,80 @@ export default function AdminSubscriptionsPage() {
     {
       accessorKey: "id",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="ID" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.id")}
+        />
       ),
-      meta: { label: "ID" },
+      meta: { label: t("adminBasic.label.id") },
     },
     {
       accessorKey: "username",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="用户" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.user")}
+        />
       ),
       cell: ({ row }) => (
         <span className="font-medium">{row.original.username}</span>
       ),
-      meta: { label: "用户" },
+      meta: { label: t("adminBasic.label.user") },
     },
     {
       accessorKey: "plan_name",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="套餐" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.plan")}
+        />
       ),
       filterFn: "arrIncludesSome" as const,
-      meta: { label: "套餐" },
+      meta: { label: t("adminBasic.label.plan") },
     },
     {
       accessorKey: "used_traffic_bytes",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="已用流量" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.usedTraffic")}
+        />
       ),
       cell: ({ row }) => formatBytes(row.original.used_traffic_bytes),
-      meta: { label: "已用流量" },
+      meta: { label: t("adminBasic.label.usedTraffic") },
     },
     {
       accessorKey: "traffic_limit_bytes",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="流量上限" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.trafficLimit")}
+        />
       ),
       cell: ({ row }) => formatBytes(row.original.traffic_limit_bytes),
-      meta: { label: "流量上限" },
+      meta: { label: t("adminBasic.label.trafficLimit") },
     },
     {
       id: "traffic_billing_mode",
       accessorFn: (row) =>
         normalizeTrafficBillingMode(row.traffic_billing_mode),
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="计费方式" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.billingMode")}
+        />
       ),
       cell: ({ row }) => (
         <Badge>
-          {formatTrafficBillingMode(row.original.traffic_billing_mode)}
+          {t(trafficBillingModeKey(row.original.traffic_billing_mode))}
         </Badge>
       ),
       filterFn: "arrIncludesSome" as const,
-      meta: { label: "计费方式" },
+      meta: { label: t("adminBasic.label.billingMode") },
     },
     {
       id: "tx_history",
-      header: "总出历史",
+      header: t("adminSubscriptions.table.txHistory"),
       enableSorting: false,
       cell: ({ row }) => {
         const hourly = historyBySub[row.original.id] ?? EMPTY_HISTORY
@@ -710,7 +737,7 @@ export default function AdminSubscriptionsPage() {
     },
     {
       id: "rx_history",
-      header: "总入历史",
+      header: t("adminSubscriptions.table.rxHistory"),
       enableSorting: false,
       cell: ({ row }) => {
         const hourly = historyBySub[row.original.id] ?? EMPTY_HISTORY
@@ -724,7 +751,10 @@ export default function AdminSubscriptionsPage() {
     {
       accessorKey: "status",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="状态" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.status")}
+        />
       ),
       cell: ({ row }) => (
         <Badge
@@ -736,22 +766,27 @@ export default function AdminSubscriptionsPage() {
                 : "bg-muted text-muted-foreground"
           }
         >
-          {statusLabel[row.original.status] ?? row.original.status}
+          {statusLabelKey[row.original.status]
+            ? t(statusLabelKey[row.original.status])
+            : row.original.status}
         </Badge>
       ),
       filterFn: "arrIncludesSome" as const,
-      meta: { label: "状态" },
+      meta: { label: t("adminBasic.label.status") },
     },
     {
       accessorKey: "expire_time",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="到期时间" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("adminBasic.label.expiresAt")}
+        />
       ),
       cell: ({ row }) =>
         new Date(row.original.expire_time).getFullYear() >= 9999
           ? "—"
-          : new Date(row.original.expire_time).toLocaleString(),
-      meta: { label: "到期时间" },
+          : new Date(row.original.expire_time).toLocaleString(locale),
+      meta: { label: t("adminBasic.label.expiresAt") },
     },
     {
       id: "actions",
@@ -767,7 +802,7 @@ export default function AdminSubscriptionsPage() {
           <DropdownMenuContent align="end">
             <DropdownMenuItem onClick={() => startEdit(row.original)}>
               <Pencil className="mr-2 h-4 w-4" />
-              编辑
+              {t("adminBasic.action.edit")}
             </DropdownMenuItem>
             {row.original.status === "blocked" ? (
               <DropdownMenuItem
@@ -776,7 +811,7 @@ export default function AdminSubscriptionsPage() {
                 }
               >
                 <ShieldCheck className="mr-2 h-4 w-4" />
-                解封
+                {t("adminBasic.action.unblock")}
               </DropdownMenuItem>
             ) : (
               <DropdownMenuItem
@@ -785,7 +820,7 @@ export default function AdminSubscriptionsPage() {
                 }
               >
                 <ShieldBan className="mr-2 h-4 w-4" />
-                封禁
+                {t("adminBasic.action.block")}
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
@@ -794,7 +829,7 @@ export default function AdminSubscriptionsPage() {
               onClick={() => void remove(row.original)}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              删除
+              {t("adminBasic.action.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -807,22 +842,26 @@ export default function AdminSubscriptionsPage() {
       {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">订阅管理</h1>
+          <h1 className="text-2xl font-bold">
+            {t("adminSubscriptions.title")}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            共 {rows.length} 个订阅
+            {t("adminSubscriptions.count", { count: rows.length })}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="mr-1.5 h-4 w-4" />
-          添加订阅
+          {t("adminSubscriptions.add")}
         </Button>
       </div>
 
       {/* 订阅列表 */}
       {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p className="text-sm">暂无订阅</p>
-          <p className="mt-1 text-xs">点击右上角「添加订阅」创建第一个订阅</p>
+          <p className="text-sm">{t("adminSubscriptions.empty.title")}</p>
+          <p className="mt-1 text-xs">
+            {t("adminSubscriptions.empty.description")}
+          </p>
         </Card>
       ) : (
         <DataTable
@@ -835,7 +874,7 @@ export default function AdminSubscriptionsPage() {
           renderToolbar={(table) => (
             <>
               <Input
-                placeholder="搜索用户名…"
+                placeholder={t("adminSubscriptions.searchPlaceholder")}
                 value={
                   (table.getColumn("username")?.getFilterValue() as string) ??
                   ""
@@ -847,25 +886,28 @@ export default function AdminSubscriptionsPage() {
               />
               <DataTableFacetedFilter
                 column={table.getColumn("plan_name")}
-                title="套餐"
+                title={t("adminBasic.label.plan")}
                 options={planOptions}
               />
               <DataTableFacetedFilter
                 column={table.getColumn("traffic_billing_mode")}
-                title="计费方式"
+                title={t("adminBasic.label.billingMode")}
                 options={[
-                  { label: "上行 + 下行", value: "tx_rx" },
-                  { label: "仅上行", value: "tx" },
-                  { label: "仅下行", value: "rx" },
+                  {
+                    label: t("adminBasic.trafficBilling.txRx"),
+                    value: "tx_rx",
+                  },
+                  { label: t("adminBasic.trafficBilling.tx"), value: "tx" },
+                  { label: t("adminBasic.trafficBilling.rx"), value: "rx" },
                 ]}
               />
               <DataTableFacetedFilter
                 column={table.getColumn("status")}
-                title="状态"
+                title={t("adminBasic.label.status")}
                 options={[
-                  { label: "启用", value: "active" },
-                  { label: "过期", value: "expired" },
-                  { label: "封禁", value: "blocked" },
+                  { label: t("adminBasic.status.enabled"), value: "active" },
+                  { label: t("adminBasic.status.expired"), value: "expired" },
+                  { label: t("adminBasic.status.blocked"), value: "blocked" },
                 ]}
               />
               <DataTableViewOptions table={table} />
@@ -884,8 +926,10 @@ export default function AdminSubscriptionsPage() {
       >
         <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
-            <SheetTitle>添加订阅</SheetTitle>
-            <SheetDescription>选择用户和套餐，创建新的订阅。</SheetDescription>
+            <SheetTitle>{t("adminSubscriptions.create.title")}</SheetTitle>
+            <SheetDescription>
+              {t("adminSubscriptions.create.description")}
+            </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             <SubscriptionForm
@@ -904,7 +948,7 @@ export default function AdminSubscriptionsPage() {
               setEditUsed={() => {}}
               isPermanent={false}
               onSubmit={create}
-              submitLabel="创建订阅"
+              submitLabel={t("adminSubscriptions.create.submit")}
             />
           </div>
         </SheetContent>
@@ -920,10 +964,12 @@ export default function AdminSubscriptionsPage() {
         <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>
-              编辑订阅{" "}
+              {t("adminSubscriptions.edit.title")}{" "}
               {editingRow ? `#${editingRow.id} (${editingRow.username})` : ""}
             </SheetTitle>
-            <SheetDescription>修改订阅配置，保存后立即生效。</SheetDescription>
+            <SheetDescription>
+              {t("adminSubscriptions.edit.description")}
+            </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             <SubscriptionForm
@@ -942,7 +988,7 @@ export default function AdminSubscriptionsPage() {
               setEditUsed={setEditUsed}
               isPermanent={editIsPermanent}
               onSubmit={submitEdit}
-              submitLabel="保存修改"
+              submitLabel={t("adminSubscriptions.edit.submit")}
               onCancel={() => setEditingRow(null)}
             />
           </div>

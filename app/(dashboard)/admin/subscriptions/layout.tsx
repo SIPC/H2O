@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
+import { createLocalizedMetadata } from "@/lib/i18n/metadata"
 
-export const metadata: Metadata = {
-  title: "订阅管理",
+export function generateMetadata(): Promise<Metadata> {
+  return createLocalizedMetadata("metadata.admin.subscriptions")
 }
 
 export default function AdminSubscriptionsLayout({

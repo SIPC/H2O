@@ -5,6 +5,9 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
+import { useI18n } from "@/components/i18n-provider"
+import type { Locale } from "@/lib/i18n/locales"
+import { translateText } from "@/lib/i18n/messages"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -42,98 +45,100 @@ type NotificationRow = {
   detail: string | null
 }
 
-type SelectOption = { label: string; value: string }
+type SelectOption = { labelKey: string; value: string }
+
+type TFunction = ReturnType<typeof useI18n>["t"]
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 
-const channelLabel: Record<string, string> = {
-  telegram: "Telegram",
-  system: "系统",
+const channelLabelKey: Record<string, string> = {
+  telegram: "logs.notifications.channel.telegram",
+  system: "logs.notifications.channel.system",
 }
 
-const eventLabel: Record<string, string> = {
-  NODE_STATUS: "节点上下线",
-  HY2_STATUS: "Hy2 状态",
-  SUBSCRIPTION_TRAFFIC_EXCEEDED: "订阅流量超限",
-  HOST_TRAFFIC_EXCEEDED: "节点流量超限",
-  AGENT_TASK_FAILED: "Agent 任务失败",
-  TEST: "测试通知",
+const eventLabelKey: Record<string, string> = {
+  NODE_STATUS: "logs.notifications.event.NODE_STATUS",
+  HY2_STATUS: "logs.notifications.event.HY2_STATUS",
+  SUBSCRIPTION_TRAFFIC_EXCEEDED:
+    "logs.notifications.event.SUBSCRIPTION_TRAFFIC_EXCEEDED",
+  HOST_TRAFFIC_EXCEEDED: "logs.notifications.event.HOST_TRAFFIC_EXCEEDED",
+  AGENT_TASK_FAILED: "logs.notifications.event.AGENT_TASK_FAILED",
+  TEST: "logs.notifications.event.TEST",
 }
 
-const levelLabel: Record<string, string> = {
-  info: "信息",
-  success: "恢复",
-  warning: "告警",
-  error: "错误",
-}
-
-const reasonLabel: Record<string, string> = {
-  OK: "成功",
-  TELEGRAM_DISABLED: "Telegram 未启用",
-  TELEGRAM_CONFIG_MISSING: "Telegram 配置缺失",
-  TELEGRAM_API_ERROR: "Telegram API 错误",
-  TELEGRAM_TIMEOUT: "Telegram 请求超时",
-  TELEGRAM_NETWORK_ERROR: "Telegram 网络错误",
-  INVALID_CONFIG: "Telegram 配置非法",
-  CONFIG_MISSING: "Telegram 配置缺失",
-  NODE_OFFLINE: "节点离线",
-  NODE_ONLINE: "节点上线",
-  HY2_FAILED: "Hy2 异常",
-  HY2_RECOVERED: "Hy2 恢复",
-  TRAFFIC_EXCEEDED: "流量超限",
-  AGENT_TASK_FAILED: "Agent 任务失败",
-  INTERNAL: "内部错误",
-}
-
-const detailLabel: Record<string, string> = {
-  node_id: "节点 ID",
-  node_name: "节点名",
-  user_id: "用户 ID",
-  username: "用户名",
-  subscription_id: "订阅 ID",
-  used_traffic_bytes: "已用流量",
-  traffic_limit_bytes: "流量上限",
-  next_usage_bytes: "新用量",
-  billable_delta_bytes: "计费增量",
-  host_traffic_used_bytes: "节点已用流量",
-  host_traffic_limit_bytes: "节点流量上限",
-  task_id: "任务 ID",
-  task_type: "任务类型",
-  error: "错误",
+const levelLabelKey: Record<string, string> = {
+  info: "logs.notifications.level.info",
+  success: "logs.notifications.level.success",
+  warning: "logs.notifications.level.warning",
+  error: "logs.notifications.level.error",
 }
 
 const channelOptions: SelectOption[] = [
-  { label: "全部渠道", value: "all" },
-  { label: "Telegram", value: "telegram" },
-  { label: "系统", value: "system" },
+  { labelKey: "logs.notifications.allChannels", value: "all" },
+  { labelKey: "logs.notifications.channel.telegram", value: "telegram" },
+  { labelKey: "logs.notifications.channel.system", value: "system" },
 ]
 
 const eventOptions: SelectOption[] = [
-  { label: "全部事件", value: "all" },
-  { label: "节点上下线", value: "NODE_STATUS" },
-  { label: "Hy2 状态", value: "HY2_STATUS" },
-  { label: "订阅流量超限", value: "SUBSCRIPTION_TRAFFIC_EXCEEDED" },
-  { label: "节点流量超限", value: "HOST_TRAFFIC_EXCEEDED" },
-  { label: "Agent 任务失败", value: "AGENT_TASK_FAILED" },
-  { label: "测试通知", value: "TEST" },
+  { labelKey: "logs.common.allEvents", value: "all" },
+  { labelKey: "logs.notifications.event.NODE_STATUS", value: "NODE_STATUS" },
+  { labelKey: "logs.notifications.event.HY2_STATUS", value: "HY2_STATUS" },
+  {
+    labelKey: "logs.notifications.event.SUBSCRIPTION_TRAFFIC_EXCEEDED",
+    value: "SUBSCRIPTION_TRAFFIC_EXCEEDED",
+  },
+  {
+    labelKey: "logs.notifications.event.HOST_TRAFFIC_EXCEEDED",
+    value: "HOST_TRAFFIC_EXCEEDED",
+  },
+  {
+    labelKey: "logs.notifications.event.AGENT_TASK_FAILED",
+    value: "AGENT_TASK_FAILED",
+  },
+  { labelKey: "logs.notifications.event.TEST", value: "TEST" },
 ]
 
 const levelOptions: SelectOption[] = [
-  { label: "全部级别", value: "all" },
-  { label: "信息", value: "info" },
-  { label: "恢复", value: "success" },
-  { label: "告警", value: "warning" },
-  { label: "错误", value: "error" },
+  { labelKey: "logs.notifications.allLevels", value: "all" },
+  { labelKey: "logs.notifications.level.info", value: "info" },
+  { labelKey: "logs.notifications.level.success", value: "success" },
+  { labelKey: "logs.notifications.level.warning", value: "warning" },
+  { labelKey: "logs.notifications.level.error", value: "error" },
 ]
 
 const successOptions: SelectOption[] = [
-  { label: "全部结果", value: "all" },
-  { label: "成功", value: "1" },
-  { label: "失败", value: "0" },
+  { labelKey: "logs.common.allResults", value: "all" },
+  { labelKey: "logs.common.success", value: "1" },
+  { labelKey: "logs.common.failure", value: "0" },
 ]
 
 function formatDate(value: string) {
   return new Date(value.endsWith("Z") ? value : `${value}Z`).toLocaleString()
+}
+
+function getChannelLabel(t: TFunction, channel: string) {
+  return t(channelLabelKey[channel] ?? channel)
+}
+
+function getEventLabel(t: TFunction, event: string) {
+  return t(eventLabelKey[event] ?? event)
+}
+
+function getLevelLabel(t: TFunction, level: string) {
+  return t(levelLabelKey[level] ?? level)
+}
+
+function getReasonLabel(t: TFunction, reason: string | null | undefined) {
+  if (!reason) return "-"
+  const key = `logs.reason.${reason}`
+  const label = t(key)
+  return label === key ? reason : label
+}
+
+function getNotificationDetailLabel(t: TFunction, key: string) {
+  const labelKey = `logs.notifications.detail.${key}`
+  const label = t(labelKey)
+  return label === labelKey ? key : label
 }
 
 function parseDetail(detail: string | null): Array<[string, unknown]> | null {
@@ -146,9 +151,18 @@ function parseDetail(detail: string | null): Array<[string, unknown]> | null {
   }
 }
 
-function renderDetailValue(value: unknown): string {
+function translateNotificationText(locale: Locale, text: string) {
+  return text
+    .split("\n")
+    .map((line) => translateText(line, locale))
+    .join("\n")
+}
+
+function renderDetailValue(t: TFunction, value: unknown): string {
   if (value === null || value === undefined) return "-"
-  if (typeof value === "boolean") return value ? "是" : "否"
+  if (typeof value === "boolean") {
+    return value ? t("logs.common.yes") : t("logs.common.no")
+  }
   if (typeof value === "object") return JSON.stringify(value, null, 2)
   return String(value)
 }
@@ -171,6 +185,8 @@ function FilterSelect({
   options: SelectOption[]
   onChange: (value: string) => void
 }) {
+  const { t } = useI18n()
+
   return (
     <div className="flex flex-col gap-1">
       <Label>{label}</Label>
@@ -182,7 +198,7 @@ function FilterSelect({
           <SelectGroup>
             {options.map((option) => (
               <SelectItem key={option.value} value={option.value}>
-                {option.label}
+                {t(option.labelKey)}
               </SelectItem>
             ))}
           </SelectGroup>
@@ -193,6 +209,7 @@ function FilterSelect({
 }
 
 export default function AdminNotificationsPage() {
+  const { locale, t } = useI18n()
   const [rows, setRows] = useState<NotificationRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -335,18 +352,21 @@ export default function AdminNotificationsPage() {
       })
       const json = await response.json()
       if (!response.ok || !json?.ok) {
-        toast.error("检查失败", {
-          description: json?.error?.message ?? "请稍后重试",
+        toast.error(t("logs.notifications.checkFailed"), {
+          description: json?.error?.message ?? t("logs.common.retryLater"),
         })
         return
       }
-      toast.success("检查完成", {
-        description: `处理 ${json.data?.processed ?? 0} 条，发送 ${json.data?.sent ?? 0} 条`,
+      toast.success(t("logs.notifications.checkCompleted"), {
+        description: t("logs.notifications.checkCompletedDescription", {
+          processed: json.data?.processed ?? 0,
+          sent: json.data?.sent ?? 0,
+        }),
       })
       await load({ page: 1 })
     } catch {
-      toast.error("检查失败", {
-        description: "网络错误，请稍后重试",
+      toast.error(t("logs.notifications.checkFailed"), {
+        description: t("logs.common.networkError"),
       })
     } finally {
       setChecking(false)
@@ -358,79 +378,87 @@ export default function AdminNotificationsPage() {
   const columns: ColumnDef<NotificationRow>[] = [
     {
       accessorKey: "created_at",
-      header: "时间",
+      header: t("logs.common.time"),
       cell: ({ row }) => formatDate(row.original.created_at),
     },
     {
       accessorKey: "channel",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="渠道" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("logs.common.channel")}
+        />
       ),
       cell: ({ row }) => (
-        <Badge>
-          {channelLabel[row.original.channel] ?? row.original.channel}
-        </Badge>
+        <Badge>{getChannelLabel(t, row.original.channel)}</Badge>
       ),
     },
     {
       accessorKey: "event",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="事件" />
+        <DataTableColumnHeader column={column} title={t("logs.common.event")} />
       ),
-      cell: ({ row }) => eventLabel[row.original.event] ?? row.original.event,
+      cell: ({ row }) => getEventLabel(t, row.original.event),
     },
     {
       accessorKey: "level",
-      header: "级别",
+      header: t("logs.common.level"),
       cell: ({ row }) => (
         <Badge className={levelBadgeClass(row.original.level)}>
-          {levelLabel[row.original.level] ?? row.original.level}
+          {getLevelLabel(t, row.original.level)}
         </Badge>
       ),
     },
     {
       accessorKey: "title",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="内容" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("logs.common.content")}
+        />
       ),
       cell: ({ row }) => (
         <div className="flex max-w-80 flex-col gap-0.5">
-          <span className="truncate font-medium">{row.original.title}</span>
+          <span className="truncate font-medium">
+            {translateNotificationText(locale, row.original.title)}
+          </span>
           <span className="truncate text-xs text-muted-foreground">
-            {row.original.message}
+            {translateNotificationText(locale, row.original.message)}
           </span>
         </div>
       ),
     },
     {
       accessorKey: "target",
-      header: "目标",
+      header: t("logs.common.target"),
       cell: ({ row }) => row.original.target ?? "-",
     },
     {
       accessorKey: "success",
-      header: "结果",
+      header: t("logs.common.result"),
       cell: ({ row }) =>
         row.original.success === 1 ? (
-          <Badge className="bg-primary/15 text-primary">成功</Badge>
+          <Badge className="bg-primary/15 text-primary">
+            {t("logs.common.success")}
+          </Badge>
         ) : (
-          <Badge className="bg-destructive/15 text-destructive">失败</Badge>
+          <Badge className="bg-destructive/15 text-destructive">
+            {t("logs.common.failure")}
+          </Badge>
         ),
     },
     {
       accessorKey: "reason",
-      header: "原因",
+      header: t("logs.common.reason"),
       cell: ({ row }) => (
         <span className="text-xs">
-          {row.original.reason
-            ? (reasonLabel[row.original.reason] ?? row.original.reason)
-            : "-"}
+          {getReasonLabel(t, row.original.reason)}
         </span>
       ),
     },
     {
-      id: "操作",
-      header: "操作",
+      id: "actions",
+      header: t("logs.common.actions"),
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => (
@@ -440,7 +468,7 @@ export default function AdminNotificationsPage() {
           variant="outline"
           onClick={() => setActiveRow(row.original)}
         >
-          详情
+          {t("logs.common.details")}
         </Button>
       ),
     },
@@ -450,10 +478,11 @@ export default function AdminNotificationsPage() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">通知历史</h1>
+          <h1 className="text-2xl font-bold">
+            {t("logs.notifications.title")}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            查看 Telegram Bot
-            等渠道的通知投递记录，后续节点告警会统一汇总在这里。
+            {t("logs.notifications.description")}
           </p>
         </div>
         <Button
@@ -462,48 +491,50 @@ export default function AdminNotificationsPage() {
           disabled={checking}
           onClick={() => void runCheckNow()}
         >
-          {checking ? "检查中..." : "立即检查"}
+          {checking
+            ? t("logs.notifications.checking")
+            : t("logs.notifications.checkNow")}
         </Button>
       </div>
 
       <form className="grid gap-3 md:grid-cols-6" onSubmit={submit}>
         <div className="flex flex-col gap-1 md:col-span-2">
-          <Label htmlFor="notification_query">搜索</Label>
+          <Label htmlFor="notification_query">{t("logs.common.search")}</Label>
           <Input
             id="notification_query"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="标题、内容、目标或原因"
+            placeholder={t("logs.notifications.searchPlaceholder")}
           />
         </div>
         <FilterSelect
-          label="渠道"
+          label={t("logs.common.channel")}
           value={channelFilter}
           options={channelOptions}
           onChange={(next) => void switchChannel(next)}
         />
         <FilterSelect
-          label="事件"
+          label={t("logs.common.event")}
           value={eventFilter}
           options={eventOptions}
           onChange={(next) => void switchEvent(next)}
         />
         <FilterSelect
-          label="级别"
+          label={t("logs.common.level")}
           value={levelFilter}
           options={levelOptions}
           onChange={(next) => void switchLevel(next)}
         />
         <FilterSelect
-          label="结果"
+          label={t("logs.common.result")}
           value={successFilter}
           options={successOptions}
           onChange={(next) => void switchSuccess(next)}
         />
         <div className="flex items-end justify-end gap-2 md:col-span-6">
-          <Button type="submit">查询</Button>
+          <Button type="submit">{t("logs.common.query")}</Button>
           <Button type="button" variant="outline" onClick={resetFilters}>
-            重置
+            {t("logs.common.reset")}
           </Button>
         </div>
       </form>
@@ -538,6 +569,7 @@ function NotificationDetailSheet({
   row: NotificationRow | null
   onClose: () => void
 }) {
+  const { locale, t } = useI18n()
   const entries = parseDetail(row?.detail ?? null)
   const createdAt = row ? formatDate(row.created_at) : ""
 
@@ -550,32 +582,42 @@ function NotificationDetailSheet({
     >
       <SheetContent className="data-[side=right]:sm:max-w-xl">
         <SheetHeader>
-          <SheetTitle>通知详情</SheetTitle>
+          <SheetTitle>{t("logs.notifications.detailTitle")}</SheetTitle>
           <SheetDescription>
-            {row ? `#${row.id} · ${eventLabel[row.event] ?? row.event}` : ""}
+            {row ? `#${row.id} · ${getEventLabel(t, row.event)}` : ""}
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           {row ? (
             <div className="flex flex-col gap-3 text-sm">
-              <DetailField label="时间" value={createdAt} />
+              <DetailField label={t("logs.common.time")} value={createdAt} />
               <DetailField
-                label="渠道"
-                value={channelLabel[row.channel] ?? row.channel}
+                label={t("logs.common.channel")}
+                value={getChannelLabel(t, row.channel)}
               />
               <DetailField
-                label="事件"
-                value={eventLabel[row.event] ?? row.event}
+                label={t("logs.common.event")}
+                value={getEventLabel(t, row.event)}
               />
               <DetailField
-                label="级别"
-                value={levelLabel[row.level] ?? row.level}
+                label={t("logs.common.level")}
+                value={getLevelLabel(t, row.level)}
               />
-              <DetailField label="标题" value={row.title} />
-              <DetailField label="内容" value={row.message} multiline />
-              <DetailField label="目标" value={row.target ?? "-"} />
               <DetailField
-                label="主体"
+                label={t("logs.common.title")}
+                value={translateNotificationText(locale, row.title)}
+              />
+              <DetailField
+                label={t("logs.common.content")}
+                value={translateNotificationText(locale, row.message)}
+                multiline
+              />
+              <DetailField
+                label={t("logs.common.target")}
+                value={row.target ?? "-"}
+              />
+              <DetailField
+                label={t("logs.common.subject")}
                 value={
                   row.subject_type || row.subject_id
                     ? `${row.subject_type ?? "-"}:${row.subject_id ?? "-"}`
@@ -584,19 +626,21 @@ function NotificationDetailSheet({
                 mono
               />
               <DetailField
-                label="结果"
-                value={row.success === 1 ? "成功" : "失败"}
+                label={t("logs.common.result")}
+                value={
+                  row.success === 1
+                    ? t("logs.common.success")
+                    : t("logs.common.failure")
+                }
               />
               <DetailField
-                label="原因"
-                value={
-                  row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"
-                }
+                label={t("logs.common.reason")}
+                value={getReasonLabel(t, row.reason)}
               />
               {entries && entries.length > 0 ? (
                 <div className="mt-2 rounded-md border">
                   <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
-                    数据
+                    {t("logs.common.data")}
                   </div>
                   <div className="divide-y">
                     {entries.map(([key, value]) => (
@@ -605,10 +649,10 @@ function NotificationDetailSheet({
                         className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2 text-xs"
                       >
                         <div className="text-muted-foreground">
-                          {detailLabel[key] ?? key}
+                          {getNotificationDetailLabel(t, key)}
                         </div>
                         <div className="font-mono break-all whitespace-pre-wrap">
-                          {renderDetailValue(value)}
+                          {renderDetailValue(t, value)}
                         </div>
                       </div>
                     ))}

@@ -19,6 +19,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table"
 
+import { T } from "@/components/i18n-provider"
 import {
   Table,
   TableBody,
@@ -218,7 +219,7 @@ export function DataTable<TData, TValue>({
                   colSpan={columns.length}
                   className="h-24 text-center"
                 >
-                  暂无数据
+                  <T k="dataTable.noData" />
                 </TableCell>
               </TableRow>
             )}

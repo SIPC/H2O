@@ -6,6 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -78,9 +79,9 @@ type AclDraft = AclRule
 
 const NONE_VALUE = "__none__"
 const BUILTIN_OUTBOUNDS = [
-  { value: "direct", label: "direct（内置直连）" },
-  { value: "reject", label: "reject（内置拒绝）" },
-  { value: "default", label: "default（默认出口）" },
+  { value: "direct", labelKey: "routing.acls.builtinOutbound.direct" },
+  { value: "reject", labelKey: "routing.acls.builtinOutbound.reject" },
+  { value: "default", labelKey: "routing.acls.builtinOutbound.default" },
 ]
 
 function newRuleDraft(index: number): AclDraft {
@@ -122,7 +123,8 @@ function formatDate(value: string | null | undefined) {
 
 function buildOutboundOptions(
   outboundProfiles: OutboundProfileRow[],
-  selectedOutboundProfileId: number | null
+  selectedOutboundProfileId: number | null,
+  t: (key: string, params?: Record<string, unknown>) => string
 ) {
   const profile = outboundProfiles.find(
     (item) => item.id === selectedOutboundProfileId
@@ -131,10 +133,16 @@ function buildOutboundOptions(
     ? parseOutboundConfig(profile.config)
     : { outbounds: [] }
   return [
-    ...BUILTIN_OUTBOUNDS,
+    ...BUILTIN_OUTBOUNDS.map((item) => ({
+      value: item.value,
+      label: t(item.labelKey),
+    })),
     ...config.outbounds.map((item) => ({
       value: item.id,
-      label: `${item.name}（${item.type}）`,
+      label: t("routing.acls.customOutboundOption", {
+        name: item.name,
+        type: item.type,
+      }),
     })),
   ]
 }
@@ -178,9 +186,11 @@ function AclForm({
   submitLabel: string
   onCancel?: () => void
 }) {
+  const { t } = useI18n()
   const outboundOptions = buildOutboundOptions(
     outboundProfiles,
-    outboundProfileId
+    outboundProfileId,
+    t
   )
 
   function updateRule(index: number, next: AclDraft) {
@@ -193,7 +203,7 @@ function AclForm({
       updateRule(index, {
         id: current.id,
         kind,
-        comment: current.comment || "说明",
+        comment: current.comment || t("routing.acls.defaultComment"),
         enabled: current.enabled !== false,
       })
       return
@@ -309,12 +319,12 @@ function AclForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            基础信息
+            {t("routing.common.basicInfo")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>策略名称</Label>
+            <Label>{t("routing.acls.policyName")}</Label>
             <Input
               value={profileName}
               onChange={(e) => setProfileName(e.target.value)}
@@ -322,16 +332,16 @@ function AclForm({
             />
           </div>
           <div className="space-y-1">
-            <Label>备注</Label>
+            <Label>{t("routing.common.remark")}</Label>
             <Textarea
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
               rows={2}
-              placeholder="可选，仅管理员可见"
+              placeholder={t("routing.common.optionalAdminOnly")}
             />
           </div>
           <div className="space-y-1">
-            <Label>关联出站配置</Label>
+            <Label>{t("routing.acls.linkedOutboundProfile")}</Label>
             <Select
               value={
                 outboundProfileId == null
@@ -349,7 +359,7 @@ function AclForm({
               </SelectTrigger>
               <SelectContent position="popper">
                 <SelectItem value={NONE_VALUE}>
-                  不关联（使用内置直连/拒绝/默认出口）
+                  {t("routing.acls.noLinkedOutboundProfile")}
                 </SelectItem>
                 {outboundProfiles.map((profile) => (
                   <SelectItem key={profile.id} value={String(profile.id)}>
@@ -366,7 +376,7 @@ function AclForm({
         <CardHeader className="p-4 pb-1">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base leading-none font-semibold">
-              ACL 规则
+              {t("routing.acls.rulesTitle")}
             </CardTitle>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -375,7 +385,7 @@ function AclForm({
                 size="sm"
                 onClick={() => addPreset("reject_quic")}
               >
-                禁 QUIC
+                {t("routing.acls.presetRejectQuic")}
               </Button>
               <Button
                 type="button"
@@ -383,7 +393,7 @@ function AclForm({
                 size="sm"
                 onClick={() => addPreset("reject_private")}
               >
-                禁私网
+                {t("routing.acls.presetRejectPrivate")}
               </Button>
               <Button
                 type="button"
@@ -391,7 +401,7 @@ function AclForm({
                 size="sm"
                 onClick={() => addPreset("direct_all")}
               >
-                直连 all
+                {t("routing.acls.presetDirectAll")}
               </Button>
               <Button
                 type="button"
@@ -401,7 +411,7 @@ function AclForm({
                 }
               >
                 <Plus className="h-4 w-4" />
-                添加规则
+                {t("routing.acls.addRule")}
               </Button>
             </div>
           </div>
@@ -409,7 +419,7 @@ function AclForm({
         <CardContent className="space-y-3">
           {rules.length === 0 ? (
             <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              暂无 ACL 规则。未命中规则时将使用默认出口。
+              {t("routing.acls.emptyRules")}
             </div>
           ) : null}
           {rules.map((rule, index) => (
@@ -417,9 +427,11 @@ function AclForm({
               <CardHeader className="p-3 pb-0">
                 <div className="flex items-center justify-between gap-2">
                   <div>
-                    <CardTitle className="text-sm">#{index + 1} 规则</CardTitle>
+                    <CardTitle className="text-sm">
+                      {t("routing.acls.ruleCardTitle", { index: index + 1 })}
+                    </CardTitle>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      从上到下匹配，首个命中规则生效。
+                      {t("routing.acls.ruleOrderHelp")}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-end gap-1">
@@ -427,9 +439,11 @@ function AclForm({
                       size="sm"
                       className="mr-2"
                       checked={rule.enabled !== false}
-                      aria-label="切换规则启用状态"
+                      aria-label={t("routing.acls.ruleToggleAria")}
                       title={
-                        rule.enabled === false ? "规则已停用" : "规则已启用"
+                        rule.enabled === false
+                          ? t("routing.acls.ruleDisabledTitle")
+                          : t("routing.acls.ruleEnabledTitle")
                       }
                       onCheckedChange={(checked) =>
                         updateRule(index, { ...rule, enabled: checked })
@@ -442,7 +456,7 @@ function AclForm({
                       disabled={index === 0}
                       onClick={() => moveRule(index, -1)}
                     >
-                      上移
+                      {t("routing.common.moveUp")}
                     </Button>
                     <Button
                       type="button"
@@ -451,7 +465,7 @@ function AclForm({
                       disabled={index === rules.length - 1}
                       onClick={() => moveRule(index, 1)}
                     >
-                      下移
+                      {t("routing.common.moveDown")}
                     </Button>
                     <Button
                       type="button"
@@ -461,7 +475,7 @@ function AclForm({
                         setRules(rules.filter((_, i) => i !== index))
                       }
                     >
-                      删除
+                      {t("routing.common.delete")}
                     </Button>
                   </div>
                 </div>
@@ -469,7 +483,7 @@ function AclForm({
               <CardContent className="space-y-3 p-3">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
-                    <Label>规则 ID</Label>
+                    <Label>{t("routing.acls.ruleId")}</Label>
                     <Input
                       value={rule.id}
                       onChange={(e) =>
@@ -478,7 +492,7 @@ function AclForm({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>类型</Label>
+                    <Label>{t("routing.common.type")}</Label>
                     <Select
                       value={rule.kind}
                       onValueChange={(value) =>
@@ -489,9 +503,15 @@ function AclForm({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent position="popper">
-                        <SelectItem value="rule">可视化规则</SelectItem>
-                        <SelectItem value="comment">注释</SelectItem>
-                        <SelectItem value="raw">原始规则</SelectItem>
+                        <SelectItem value="rule">
+                          {t("routing.acls.ruleKind.visible")}
+                        </SelectItem>
+                        <SelectItem value="comment">
+                          {t("routing.acls.ruleKind.comment")}
+                        </SelectItem>
+                        <SelectItem value="raw">
+                          {t("routing.acls.ruleKind.raw")}
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -499,29 +519,29 @@ function AclForm({
 
                 {rule.kind === "comment" && (
                   <div className="space-y-1">
-                    <Label>注释</Label>
+                    <Label>{t("routing.acls.ruleKind.comment")}</Label>
                     <Input
                       value={rule.comment ?? ""}
                       onChange={(e) =>
                         updateRule(index, { ...rule, comment: e.target.value })
                       }
-                      placeholder="例如：流媒体分流"
+                      placeholder={t("routing.acls.commentPlaceholder")}
                     />
                   </div>
                 )}
 
                 {rule.kind === "raw" && (
                   <div className="space-y-1">
-                    <Label>原始 ACL 规则</Label>
+                    <Label>{t("routing.acls.rawRule")}</Label>
                     <Input
                       value={rule.raw ?? ""}
                       onChange={(e) =>
                         updateRule(index, { ...rule, raw: e.target.value })
                       }
-                      placeholder="例如：reject(all, udp/443)"
+                      placeholder={t("routing.acls.rawRulePlaceholder")}
                     />
                     <p className="text-[11px] text-muted-foreground">
-                      适用于高级 ACL 规则。
+                      {t("routing.acls.rawRuleHint")}
                     </p>
                   </div>
                 )}
@@ -529,7 +549,7 @@ function AclForm({
                 {rule.kind === "rule" && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
-                      <Label>出口</Label>
+                      <Label>{t("routing.acls.outbound")}</Label>
                       <Select
                         value={rule.outbound || "direct"}
                         onValueChange={(value) =>
@@ -549,7 +569,7 @@ function AclForm({
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label>地址</Label>
+                      <Label>{t("routing.acls.address")}</Label>
                       <Input
                         value={rule.address ?? ""}
                         onChange={(e) =>
@@ -562,7 +582,7 @@ function AclForm({
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>协议</Label>
+                      <Label>{t("routing.acls.protocol")}</Label>
                       <Select
                         value={rule.protocol || "*"}
                         onValueChange={(value) =>
@@ -583,7 +603,7 @@ function AclForm({
                       </Select>
                     </div>
                     <div className="space-y-1">
-                      <Label>端口</Label>
+                      <Label>{t("routing.acls.port")}</Label>
                       <Input
                         value={rule.port ?? "*"}
                         onChange={(e) =>
@@ -593,7 +613,7 @@ function AclForm({
                       />
                     </div>
                     <div className="space-y-1 sm:col-span-2">
-                      <Label>劫持地址</Label>
+                      <Label>{t("routing.acls.hijackAddress")}</Label>
                       <Input
                         value={rule.hijackAddress ?? ""}
                         onChange={(e) =>
@@ -602,7 +622,7 @@ function AclForm({
                             hijackAddress: e.target.value,
                           })
                         }
-                        placeholder="可选，仅允许 IPv4 / IPv6"
+                        placeholder={t("routing.acls.hijackAddressPlaceholder")}
                       />
                     </div>
                   </div>
@@ -616,32 +636,32 @@ function AclForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            Geo 数据库（可选）
+            {t("routing.acls.geoDatabaseTitle")}
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-3">
           <div className="space-y-1">
-            <Label>geoip 路径</Label>
+            <Label>{t("routing.acls.geoipPath")}</Label>
             <Input
               value={geoip}
               onChange={(e) => setGeoip(e.target.value)}
-              placeholder="留空由 Hy2 自动下载"
+              placeholder={t("routing.acls.autoDownloadPlaceholder")}
             />
           </div>
           <div className="space-y-1">
-            <Label>geosite 路径</Label>
+            <Label>{t("routing.acls.geositePath")}</Label>
             <Input
               value={geosite}
               onChange={(e) => setGeosite(e.target.value)}
-              placeholder="留空由 Hy2 自动下载"
+              placeholder={t("routing.acls.autoDownloadPlaceholder")}
             />
           </div>
           <div className="space-y-1">
-            <Label>更新间隔</Label>
+            <Label>{t("routing.acls.updateInterval")}</Label>
             <Input
               value={geoUpdateInterval}
               onChange={(e) => setGeoUpdateInterval(e.target.value)}
-              placeholder="如 168h"
+              placeholder={t("routing.acls.updateIntervalPlaceholder")}
             />
           </div>
         </CardContent>
@@ -651,7 +671,7 @@ function AclForm({
         <Button type="submit">{submitLabel}</Button>
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel}>
-            取消
+            {t("routing.common.cancel")}
           </Button>
         )}
       </div>
@@ -668,6 +688,8 @@ function NodeBindingEditor({
   selectedNodeIds: number[]
   setSelectedNodeIds: (value: number[]) => void
 }) {
+  const { t } = useI18n()
+
   function toggle(nodeId: number, checked: boolean) {
     if (checked) {
       if (!selectedNodeIds.includes(nodeId))
@@ -678,7 +700,11 @@ function NodeBindingEditor({
   }
 
   if (nodes.length === 0) {
-    return <p className="text-sm text-muted-foreground">暂无节点</p>
+    return (
+      <p className="text-sm text-muted-foreground">
+        {t("routing.acls.noNodes")}
+      </p>
+    )
   }
 
   return (
@@ -709,11 +735,15 @@ function NodeBindingEditor({
                       : "bg-muted text-muted-foreground"
                   }
                 >
-                  {node.status === "enabled" ? "启用" : "禁用"}
+                  {node.status === "enabled"
+                    ? t("routing.common.enabled")
+                    : t("routing.common.disabled")}
                 </Badge>
                 {node.acl_profile_name && !checked ? (
                   <Badge className="bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
-                    当前绑定：{node.acl_profile_name}
+                    {t("routing.acls.currentBinding", {
+                      name: node.acl_profile_name,
+                    })}
                   </Badge>
                 ) : null}
               </div>
@@ -730,6 +760,7 @@ function NodeBindingEditor({
 
 export default function AdminRoutingAclsPage() {
   const { confirm, alert } = useConfirm()
+  const { t } = useI18n()
   const [rows, setRows] = useState<AclProfileRow[]>([])
   const [outboundProfiles, setOutboundProfiles] = useState<
     OutboundProfileRow[]
@@ -841,14 +872,14 @@ export default function AdminRoutingAclsPage() {
     })
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      toast.error("创建失败", {
-        description: json?.error?.message ?? "请稍后重试",
+      toast.error(t("routing.common.createFailed"), {
+        description: json?.error?.message ?? t("routing.common.retryLater"),
       })
       return
     }
     setCreateOpen(false)
     resetCreateForm()
-    toast.success("已创建 ACL 策略")
+    toast.success(t("routing.acls.createSuccess"))
     await load()
   }
 
@@ -884,21 +915,24 @@ export default function AdminRoutingAclsPage() {
     })
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      toast.error("保存失败", {
-        description: json?.error?.message ?? "请稍后重试",
+      toast.error(t("routing.common.saveFailed"), {
+        description: json?.error?.message ?? t("routing.common.retryLater"),
       })
       return
     }
     setEditingRow(null)
-    toast.success("已保存 ACL 策略")
+    toast.success(t("routing.acls.saveSuccess"))
     await load()
   }
 
   async function remove(row: AclProfileRow) {
     const ok = await confirm({
-      title: `删除 ACL 策略 #${row.id} (${row.name})？`,
-      description: "已绑定该策略的节点会同时解除绑定，并触发配置版本更新。",
-      confirmText: "删除",
+      title: t("routing.acls.deleteConfirmTitle", {
+        id: row.id,
+        name: row.name,
+      }),
+      description: t("routing.acls.deleteConfirmDescription"),
+      confirmText: t("routing.common.delete"),
       variant: "destructive",
     })
     if (!ok) return
@@ -908,13 +942,13 @@ export default function AdminRoutingAclsPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) {
       await alert({
-        title: "删除失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("routing.common.deleteFailed"),
+        description: json?.error?.message ?? t("routing.common.retryLater"),
         variant: "destructive",
       })
       return
     }
-    toast.success("已删除 ACL 策略")
+    toast.success(t("routing.acls.deleteSuccess"))
     await load()
   }
 
@@ -925,8 +959,8 @@ export default function AdminRoutingAclsPage() {
       const response = await fetch(`/api/admin/routing/acls/${row.id}/nodes`)
       const json = await response.json()
       if (!response.ok || !json.ok) {
-        toast.error("加载失败", {
-          description: json?.error?.message ?? "请稍后重试",
+        toast.error(t("routing.common.loadFailed"), {
+          description: json?.error?.message ?? t("routing.common.retryLater"),
         })
         return
       }
@@ -954,13 +988,13 @@ export default function AdminRoutingAclsPage() {
     )
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      toast.error("保存失败", {
-        description: json?.error?.message ?? "请稍后重试",
+      toast.error(t("routing.common.saveFailed"), {
+        description: json?.error?.message ?? t("routing.common.retryLater"),
       })
       return
     }
     setBindingRow(null)
-    toast.success("已保存节点绑定")
+    toast.success(t("routing.acls.bindingSaveSuccess"))
     await load()
   }
 
@@ -976,50 +1010,65 @@ export default function AdminRoutingAclsPage() {
       {
         accessorKey: "name",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="名称" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("routing.common.name")}
+          />
         ),
         cell: ({ row }) => (
           <span className="font-medium">{row.original.name}</span>
         ),
-        meta: { label: "名称" },
+        meta: { label: t("routing.common.name") },
       },
       {
         id: "outbound",
-        header: "出站配置",
+        header: t("routing.acls.outboundConfig"),
         cell: ({ row }) =>
           row.original.outbound_profile_name ? (
             <Badge className="bg-blue-500/15 text-blue-700 dark:text-blue-300">
               {row.original.outbound_profile_name}
             </Badge>
           ) : (
-            <span className="text-muted-foreground">仅内置出口</span>
+            <span className="text-muted-foreground">
+              {t("routing.acls.builtinOnly")}
+            </span>
           ),
         enableSorting: false,
       },
       {
         id: "rules",
-        header: "规则",
+        header: t("routing.acls.rulesColumn"),
         cell: ({ row }) => {
           const config = parseAclConfig(row.original.config)
-          return <span>{config.rules.length} 条</span>
+          return (
+            <span>
+              {t("routing.acls.rulesCount", { count: config.rules.length })}
+            </span>
+          )
         },
         enableSorting: false,
       },
       {
         accessorKey: "bound_node_count",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="绑定节点" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("routing.acls.boundNodes")}
+          />
         ),
         cell: ({ row }) => row.original.bound_node_count,
-        meta: { label: "绑定节点" },
+        meta: { label: t("routing.acls.boundNodes") },
       },
       {
         accessorKey: "updated_at",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="更新时间" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("routing.common.updatedAt")}
+          />
         ),
         cell: ({ row }) => formatDate(row.original.updated_at),
-        meta: { label: "更新时间" },
+        meta: { label: t("routing.common.updatedAt") },
       },
       {
         id: "actions",
@@ -1036,11 +1085,11 @@ export default function AdminRoutingAclsPage() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => startEdit(row.original)}>
                 <Pencil className="mr-2 h-4 w-4" />
-                编辑
+                {t("routing.common.edit")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void openBinding(row.original)}>
                 <Link2 className="mr-2 h-4 w-4" />
-                绑定节点
+                {t("routing.acls.boundNodes")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -1048,7 +1097,7 @@ export default function AdminRoutingAclsPage() {
                 onClick={() => void remove(row.original)}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                删除
+                {t("routing.common.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1056,16 +1105,16 @@ export default function AdminRoutingAclsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [t]
   )
 
   return (
-    <div className="mx-auto flex w-full flex-col gap-4 p-6 max-w-450">
+    <div className="mx-auto flex w-full max-w-450 flex-col gap-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">ACL 策略</h1>
+          <h1 className="text-2xl font-bold">{t("routing.acls.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            定义 Hysteria2 ACL 分流/拒绝规则，并绑定到节点。
+            {t("routing.acls.description")}
           </p>
         </div>
         <Button
@@ -1075,14 +1124,14 @@ export default function AdminRoutingAclsPage() {
           }}
         >
           <Plus className="mr-1.5 h-4 w-4" />
-          添加 ACL 策略
+          {t("routing.acls.add")}
         </Button>
       </div>
 
       {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p className="text-sm">暂无 ACL 策略</p>
-          <p className="mt-1 text-xs">点击右上角创建第一个策略</p>
+          <p className="text-sm">{t("routing.acls.emptyTitle")}</p>
+          <p className="mt-1 text-xs">{t("routing.acls.emptyDescription")}</p>
         </Card>
       ) : (
         <DataTable
@@ -1097,9 +1146,9 @@ export default function AdminRoutingAclsPage() {
       <Sheet open={createOpen} onOpenChange={setCreateOpen}>
         <SheetContent className="data-[side=right]:sm:max-w-4xl">
           <SheetHeader>
-            <SheetTitle>添加 ACL 策略</SheetTitle>
+            <SheetTitle>{t("routing.acls.createTitle")}</SheetTitle>
             <SheetDescription>
-              ACL 按顺序匹配；规则可引用内置出口或关联出站配置的出口 ID。
+              {t("routing.acls.createDescription")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1120,7 +1169,7 @@ export default function AdminRoutingAclsPage() {
               geoUpdateInterval={geoUpdateInterval}
               setGeoUpdateInterval={setGeoUpdateInterval}
               onSubmit={create}
-              submitLabel="创建策略"
+              submitLabel={t("routing.acls.createSubmit")}
             />
           </div>
         </SheetContent>
@@ -1134,11 +1183,14 @@ export default function AdminRoutingAclsPage() {
           <SheetHeader>
             <SheetTitle>
               {editingRow
-                ? `编辑 ACL 策略 #${editingRow.id} (${editingRow.name})`
-                : "编辑 ACL 策略"}
+                ? t("routing.acls.editTitle", {
+                    id: editingRow.id,
+                    name: editingRow.name,
+                  })
+                : t("routing.acls.editTitleFallback")}
             </SheetTitle>
             <SheetDescription>
-              保存后将自动更新所有绑定节点的 Agent 配置版本。
+              {t("routing.acls.editDescription")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -1159,7 +1211,7 @@ export default function AdminRoutingAclsPage() {
               geoUpdateInterval={editGeoUpdateInterval}
               setGeoUpdateInterval={setEditGeoUpdateInterval}
               onSubmit={submitEdit}
-              submitLabel="保存修改"
+              submitLabel={t("routing.common.saveChanges")}
               onCancel={() => setEditingRow(null)}
             />
           </div>
@@ -1173,16 +1225,19 @@ export default function AdminRoutingAclsPage() {
         <SheetContent className="data-[side=right]:sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>
-              {bindingRow ? `绑定节点：${bindingRow.name}` : "绑定节点"}
+              {bindingRow
+                ? t("routing.acls.bindNodesTitle", { name: bindingRow.name })
+                : t("routing.acls.bindNodesTitleFallback")}
             </SheetTitle>
             <SheetDescription>
-              一个节点只能绑定一个 ACL
-              策略；保存时会自动解除被其他策略占用的节点绑定。
+              {t("routing.acls.bindNodesDescription")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             {bindingLoading ? (
-              <p className="text-sm text-muted-foreground">加载中...</p>
+              <p className="text-sm text-muted-foreground">
+                {t("routing.common.loading")}
+              </p>
             ) : (
               <NodeBindingEditor
                 nodes={bindingNodes}
@@ -1191,9 +1246,11 @@ export default function AdminRoutingAclsPage() {
               />
             )}
             <div className="mt-4 flex gap-2">
-              <Button onClick={() => void saveBinding()}>保存绑定</Button>
+              <Button onClick={() => void saveBinding()}>
+                {t("routing.acls.saveBinding")}
+              </Button>
               <Button variant="outline" onClick={() => setBindingRow(null)}>
-                取消
+                {t("routing.common.cancel")}
               </Button>
             </div>
           </div>

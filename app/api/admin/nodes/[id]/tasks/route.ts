@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { isAgentTaskType, markTimedOutAgentTasks } from "@/lib/agent-control"
 import { requireAdmin } from "@/lib/auth"
@@ -11,8 +11,17 @@ type CreateTaskBody = {
   payload?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function parseNodeId(id: string) {
@@ -40,13 +49,13 @@ export async function GET(
 
   const { id } = await params
   const nodeId = parseNodeId(id)
-  if (!nodeId) return jsonError("INVALID_ID", "节点ID不合法", 400)
+  if (!nodeId) return jsonError(request, "INVALID_ID", "节点ID不合法", 400)
 
   const db = getDb()
   const node = db
     .prepare(`SELECT id FROM nodes WHERE id = ? LIMIT 1`)
     .get(nodeId) as { id: number } | undefined
-  if (!node) return jsonError("NOT_FOUND", "节点不存在", 404)
+  if (!node) return jsonError(request, "NOT_FOUND", "节点不存在", 404)
 
   markTimedOutAgentTasks({ database: db, nodeId })
 
@@ -61,7 +70,7 @@ export async function GET(
     )
     .all(nodeId)
 
-  return NextResponse.json({ ok: true, data: rows })
+  return localizedJson(request, { ok: true, data: rows })
 }
 
 export async function POST(
@@ -74,13 +83,13 @@ export async function POST(
   const ip = getClientIp(request)
   const { id } = await params
   const nodeId = parseNodeId(id)
-  if (!nodeId) return jsonError("INVALID_ID", "节点ID不合法", 400)
+  if (!nodeId) return jsonError(request, "INVALID_ID", "节点ID不合法", 400)
 
   let body: CreateTaskBody
   try {
     body = (await request.json()) as CreateTaskBody
   } catch {
-    return jsonError("INVALID_PAYLOAD", "请求体不合法", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "请求体不合法", 400)
   }
 
   if (!isAgentTaskType(body.type)) {
@@ -92,7 +101,7 @@ export async function POST(
       reason: "INVALID_PAYLOAD",
       detail: { nodeId, type: body.type ?? null },
     })
-    return jsonError("INVALID_PAYLOAD", "任务类型不支持", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "任务类型不支持", 400)
   }
 
   if (body.type === "HY2_LOGS" || body.type === "AGENT_LOGS") {
@@ -107,20 +116,25 @@ export async function POST(
         lines < 1 ||
         lines > 500)
     ) {
-      return jsonError("INVALID_PAYLOAD", "日志行数必须在 1~500 之间", 400)
+      return jsonError(
+        request,
+        "INVALID_PAYLOAD",
+        "日志行数必须在 1~500 之间",
+        400
+      )
     }
   }
 
   const payload = safePayload(body.payload)
   if (payload === false) {
-    return jsonError("INVALID_PAYLOAD", "任务参数过大", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "任务参数过大", 400)
   }
 
   const db = getDb()
   const node = db
     .prepare(`SELECT id, name FROM nodes WHERE id = ? LIMIT 1`)
     .get(nodeId) as { id: number; name: string } | undefined
-  if (!node) return jsonError("NOT_FOUND", "节点不存在", 404)
+  if (!node) return jsonError(request, "NOT_FOUND", "节点不存在", 404)
 
   const result = db
     .prepare(
@@ -139,7 +153,7 @@ export async function POST(
     detail: { nodeId, nodeName: node.name, taskId, type: body.type },
   })
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: { id: taskId, node_id: nodeId, type: body.type, status: "queued" },
   })

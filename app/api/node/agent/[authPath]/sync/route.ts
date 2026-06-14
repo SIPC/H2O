@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import {
   buildNodeDesiredConfig,
@@ -65,8 +65,17 @@ type ExistingAgentState = {
   hy2_status: string | null
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function normalizeString(input: unknown, maxLength: number) {
@@ -215,16 +224,16 @@ export async function POST(
     rawBody = await readTextWithLimit(request, MAX_AGENT_SYNC_BODY_BYTES)
   } catch (error) {
     if (error instanceof RequestBodyTooLargeError) {
-      return jsonError("BAD_PAYLOAD", "请求体过大", 413)
+      return jsonError(request, "BAD_PAYLOAD", "请求体过大", 413)
     }
-    return jsonError("BAD_PAYLOAD", "请求体不合法", 400)
+    return jsonError(request, "BAD_PAYLOAD", "请求体不合法", 400)
   }
 
   let body: AgentSyncPayload
   try {
     body = rawBody ? (JSON.parse(rawBody) as AgentSyncPayload) : {}
   } catch {
-    return jsonError("BAD_PAYLOAD", "请求体不合法", 400)
+    return jsonError(request, "BAD_PAYLOAD", "请求体不合法", 400)
   }
 
   const db = getDb()
@@ -237,12 +246,17 @@ export async function POST(
     )
     .get(authPath) as NodeForAuth | undefined
 
-  if (!node) return jsonError("NO_NODE", "未知节点", 404)
+  if (!node) return jsonError(request, "NO_NODE", "未知节点", 404)
   if (node.agent_control_enabled === 0) {
-    return jsonError("AGENT_CONTROL_DISABLED", "Agent 控制面已关闭", 403)
+    return jsonError(
+      request,
+      "AGENT_CONTROL_DISABLED",
+      "Agent 控制面已关闭",
+      403
+    )
   }
   if (!node.agent_secret || node.agent_secret.length < 32) {
-    return jsonError("AGENT_SECRET_MISSING", "Agent 密钥未初始化", 403)
+    return jsonError(request, "AGENT_SECRET_MISSING", "Agent 密钥未初始化", 403)
   }
 
   const signature = verifyAgentRequestSignature({
@@ -251,7 +265,7 @@ export async function POST(
     agentSecret: node.agent_secret,
   })
   if (!signature.ok) {
-    return jsonError("UNAUTHORIZED", "Agent 签名校验失败", 401)
+    return jsonError(request, "UNAUTHORIZED", "Agent 签名校验失败", 401)
   }
   if (
     !rememberAgentNonce({
@@ -260,7 +274,7 @@ export async function POST(
       database: db,
     })
   ) {
-    return jsonError("REPLAY_DETECTED", "重复请求", 409)
+    return jsonError(request, "REPLAY_DETECTED", "重复请求", 409)
   }
 
   const agentVersion = normalizeString(body.agent_version, 64)
@@ -302,7 +316,7 @@ export async function POST(
     capabilities === false ||
     taskResults === false
   ) {
-    return jsonError("BAD_PAYLOAD", "上报字段类型不合法", 400)
+    return jsonError(request, "BAD_PAYLOAD", "上报字段类型不合法", 400)
   }
 
   try {
@@ -434,7 +448,7 @@ export async function POST(
     db.exec("COMMIT")
   } catch {
     db.exec("ROLLBACK")
-    return jsonError("INTERNAL", "处理失败", 500)
+    return jsonError(request, "INTERNAL", "处理失败", 500)
   }
 
   void processNotificationOutboxSafely(db)
@@ -453,7 +467,7 @@ export async function POST(
     panelUrl: detectOrigin(request),
     database: db,
   })
-  if (!desired) return jsonError("NO_NODE", "未知节点", 404)
+  if (!desired) return jsonError(request, "NO_NODE", "未知节点", 404)
 
   const currentRevision = normalizeRevision(body.current_config_revision)
   const normalizedCurrentRevision =
@@ -527,7 +541,7 @@ export async function POST(
     }
   }
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       server_time: new Date().toISOString(),

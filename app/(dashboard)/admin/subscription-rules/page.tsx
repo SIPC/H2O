@@ -13,6 +13,7 @@ import { Minus, Plus, RotateCcw } from "lucide-react"
 import { toast } from "sonner"
 
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
@@ -42,7 +43,6 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
   BUILTIN_SUBSCRIPTION_RULE_IDS,
-  BUILTIN_SUBSCRIPTION_RULE_LABELS,
   BUILTIN_SUBSCRIPTION_RULE_PREVIEW_LINES,
   DEFAULT_BUILTIN_RULE_TARGETS,
   type BuiltinSubscriptionRuleId,
@@ -97,30 +97,33 @@ const DEFAULT_CONFIG: SubscriptionRuleConfig = {
   remoteRuleSets: [],
 }
 
-const RULE_TYPE_LABELS: Record<SubscriptionRuleType, string> = {
-  domain: "完整域名",
-  domain_suffix: "域名后缀",
-  domain_keyword: "域名关键字",
-  ip_cidr: "IP-CIDR",
-  geoip: "GEOIP",
+const RULE_TYPE_LABEL_KEYS: Record<SubscriptionRuleType, string> = {
+  domain: "routing.subscriptionRules.ruleType.domain",
+  domain_suffix: "routing.subscriptionRules.ruleType.domainSuffix",
+  domain_keyword: "routing.subscriptionRules.ruleType.domainKeyword",
+  ip_cidr: "routing.subscriptionRules.ruleType.ipCidr",
+  geoip: "routing.subscriptionRules.ruleType.geoip",
 }
 
-const TARGET_LABELS: Record<SubscriptionRuleTarget, string> = {
-  proxy: "节点选择",
-  auto: "自动选择",
-  ai: "AI",
-  media: "国际媒体",
-  telegram: "Telegram",
-  apple: "苹果服务",
-  microsoft: "微软服务",
-  direct: "直连",
-  reject: "拒绝",
-  fallback: "漏网之鱼",
+const TARGET_LABEL_KEYS: Record<SubscriptionRuleTarget, string> = {
+  proxy: "routing.subscriptionRules.target.proxy",
+  auto: "routing.subscriptionRules.target.auto",
+  ai: "routing.subscriptionRules.target.ai",
+  media: "routing.subscriptionRules.target.media",
+  telegram: "routing.subscriptionRules.target.telegram",
+  apple: "routing.subscriptionRules.target.apple",
+  microsoft: "routing.subscriptionRules.target.microsoft",
+  direct: "routing.subscriptionRules.target.direct",
+  reject: "routing.subscriptionRules.target.reject",
+  fallback: "routing.subscriptionRules.target.fallback",
 }
 
-const POLICY_GROUP_TYPE_LABELS: Record<SubscriptionPolicyGroupType, string> = {
-  select: "手动选择",
-  "url-test": "自动测速",
+const POLICY_GROUP_TYPE_LABEL_KEYS: Record<
+  SubscriptionPolicyGroupType,
+  string
+> = {
+  select: "routing.subscriptionRules.policyType.select",
+  "url-test": "routing.subscriptionRules.policyType.urlTest",
 }
 
 const CLASH_BEHAVIOR_LABELS: Record<ClashRuleBehavior, string> = {
@@ -142,10 +145,11 @@ function createId(prefix: string) {
 
 function newBuiltinPolicyDraft(
   target: SubscriptionRuleTarget,
+  t: (key: string, params?: Record<string, unknown>) => string,
   override?: SubscriptionPolicyGroup
 ): PolicyGroupDraft {
   if (override) return structuredClone(override)
-  const name = targetLabel(target, [])
+  const name = targetLabel(target, [], t)
   const proxyBased = [
     "ai",
     "media",
@@ -176,11 +180,13 @@ function newBuiltinPolicyDraft(
   }
 }
 
-function newPolicyGroupDraft(): PolicyGroupDraft {
+function newPolicyGroupDraft(
+  t: (key: string, params?: Record<string, unknown>) => string
+): PolicyGroupDraft {
   return {
     id: createId("policy"),
     enabled: true,
-    name: "自定义策略",
+    name: t("routing.subscriptionRules.customPolicyDefaultName"),
     type: "select",
     includeNodes: true,
     selectedNodeIds: [],
@@ -263,26 +269,47 @@ function normalizePolicyGroupPaths(
 function targetLabel(
   target: SubscriptionRuleTarget,
   policyGroups: SubscriptionPolicyGroup[],
+  t: (key: string, params?: Record<string, unknown>) => string,
   builtinPolicyOverrides: SubscriptionRuleConfig["builtinPolicyOverrides"] = {}
 ) {
   return (
     builtinPolicyOverrides[target as keyof typeof builtinPolicyOverrides]
       ?.name ??
-    TARGET_LABELS[target as keyof typeof TARGET_LABELS] ??
+    (TARGET_LABEL_KEYS[target as keyof typeof TARGET_LABEL_KEYS]
+      ? t(TARGET_LABEL_KEYS[target as keyof typeof TARGET_LABEL_KEYS])
+      : undefined) ??
     policyGroups.find((group) => group.id === target)?.name ??
     target
   )
 }
 
-function ruleSummary(rule: SubscriptionRule) {
-  return `${RULE_TYPE_LABELS[rule.type]}：${rule.value}`
+function ruleSummary(
+  rule: SubscriptionRule,
+  t: (key: string, params?: Record<string, unknown>) => string
+) {
+  return `${t(RULE_TYPE_LABEL_KEYS[rule.type])}: ${rule.value}`
 }
 
-function ruleSetSummary(ruleSet: SubscriptionRemoteRuleSet) {
+function ruleSetSummary(
+  ruleSet: SubscriptionRemoteRuleSet,
+  t: (key: string, params?: Record<string, unknown>) => string
+) {
   const formats: string[] = []
   if (ruleSet.clash?.enabled) formats.push("Clash")
   if (ruleSet.singbox?.enabled) formats.push("sing-box")
-  return formats.length ? formats.join(" / ") : "未启用客户端"
+  return formats.length
+    ? formats.join(" / ")
+    : t("routing.subscriptionRules.noClientEnabled")
+}
+
+function builtinRuleLabel(
+  id: BuiltinSubscriptionRuleId,
+  t: (key: string, params?: Record<string, unknown>) => string
+) {
+  return {
+    name: t(`routing.subscriptionRules.builtinRule.${id}.name`),
+    description: t(`routing.subscriptionRules.builtinRule.${id}.description`),
+  }
 }
 
 function RuleTargetSelect({
@@ -294,6 +321,8 @@ function RuleTargetSelect({
   policyGroups: SubscriptionPolicyGroup[]
   onChange: (value: SubscriptionRuleTarget) => void
 }) {
+  const { t } = useI18n()
+
   return (
     <Select
       value={value}
@@ -304,9 +333,9 @@ function RuleTargetSelect({
       </SelectTrigger>
       <SelectContent position="popper">
         <SelectGroup>
-          {Object.entries(TARGET_LABELS).map(([target, label]) => (
+          {Object.entries(TARGET_LABEL_KEYS).map(([target, labelKey]) => (
             <SelectItem key={target} value={target}>
-              {label}
+              {t(labelKey)}
             </SelectItem>
           ))}
           {policyGroups.map((group) => (
@@ -335,6 +364,7 @@ function PolicyGroupForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onDelete?: () => void
 }) {
+  const { t } = useI18n()
   const hasSpecificNodes = draft.selectedNodeIds.length > 0
   const proxySelected = draft.includeProxy
   const autoDisabled = proxySelected || hasSpecificNodes
@@ -387,7 +417,9 @@ function PolicyGroupForm({
     <form className="flex flex-col gap-4" onSubmit={onSubmit}>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="policy-id">策略 ID</Label>
+          <Label htmlFor="policy-id">
+            {t("routing.subscriptionRules.policyId")}
+          </Label>
           <Input
             id="policy-id"
             value={draft.id}
@@ -398,21 +430,23 @@ function PolicyGroupForm({
           />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="policy-name">策略名称</Label>
+          <Label htmlFor="policy-name">
+            {t("routing.subscriptionRules.policyName")}
+          </Label>
           <Input
             id="policy-name"
             value={draft.name}
             onChange={(event) =>
               setDraft({ ...draft, name: event.target.value })
             }
-            placeholder="🎮 游戏"
+            placeholder={t("routing.subscriptionRules.policyNamePlaceholder")}
             required
           />
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>策略类型</Label>
+        <Label>{t("routing.subscriptionRules.policyType")}</Label>
         <Select
           value={draft.type}
           onValueChange={(type) =>
@@ -424,11 +458,13 @@ function PolicyGroupForm({
           </SelectTrigger>
           <SelectContent position="popper">
             <SelectGroup>
-              {Object.entries(POLICY_GROUP_TYPE_LABELS).map(([type, label]) => (
-                <SelectItem key={type} value={type}>
-                  {label}
-                </SelectItem>
-              ))}
+              {Object.entries(POLICY_GROUP_TYPE_LABEL_KEYS).map(
+                ([type, labelKey]) => (
+                  <SelectItem key={type} value={type}>
+                    {t(labelKey)}
+                  </SelectItem>
+                )
+              )}
             </SelectGroup>
           </SelectContent>
         </Select>
@@ -437,12 +473,12 @@ function PolicyGroupForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            下级路径
+            {t("routing.subscriptionRules.downstreamPaths")}
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <p className="text-xs text-muted-foreground">
-            配置该策略组可转发到的出口。选择“全部节点”表示使用用户订阅内所有可用节点；选择指定节点则仅使用所选节点。
+            {t("routing.subscriptionRules.downstreamHelp")}
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="flex cursor-pointer items-center gap-3 rounded-md border p-2">
@@ -450,7 +486,9 @@ function PolicyGroupForm({
                 checked={draft.includeProxy}
                 onCheckedChange={(checked) => toggleProxy(checked === true)}
               />
-              <span className="text-sm">节点选择</span>
+              <span className="text-sm">
+                {t("routing.subscriptionRules.target.proxy")}
+              </span>
             </label>
             <label className="flex cursor-pointer items-center gap-3 rounded-md border p-2">
               <Checkbox
@@ -460,7 +498,9 @@ function PolicyGroupForm({
                   setDraft({ ...draft, includeAuto: checked === true })
                 }
               />
-              <span className="text-sm">自动选择</span>
+              <span className="text-sm">
+                {t("routing.subscriptionRules.target.auto")}
+              </span>
             </label>
             <label className="flex cursor-pointer items-center gap-3 rounded-md border p-2">
               <Checkbox
@@ -468,7 +508,9 @@ function PolicyGroupForm({
                 disabled={allNodesDisabled}
                 onCheckedChange={(checked) => toggleAllNodes(checked === true)}
               />
-              <span className="text-sm">全部节点</span>
+              <span className="text-sm">
+                {t("routing.subscriptionRules.allNodes")}
+              </span>
             </label>
             <label className="flex cursor-pointer items-center gap-3 rounded-md border p-2">
               <Checkbox
@@ -478,7 +520,9 @@ function PolicyGroupForm({
                   setDraft({ ...draft, includeDirect: checked === true })
                 }
               />
-              <span className="text-sm">直连 DIRECT / direct</span>
+              <span className="text-sm">
+                {t("routing.subscriptionRules.directOutputLabel")}
+              </span>
             </label>
             <label className="flex cursor-pointer items-center gap-3 rounded-md border p-2">
               <Checkbox
@@ -488,12 +532,14 @@ function PolicyGroupForm({
                   setDraft({ ...draft, includeReject: checked === true })
                 }
               />
-              <span className="text-sm">拦截 REJECT / reject</span>
+              <span className="text-sm">
+                {t("routing.subscriptionRules.rejectOutputLabel")}
+              </span>
             </label>
           </div>
 
           <div className="flex flex-col gap-2">
-            <Label>指定节点</Label>
+            <Label>{t("routing.subscriptionRules.selectedNodes")}</Label>
             {availableNodes.length > 0 ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {availableNodes.map((node) => (
@@ -510,14 +556,16 @@ function PolicyGroupForm({
                     />
                     <span className="min-w-0 text-sm">
                       {node.name}
-                      {node.status === "disabled" ? "（已禁用）" : ""}
+                      {node.status === "disabled"
+                        ? t("routing.common.disabledSuffix")
+                        : ""}
                     </span>
                   </label>
                 ))}
               </div>
             ) : (
               <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                暂无可选节点。
+                {t("routing.subscriptionRules.noAvailableNodes")}
               </p>
             )}
           </div>
@@ -527,7 +575,9 @@ function PolicyGroupForm({
       {draft.type === "url-test" ? (
         <div className="grid gap-3 sm:grid-cols-3">
           <div className="flex flex-col gap-2 sm:col-span-3">
-            <Label htmlFor="policy-url">测速 URL</Label>
+            <Label htmlFor="policy-url">
+              {t("routing.subscriptionRules.speedTestUrl")}
+            </Label>
             <Input
               id="policy-url"
               value={draft.url}
@@ -537,7 +587,9 @@ function PolicyGroupForm({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="policy-interval">间隔秒</Label>
+            <Label htmlFor="policy-interval">
+              {t("routing.subscriptionRules.intervalSeconds")}
+            </Label>
             <Input
               id="policy-interval"
               type="number"
@@ -550,7 +602,9 @@ function PolicyGroupForm({
             />
           </div>
           <div className="flex flex-col gap-2">
-            <Label htmlFor="policy-tolerance">容差</Label>
+            <Label htmlFor="policy-tolerance">
+              {t("routing.subscriptionRules.tolerance")}
+            </Label>
             <Input
               id="policy-tolerance"
               type="number"
@@ -570,18 +624,22 @@ function PolicyGroupForm({
           checked={draft.enabled}
           onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
         />
-        <span className="text-sm">启用此策略组</span>
+        <span className="text-sm">
+          {t("routing.subscriptionRules.enablePolicyGroup")}
+        </span>
       </label>
 
       <SheetFooter className="flex-row justify-between px-0">
         {onDelete ? (
           <Button type="button" variant="destructive" onClick={onDelete}>
-            删除策略组
+            {t("routing.subscriptionRules.deletePolicyGroup")}
           </Button>
         ) : (
           <span />
         )}
-        <Button type="submit">保存策略组</Button>
+        <Button type="submit">
+          {t("routing.subscriptionRules.savePolicyGroup")}
+        </Button>
       </SheetFooter>
     </form>
   )
@@ -600,23 +658,26 @@ function RuleForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onDelete?: () => void
 }) {
+  const { t } = useI18n()
   const noResolveVisible = draft.type === "ip_cidr" || draft.type === "geoip"
 
   return (
     <form className="flex flex-col gap-4" onSubmit={onSubmit}>
       <div className="flex flex-col gap-2">
-        <Label htmlFor="rule-name">规则名称</Label>
+        <Label htmlFor="rule-name">
+          {t("routing.subscriptionRules.ruleName")}
+        </Label>
         <Input
           id="rule-name"
           value={draft.name}
           onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-          placeholder="可选，仅管理员可见"
+          placeholder={t("routing.common.optionalAdminOnly")}
         />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
-          <Label>规则类型</Label>
+          <Label>{t("routing.subscriptionRules.ruleTypeLabel")}</Label>
           <Select
             value={draft.type}
             onValueChange={(next) =>
@@ -628,17 +689,19 @@ function RuleForm({
             </SelectTrigger>
             <SelectContent position="popper">
               <SelectGroup>
-                {Object.entries(RULE_TYPE_LABELS).map(([type, label]) => (
-                  <SelectItem key={type} value={type}>
-                    {label}
-                  </SelectItem>
-                ))}
+                {Object.entries(RULE_TYPE_LABEL_KEYS).map(
+                  ([type, labelKey]) => (
+                    <SelectItem key={type} value={type}>
+                      {t(labelKey)}
+                    </SelectItem>
+                  )
+                )}
               </SelectGroup>
             </SelectContent>
           </Select>
         </div>
         <div className="flex flex-col gap-2">
-          <Label>目标策略</Label>
+          <Label>{t("routing.subscriptionRules.targetPolicy")}</Label>
           <RuleTargetSelect
             value={draft.target}
             policyGroups={policyGroups}
@@ -648,7 +711,9 @@ function RuleForm({
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor="rule-value">规则内容</Label>
+        <Label htmlFor="rule-value">
+          {t("routing.subscriptionRules.ruleValue")}
+        </Label>
         <Input
           id="rule-value"
           value={draft.value}
@@ -659,7 +724,7 @@ function RuleForm({
           required
         />
         <p className="text-xs text-muted-foreground">
-          GEOIP 支持国家代码（如 CN）；IP-CIDR 支持 IPv4 / IPv6 CIDR。
+          {t("routing.subscriptionRules.ruleValueHint")}
         </p>
       </div>
 
@@ -668,7 +733,9 @@ function RuleForm({
           checked={draft.enabled}
           onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
         />
-        <span className="text-sm">启用此规则</span>
+        <span className="text-sm">
+          {t("routing.subscriptionRules.enableRule")}
+        </span>
       </label>
 
       {noResolveVisible ? (
@@ -679,19 +746,21 @@ function RuleForm({
               setDraft({ ...draft, noResolve: checked === true })
             }
           />
-          <span className="text-sm">Clash 输出 no-resolve</span>
+          <span className="text-sm">
+            {t("routing.subscriptionRules.clashNoResolve")}
+          </span>
         </label>
       ) : null}
 
       <SheetFooter className="flex-row justify-between px-0">
         {onDelete ? (
           <Button type="button" variant="destructive" onClick={onDelete}>
-            删除规则
+            {t("routing.subscriptionRules.deleteRule")}
           </Button>
         ) : (
           <span />
         )}
-        <Button type="submit">保存规则</Button>
+        <Button type="submit">{t("routing.subscriptionRules.saveRule")}</Button>
       </SheetFooter>
     </form>
   )
@@ -710,6 +779,7 @@ function RuleSetForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onDelete?: () => void
 }) {
+  const { t } = useI18n()
   const clash = draft.clash ?? {
     enabled: false,
     behavior: "classical" as const,
@@ -725,7 +795,9 @@ function RuleSetForm({
     <form className="flex flex-col gap-4" onSubmit={onSubmit}>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="flex flex-col gap-2">
-          <Label htmlFor="ruleset-id">远程规则 ID</Label>
+          <Label htmlFor="ruleset-id">
+            {t("routing.subscriptionRules.remoteRuleId")}
+          </Label>
           <Input
             id="ruleset-id"
             value={draft.id}
@@ -735,20 +807,22 @@ function RuleSetForm({
           />
         </div>
         <div className="flex flex-col gap-2">
-          <Label htmlFor="ruleset-name">显示名称</Label>
+          <Label htmlFor="ruleset-name">
+            {t("routing.subscriptionRules.displayName")}
+          </Label>
           <Input
             id="ruleset-name"
             value={draft.name}
             onChange={(event) =>
               setDraft({ ...draft, name: event.target.value })
             }
-            placeholder="可选，仅管理员可见"
+            placeholder={t("routing.common.optionalAdminOnly")}
           />
         </div>
       </div>
 
       <div className="flex flex-col gap-2">
-        <Label>目标策略</Label>
+        <Label>{t("routing.subscriptionRules.targetPolicy")}</Label>
         <RuleTargetSelect
           value={draft.target}
           policyGroups={policyGroups}
@@ -761,7 +835,9 @@ function RuleSetForm({
           checked={draft.enabled}
           onCheckedChange={(enabled) => setDraft({ ...draft, enabled })}
         />
-        <span className="text-sm">启用此远程规则</span>
+        <span className="text-sm">
+          {t("routing.subscriptionRules.enableRemoteRule")}
+        </span>
       </label>
 
       <Card>
@@ -778,7 +854,9 @@ function RuleSetForm({
                 setDraft({ ...draft, clash: { ...clash, enabled } })
               }
             />
-            <span className="text-sm">输出到 Clash / Mihomo</span>
+            <span className="text-sm">
+              {t("routing.subscriptionRules.outputClash")}
+            </span>
           </label>
           <div className="flex flex-col gap-2">
             <Label>behavior</Label>
@@ -838,7 +916,9 @@ function RuleSetForm({
                 setDraft({ ...draft, singbox: { ...singbox, enabled } })
               }
             />
-            <span className="text-sm">输出到 sing-box</span>
+            <span className="text-sm">
+              {t("routing.subscriptionRules.outputSingbox")}
+            </span>
           </label>
           <div className="flex flex-col gap-2">
             <Label>format</Label>
@@ -894,18 +974,22 @@ function RuleSetForm({
             setDraft({ ...draft, noResolve: checked === true })
           }
         />
-        <span className="text-sm">Clash RULE-SET 输出 no-resolve</span>
+        <span className="text-sm">
+          {t("routing.subscriptionRules.ruleSetNoResolve")}
+        </span>
       </label>
 
       <SheetFooter className="flex-row justify-between px-0">
         {onDelete ? (
           <Button type="button" variant="destructive" onClick={onDelete}>
-            删除远程规则
+            {t("routing.subscriptionRules.deleteRemoteRule")}
           </Button>
         ) : (
           <span />
         )}
-        <Button type="submit">保存远程规则</Button>
+        <Button type="submit">
+          {t("routing.subscriptionRules.saveRemoteRule")}
+        </Button>
       </SheetFooter>
     </form>
   )
@@ -977,6 +1061,7 @@ function FlowView({
   onEditBuiltinRule: (rule: NonNullable<EditingBuiltinRule>) => void
   onEditFallbackRule: (target: SubscriptionRuleTarget) => void
 }) {
+  const { t } = useI18n()
   const [pan, setPan] = useState({ x: 24, y: 24 })
   const [zoom, setZoom] = useState(1)
   const [dragging, setDragging] = useState(false)
@@ -1140,14 +1225,14 @@ function FlowView({
       : BUILTIN_SUBSCRIPTION_RULE_IDS.flatMap((id) => {
           const override = config.builtinRuleOverrides[id]
           if (override?.enabled === false) return []
-          const label = BUILTIN_SUBSCRIPTION_RULE_LABELS[id]
+          const label = builtinRuleLabel(id, t)
           return [
             {
               key: `builtin:${id}`,
               label: label.name,
               subtitle: label.description,
               target: override?.target ?? DEFAULT_BUILTIN_RULE_TARGETS[id],
-              badge: "内置规则",
+              badge: t("routing.subscriptionRules.badge.builtinRule"),
               onClick: () =>
                 onEditBuiltinRule({
                   id,
@@ -1162,54 +1247,59 @@ function FlowView({
     ...config.remoteRuleSets.map((ruleSet, index) => ({
       key: `ruleset:${ruleSet.id}`,
       label: ruleSet.name || ruleSet.id,
-      subtitle: ruleSetSummary(ruleSet),
+      subtitle: ruleSetSummary(ruleSet, t),
       target: ruleSet.target,
-      badge: "远程规则",
+      badge: t("routing.subscriptionRules.badge.remoteRule"),
       onClick: () => onEditRuleSet(index),
     })),
     ...config.rules.map((rule, index) => ({
       key: `rule:${rule.id}`,
-      label: rule.name || ruleSummary(rule),
-      subtitle: ruleSummary(rule),
+      label: rule.name || ruleSummary(rule, t),
+      subtitle: ruleSummary(rule, t),
       target: rule.target,
-      badge: `规则 ${index + 1}`,
+      badge: t("routing.subscriptionRules.badge.customRule", {
+        index: index + 1,
+      }),
       onClick: () => onEditRule(index),
     })),
   ]
 
   const policyItems: PolicyFlowItem[] = [
-    ...Object.entries(TARGET_LABELS)
+    ...Object.keys(TARGET_LABEL_KEYS)
       .filter(
-        ([target]) =>
+        (target) =>
           config.builtinPolicyOverrides[
             target as keyof typeof config.builtinPolicyOverrides
           ]?.enabled !== false
       )
-      .map(([target]) => ({
+      .map((target) => ({
         target,
         label: targetLabel(
           target,
           config.policyGroups,
+          t,
           config.builtinPolicyOverrides
         ),
         subtitle: config.builtinPolicyOverrides[
           target as keyof typeof config.builtinPolicyOverrides
         ]
-          ? "内置策略 · 已自定义"
-          : "内置订阅策略",
+          ? t("routing.subscriptionRules.builtinPolicyCustomized")
+          : t("routing.subscriptionRules.builtinPolicy"),
         onClick: () => onEditBuiltinPolicy(target),
       })),
     ...config.policyGroups.map((group, index) => ({
       target: group.id,
       label: group.name || group.id,
-      subtitle: `${POLICY_GROUP_TYPE_LABELS[group.type]} · ${
+      subtitle: `${t(POLICY_GROUP_TYPE_LABEL_KEYS[group.type])} · ${
         group.includeNodes
           ? group.selectedNodeIds.length > 0
-            ? `指定 ${group.selectedNodeIds.length} 节点`
-            : "全部节点"
+            ? t("routing.subscriptionRules.specifiedNodes", {
+                count: group.selectedNodeIds.length,
+              })
+            : t("routing.subscriptionRules.allNodes")
           : group.includeProxy
-            ? "节点选择"
-            : "不含节点"
+            ? t("routing.subscriptionRules.target.proxy")
+            : t("routing.subscriptionRules.withoutNodes")
       }`,
       onClick: () => onEditPolicyGroup(index),
     })),
@@ -1220,9 +1310,10 @@ function FlowView({
       label: targetLabel(
         config.finalTarget,
         config.policyGroups,
+        t,
         config.builtinPolicyOverrides
       ),
-      subtitle: "兜底策略",
+      subtitle: t("routing.subscriptionRules.fallbackPolicy"),
     })
   }
 
@@ -1240,10 +1331,10 @@ function FlowView({
     ...customRuleItems.filter((item) => policyIndex.has(item.target)),
     {
       key: "fallback",
-      label: "未匹配流量",
-      subtitle: "所有未命中上方规则的请求",
+      label: t("routing.subscriptionRules.unmatchedTraffic"),
+      subtitle: t("routing.subscriptionRules.unmatchedTrafficSubtitle"),
       target: effectiveFinalTarget,
-      badge: "兜底",
+      badge: t("routing.subscriptionRules.fallbackBadge"),
       onClick: () => onEditFallbackRule(effectiveFinalTarget),
     },
   ]
@@ -1264,9 +1355,10 @@ function FlowView({
     )
     return (
       customGroup ??
-      (policy.target in TARGET_LABELS
+      (policy.target in TARGET_LABEL_KEYS
         ? newBuiltinPolicyDraft(
             policy.target as SubscriptionRuleTarget,
+            t,
             config.builtinPolicyOverrides[
               policy.target as keyof typeof config.builtinPolicyOverrides
             ]
@@ -1309,7 +1401,7 @@ function FlowView({
           linkOutput(String(policy.target), {
             key: `node:${node.id}`,
             label: node.name,
-            subtitle: "节点出口",
+            subtitle: t("routing.subscriptionRules.nodeOutput"),
           })
         })
       } else {
@@ -1317,9 +1409,9 @@ function FlowView({
           key: group.selectedNodeIds.length > 0 ? "missing-node" : "empty-node",
           label:
             group.selectedNodeIds.length > 0
-              ? "已选节点不可用"
-              : "暂无可用节点",
-          subtitle: "节点出口",
+              ? t("routing.subscriptionRules.selectedNodesUnavailable")
+              : t("routing.subscriptionRules.noAvailableNodes"),
+          subtitle: t("routing.subscriptionRules.nodeOutput"),
         })
       }
     }
@@ -1327,29 +1419,29 @@ function FlowView({
     if (group.includeProxy) {
       linkOutput(String(policy.target), {
         key: "proxy",
-        label: "节点选择",
-        subtitle: "策略出口",
+        label: t("routing.subscriptionRules.target.proxy"),
+        subtitle: t("routing.subscriptionRules.policyOutput"),
       })
     }
     if (group.includeAuto) {
       linkOutput(String(policy.target), {
         key: "auto",
-        label: "自动选择",
-        subtitle: "策略出口",
+        label: t("routing.subscriptionRules.target.auto"),
+        subtitle: t("routing.subscriptionRules.policyOutput"),
       })
     }
     if (group.includeDirect) {
       linkOutput(String(policy.target), {
         key: "direct",
         label: "DIRECT / direct",
-        subtitle: "直连出口",
+        subtitle: t("routing.subscriptionRules.directOutput"),
       })
     }
     if (group.includeReject) {
       linkOutput(String(policy.target), {
         key: "reject",
         label: "REJECT / reject",
-        subtitle: "拒绝出口",
+        subtitle: t("routing.subscriptionRules.rejectOutput"),
       })
     }
   })
@@ -1538,34 +1630,34 @@ function FlowView({
       onPointerCancel={handleCanvasPointerEnd}
     >
       <ButtonGroup
-        aria-label="画布新增操作"
+        aria-label={t("routing.subscriptionRules.canvasAddAria")}
         className="absolute top-3 left-3 z-10 shadow-sm"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <Button size="sm" onClick={onAddRule}>
           <Plus data-icon="inline-start" />
-          规则
+          {t("routing.subscriptionRules.addRuleButton")}
         </Button>
         <Button size="sm" variant="outline" onClick={onAddRuleSet}>
           <Plus data-icon="inline-start" />
-          远程规则
+          {t("routing.subscriptionRules.addRemoteRuleButton")}
         </Button>
         <Button size="sm" variant="outline" onClick={onAddPolicyGroup}>
           <Plus data-icon="inline-start" />
-          策略组
+          {t("routing.subscriptionRules.addPolicyGroupButton")}
         </Button>
       </ButtonGroup>
 
       <ButtonGroup
-        aria-label="画布缩放控制"
+        aria-label={t("routing.subscriptionRules.canvasZoomAria")}
         className="absolute bottom-3 left-3 z-10 shadow-sm"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <Button
           size="icon-sm"
           variant="outline"
-          aria-label="缩小画布"
-          title="缩小"
+          aria-label={t("routing.subscriptionRules.zoomOutCanvas")}
+          title={t("routing.subscriptionRules.zoomOut")}
           onClick={() => changeZoom(-0.1)}
         >
           <Minus />
@@ -1573,8 +1665,8 @@ function FlowView({
         <Button
           size="icon-sm"
           variant="outline"
-          aria-label="重置画布"
-          title="重置"
+          aria-label={t("routing.subscriptionRules.resetCanvas")}
+          title={t("routing.subscriptionRules.zoomReset")}
           onClick={() => resetViewport()}
         >
           <RotateCcw />
@@ -1582,8 +1674,8 @@ function FlowView({
         <Button
           size="icon-sm"
           variant="outline"
-          aria-label="放大画布"
-          title="放大"
+          aria-label={t("routing.subscriptionRules.zoomInCanvas")}
+          title={t("routing.subscriptionRules.zoomIn")}
           onClick={() => changeZoom(0.1)}
         >
           <Plus />
@@ -1591,18 +1683,18 @@ function FlowView({
       </ButtonGroup>
 
       <ButtonGroup
-        aria-label="画布页面操作"
+        aria-label={t("routing.subscriptionRules.canvasPageActionsAria")}
         className="absolute top-3 right-3 z-10 shadow-sm"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <Button size="sm" variant="outline" onClick={onPreviewClash}>
-          预览 Clash
+          {t("routing.subscriptionRules.previewClash")}
         </Button>
         <Button size="sm" variant="outline" onClick={onPreviewSingbox}>
-          预览 sing-box
+          {t("routing.subscriptionRules.previewSingbox")}
         </Button>
         <Button size="sm" disabled={!dirty || saving} onClick={onSave}>
-          {saving ? "保存中..." : "保存"}
+          {saving ? t("routing.common.saving") : t("routing.common.save")}
         </Button>
       </ButtonGroup>
 
@@ -1672,9 +1764,11 @@ function FlowView({
           onHoverChange={(active) => setActiveCardKey(active ? "input" : null)}
         >
           <Badge>INPUT</Badge>
-          <p className="mt-2 text-sm font-semibold">流量入口</p>
+          <p className="mt-2 text-sm font-semibold">
+            {t("routing.subscriptionRules.flowInput")}
+          </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            订阅客户端请求从这里进入规则匹配。
+            {t("routing.subscriptionRules.flowInputDescription")}
           </p>
         </FlowCanvasNode>
 
@@ -1691,7 +1785,9 @@ function FlowView({
           >
             <div className="flex items-center justify-between gap-2">
               <Badge>RULE</Badge>
-              <span className="text-xs text-muted-foreground">分流规则</span>
+              <span className="text-xs text-muted-foreground">
+                {t("routing.subscriptionRules.flowRuleSection")}
+              </span>
             </div>
             <p className="mt-2 truncate text-sm font-semibold">{item.label}</p>
             <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
@@ -1715,7 +1811,9 @@ function FlowView({
           >
             <div className="flex items-center justify-between gap-2">
               <Badge>POLICY</Badge>
-              <span className="text-xs text-muted-foreground">策略组</span>
+              <span className="text-xs text-muted-foreground">
+                {t("routing.subscriptionRules.flowPolicySection")}
+              </span>
             </div>
             <p className="mt-2 truncate text-sm font-semibold">{item.label}</p>
             <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
@@ -1736,7 +1834,9 @@ function FlowView({
           >
             <div className="flex items-center justify-between gap-2">
               <Badge>OUTPUT</Badge>
-              <span className="text-xs text-muted-foreground">出口节点</span>
+              <span className="text-xs text-muted-foreground">
+                {t("routing.subscriptionRules.flowOutputSection")}
+              </span>
             </div>
             <p className="mt-2 truncate text-sm font-semibold">{item.label}</p>
             <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -1751,6 +1851,7 @@ function FlowView({
 
 export default function AdminSubscriptionRulesPage() {
   const { confirm } = useConfirm()
+  const { t } = useI18n()
   const [loaded, setLoaded] = useState(false)
   const [saved, setSaved] = useState<SubscriptionRuleConfig>(DEFAULT_CONFIG)
   const [draft, setDraft] = useState<SubscriptionRuleConfig>(DEFAULT_CONFIG)
@@ -1848,17 +1949,22 @@ export default function AdminSubscriptionRulesPage() {
       })
       const json = await response.json()
       if (!response.ok || !json?.ok) {
-        toast.error("保存失败", {
-          description: json?.error?.message ?? "请检查规则配置",
+        toast.error(t("routing.common.saveFailed"), {
+          description:
+            json?.error?.message ?? t("routing.subscriptionRules.configError"),
         })
         return
       }
       const next = { ...DEFAULT_CONFIG, ...json.data, enabled: true }
       setSaved(next)
       setDraft(cloneConfig(next))
-      toast.success("已保存", { description: "订阅分流规则已更新" })
+      toast.success(t("routing.subscriptionRules.saveSuccessTitle"), {
+        description: t("routing.subscriptionRules.saveSuccessDescription"),
+      })
     } catch {
-      toast.error("保存失败", { description: "网络错误，请稍后重试" })
+      toast.error(t("routing.common.saveFailed"), {
+        description: t("routing.common.networkError"),
+      })
     } finally {
       setSaving(false)
     }
@@ -1877,15 +1983,18 @@ export default function AdminSubscriptionRulesPage() {
       })
       const json = await response.json()
       if (!response.ok || !json?.ok) {
-        toast.error("预览失败", {
-          description: json?.error?.message ?? "请检查规则配置",
+        toast.error(t("routing.subscriptionRules.previewFailed"), {
+          description:
+            json?.error?.message ?? t("routing.subscriptionRules.configError"),
         })
         setPreviewOpen(false)
         return
       }
       setPreviewContent(json.data.content)
     } catch {
-      toast.error("预览失败", { description: "网络错误，请稍后重试" })
+      toast.error(t("routing.subscriptionRules.previewFailed"), {
+        description: t("routing.common.networkError"),
+      })
       setPreviewOpen(false)
     } finally {
       setPreviewLoading(false)
@@ -1893,7 +2002,7 @@ export default function AdminSubscriptionRulesPage() {
   }
 
   function startAddPolicyGroup() {
-    setEditingPolicyGroup({ index: null, draft: newPolicyGroupDraft() })
+    setEditingPolicyGroup({ index: null, draft: newPolicyGroupDraft(t) })
   }
 
   function startEditBuiltinPolicy(target: SubscriptionRuleTarget) {
@@ -1901,6 +2010,7 @@ export default function AdminSubscriptionRulesPage() {
       target,
       draft: newBuiltinPolicyDraft(
         target,
+        t,
         draft.builtinPolicyOverrides[
           target as keyof typeof draft.builtinPolicyOverrides
         ]
@@ -1957,10 +2067,11 @@ export default function AdminSubscriptionRulesPage() {
     if (!editingBuiltinPolicy) return
     const target = editingBuiltinPolicy.target
     const ok = await confirm({
-      title: "删除内置策略",
-      description:
-        "确定要删除这个内置策略吗？引用它的规则和远程规则会自动改为节点选择，可之后恢复默认。",
-      confirmText: "删除",
+      title: t("routing.subscriptionRules.deleteBuiltinPolicyTitle"),
+      description: t(
+        "routing.subscriptionRules.deleteBuiltinPolicyDescription"
+      ),
+      confirmText: t("routing.common.delete"),
     })
     if (!ok) return
 
@@ -1986,7 +2097,7 @@ export default function AdminSubscriptionRulesPage() {
         builtinPolicyOverrides: {
           ...prev.builtinPolicyOverrides,
           [target]: {
-            ...newBuiltinPolicyDraft(target),
+            ...newBuiltinPolicyDraft(target, t),
             enabled: false,
           },
         },
@@ -2030,10 +2141,9 @@ export default function AdminSubscriptionRulesPage() {
   async function deleteEditingBuiltinRule() {
     if (!editingBuiltinRule) return
     const ok = await confirm({
-      title: "删除内置规则",
-      description:
-        "确定要删除这条内置分流规则吗？可之后在站点设置中重置策略恢复。",
-      confirmText: "删除",
+      title: t("routing.subscriptionRules.deleteBuiltinRuleTitle"),
+      description: t("routing.subscriptionRules.deleteBuiltinRuleDescription"),
+      confirmText: t("routing.common.delete"),
     })
     if (!ok) return
     setDraft((prev) => ({
@@ -2075,10 +2185,9 @@ export default function AdminSubscriptionRulesPage() {
     if (!groupId) return
 
     const ok = await confirm({
-      title: "删除策略组",
-      description:
-        "确定要删除这个策略组吗？引用它的规则和远程规则会自动改为节点选择。",
-      confirmText: "删除",
+      title: t("routing.subscriptionRules.deletePolicyGroupTitle"),
+      description: t("routing.subscriptionRules.deletePolicyGroupDescription"),
+      confirmText: t("routing.common.delete"),
     })
     if (!ok) return
 
@@ -2115,9 +2224,9 @@ export default function AdminSubscriptionRulesPage() {
   async function deleteEditingRule() {
     if (!editingRule || editingRule.index === null) return
     const ok = await confirm({
-      title: "删除规则",
-      description: "确定要删除这条分流规则吗？",
-      confirmText: "删除",
+      title: t("routing.subscriptionRules.deleteRuleTitle"),
+      description: t("routing.subscriptionRules.deleteRuleDescription"),
+      confirmText: t("routing.common.delete"),
     })
     if (!ok) return
 
@@ -2145,9 +2254,9 @@ export default function AdminSubscriptionRulesPage() {
   async function deleteEditingRuleSet() {
     if (!editingRuleSet || editingRuleSet.index === null) return
     const ok = await confirm({
-      title: "删除远程规则",
-      description: "确定要删除这条远程规则吗？",
-      confirmText: "删除",
+      title: t("routing.subscriptionRules.deleteRemoteRuleTitle"),
+      description: t("routing.subscriptionRules.deleteRemoteRuleDescription"),
+      confirmText: t("routing.common.delete"),
     })
     if (!ok) return
 
@@ -2195,10 +2304,11 @@ export default function AdminSubscriptionRulesPage() {
       >
         <SheetContent className="overflow-y-auto sm:max-w-xl">
           <SheetHeader>
-            <SheetTitle>编辑内置策略</SheetTitle>
+            <SheetTitle>
+              {t("routing.subscriptionRules.editBuiltinPolicyTitle")}
+            </SheetTitle>
             <SheetDescription>
-              内置策略 ID
-              用于客户端规则引用，不支持修改；可调整显示名称、节点范围和出口。
+              {t("routing.subscriptionRules.editBuiltinPolicyDescription")}
             </SheetDescription>
           </SheetHeader>
           {editingBuiltinPolicy ? (
@@ -2220,7 +2330,7 @@ export default function AdminSubscriptionRulesPage() {
                     setEditingBuiltinPolicy(null)
                   }}
                 >
-                  恢复此内置策略默认值
+                  {t("routing.subscriptionRules.restoreBuiltinPolicy")}
                 </Button>
               ) : null}
               <PolicyGroupForm
@@ -2249,11 +2359,13 @@ export default function AdminSubscriptionRulesPage() {
           <SheetHeader>
             <SheetTitle>
               {editingBuiltinRule
-                ? `编辑内置规则：${BUILTIN_SUBSCRIPTION_RULE_LABELS[editingBuiltinRule.id].name}`
-                : "编辑内置规则"}
+                ? t("routing.subscriptionRules.editBuiltinRuleTitle", {
+                    name: builtinRuleLabel(editingBuiltinRule.id, t).name,
+                  })
+                : t("routing.subscriptionRules.editBuiltinRuleTitleFallback")}
             </SheetTitle>
             <SheetDescription>
-              内置规则只支持调整命中后的目标策略；规则内容来自默认订阅模板。
+              {t("routing.subscriptionRules.editBuiltinRuleDescription")}
             </SheetDescription>
           </SheetHeader>
           {editingBuiltinRule ? (
@@ -2263,17 +2375,14 @@ export default function AdminSubscriptionRulesPage() {
             >
               <div className="rounded-lg border p-3">
                 <p className="text-sm font-medium">
-                  {BUILTIN_SUBSCRIPTION_RULE_LABELS[editingBuiltinRule.id].name}
+                  {builtinRuleLabel(editingBuiltinRule.id, t).name}
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {
-                    BUILTIN_SUBSCRIPTION_RULE_LABELS[editingBuiltinRule.id]
-                      .description
-                  }
+                  {builtinRuleLabel(editingBuiltinRule.id, t).description}
                 </p>
               </div>
               <div className="flex flex-col gap-2">
-                <Label>匹配内容预览</Label>
+                <Label>{t("routing.subscriptionRules.matchPreview")}</Label>
                 <div className="max-h-56 overflow-y-auto rounded-lg border bg-muted/20 p-3 font-mono text-xs">
                   {BUILTIN_SUBSCRIPTION_RULE_PREVIEW_LINES[
                     editingBuiltinRule.id
@@ -2284,11 +2393,11 @@ export default function AdminSubscriptionRulesPage() {
                   ))}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  内置规则由默认模板维护；如需自定义匹配内容，请删除该规则后新增普通规则或远程规则。
+                  {t("routing.subscriptionRules.builtinRuleHint")}
                 </p>
               </div>
               <div className="flex flex-col gap-2">
-                <Label>目标策略</Label>
+                <Label>{t("routing.subscriptionRules.targetPolicy")}</Label>
                 <RuleTargetSelect
                   value={editingBuiltinRule.target}
                   policyGroups={draft.policyGroups}
@@ -2304,7 +2413,9 @@ export default function AdminSubscriptionRulesPage() {
                     setEditingBuiltinRule({ ...editingBuiltinRule, enabled })
                   }
                 />
-                <span className="text-sm">启用此内置规则</span>
+                <span className="text-sm">
+                  {t("routing.subscriptionRules.enableBuiltinRule")}
+                </span>
               </label>
               <SheetFooter className="flex-row justify-between px-0">
                 <Button
@@ -2312,9 +2423,11 @@ export default function AdminSubscriptionRulesPage() {
                   variant="destructive"
                   onClick={() => void deleteEditingBuiltinRule()}
                 >
-                  删除规则
+                  {t("routing.subscriptionRules.deleteRule")}
                 </Button>
-                <Button type="submit">保存规则</Button>
+                <Button type="submit">
+                  {t("routing.subscriptionRules.saveRule")}
+                </Button>
               </SheetFooter>
             </form>
           ) : null}
@@ -2327,9 +2440,11 @@ export default function AdminSubscriptionRulesPage() {
       >
         <SheetContent className="overflow-y-auto sm:max-w-xl">
           <SheetHeader>
-            <SheetTitle>编辑未匹配流量</SheetTitle>
+            <SheetTitle>
+              {t("routing.subscriptionRules.editFallbackTitle")}
+            </SheetTitle>
             <SheetDescription>
-              所有没有命中任何规则的流量，会进入这里配置的最终兜底策略。
+              {t("routing.subscriptionRules.editFallbackDescription")}
             </SheetDescription>
           </SheetHeader>
           {editingFallbackRule ? (
@@ -2338,13 +2453,17 @@ export default function AdminSubscriptionRulesPage() {
               onSubmit={submitFallbackRule}
             >
               <div className="rounded-lg border p-3">
-                <p className="text-sm font-medium">未匹配流量</p>
+                <p className="text-sm font-medium">
+                  {t("routing.subscriptionRules.unmatchedTraffic")}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  未匹配其他规则的流量将按此策略处理。
+                  {t("routing.subscriptionRules.unmatchedTrafficDetail")}
                 </p>
               </div>
               <div className="flex flex-col gap-2">
-                <Label>最终兜底策略</Label>
+                <Label>
+                  {t("routing.subscriptionRules.finalFallbackPolicy")}
+                </Label>
                 <RuleTargetSelect
                   value={editingFallbackRule.target}
                   policyGroups={draft.policyGroups}
@@ -2354,7 +2473,9 @@ export default function AdminSubscriptionRulesPage() {
                 />
               </div>
               <SheetFooter className="px-0">
-                <Button type="submit">保存兜底规则</Button>
+                <Button type="submit">
+                  {t("routing.subscriptionRules.saveFallbackRule")}
+                </Button>
               </SheetFooter>
             </form>
           ) : null}
@@ -2368,10 +2489,12 @@ export default function AdminSubscriptionRulesPage() {
         <SheetContent className="overflow-y-auto sm:max-w-xl">
           <SheetHeader>
             <SheetTitle>
-              {editingPolicyGroup?.index === null ? "添加策略组" : "编辑策略组"}
+              {editingPolicyGroup?.index === null
+                ? t("routing.subscriptionRules.addPolicyGroupTitle")
+                : t("routing.subscriptionRules.editPolicyGroupTitle")}
             </SheetTitle>
             <SheetDescription>
-              策略组将应用于 Clash 与 sing-box 订阅中的代理选择配置。
+              {t("routing.subscriptionRules.policyGroupSheetDescription")}
             </SheetDescription>
           </SheetHeader>
           {editingPolicyGroup ? (
@@ -2401,10 +2524,12 @@ export default function AdminSubscriptionRulesPage() {
         <SheetContent className="overflow-y-auto sm:max-w-xl">
           <SheetHeader>
             <SheetTitle>
-              {editingRule?.index === null ? "添加规则" : "编辑规则"}
+              {editingRule?.index === null
+                ? t("routing.subscriptionRules.addRuleTitle")
+                : t("routing.subscriptionRules.editRuleTitle")}
             </SheetTitle>
             <SheetDescription>
-              规则将应用于 Clash 与 sing-box 订阅分流配置。
+              {t("routing.subscriptionRules.ruleSheetDescription")}
             </SheetDescription>
           </SheetHeader>
           {editingRule ? (
@@ -2434,10 +2559,12 @@ export default function AdminSubscriptionRulesPage() {
         <SheetContent className="overflow-y-auto sm:max-w-2xl">
           <SheetHeader>
             <SheetTitle>
-              {editingRuleSet?.index === null ? "添加远程规则" : "编辑远程规则"}
+              {editingRuleSet?.index === null
+                ? t("routing.subscriptionRules.addRemoteRuleTitle")
+                : t("routing.subscriptionRules.editRemoteRuleTitle")}
             </SheetTitle>
             <SheetDescription>
-              可分别配置 Clash 与 sing-box 使用的远程规则地址。
+              {t("routing.subscriptionRules.remoteRuleSheetDescription")}
             </SheetDescription>
           </SheetHeader>
           {editingRuleSet ? (
@@ -2464,10 +2591,12 @@ export default function AdminSubscriptionRulesPage() {
         <SheetContent className="overflow-y-auto sm:max-w-3xl">
           <SheetHeader>
             <SheetTitle>
-              {previewFormat === "clash" ? "Clash 预览" : "sing-box 预览"}
+              {previewFormat === "clash"
+                ? t("routing.subscriptionRules.clashPreviewTitle")
+                : t("routing.subscriptionRules.singboxPreviewTitle")}
             </SheetTitle>
             <SheetDescription>
-              使用当前已启用节点生成，仅用于确认订阅模板和分流规则结构。
+              {t("routing.subscriptionRules.previewDescription")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex flex-col gap-3 px-4 pb-4">

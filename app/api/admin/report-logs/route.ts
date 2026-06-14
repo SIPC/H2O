@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import {
@@ -104,7 +104,7 @@ export async function GET(request: Request) {
     )
     .all(...values, pageSize, offset) as AgentTrafficReportRow[]
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       rows: rows.map((row) => ({

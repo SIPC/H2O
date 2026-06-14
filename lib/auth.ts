@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from "node:crypto"
 
-import { NextResponse } from "next/server"
+import type { NextResponse } from "next/server"
 
 import { getDb } from "@/lib/db"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 const SESSION_COOKIE = "h2o_session"
 const SESSION_TTL_DAYS = 14
@@ -12,6 +13,7 @@ export type SessionUser = {
   username: string
   role: "user" | "admin"
   status: "active" | "disabled"
+  preferred_locale: "zh-CN" | "en-US" | null
 }
 
 function sha256(value: string) {
@@ -70,7 +72,7 @@ export function getSessionUser(request: Request) {
 
   const row = db
     .prepare(
-      `SELECT u.id, u.username, u.role, u.status
+      `SELECT u.id, u.username, u.role, u.status, u.preferred_locale
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.session_token_hash = ?
@@ -91,7 +93,8 @@ export function getSessionUser(request: Request) {
 export function requireUser(request: Request) {
   const user = getSessionUser(request)
   if (!user) {
-    const response = NextResponse.json(
+    const response = localizedJson(
+      request,
       { ok: false, error: { code: "UNAUTHORIZED", message: "请先登录" } },
       { status: 401 }
     )
@@ -108,7 +111,8 @@ export function requireAdmin(request: Request) {
   if (auth.user.role !== "admin") {
     return {
       ok: false as const,
-      response: NextResponse.json(
+      response: localizedJson(
+        request,
         { ok: false, error: { code: "FORBIDDEN", message: "需要管理员权限" } },
         { status: 403 }
       ),

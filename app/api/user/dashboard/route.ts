@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireUser } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -24,7 +24,8 @@ export async function GET(request: Request) {
     .get(auth.user.id) as { auth_token: string } | undefined
 
   if (!userRow) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NOT_FOUND", message: "用户不存在" } },
       { status: 404 }
     )
@@ -165,7 +166,7 @@ export async function GET(request: Request) {
       ? Math.max(0, Math.floor(yesterdaySum.rx))
       : 0
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       subscriptionPath: `/api/sub?token=${encodeURIComponent(userRow.auth_token)}`,

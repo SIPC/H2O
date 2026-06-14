@@ -80,6 +80,7 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
   // 对老库做一次补列：新增字段允许安全重入（已存在会抛错，catch 掉）
   // 不是多版本迁移链，仅是单次向前兼容
   for (const alter of [
+    `ALTER TABLE users ADD COLUMN preferred_locale TEXT`,
     `ALTER TABLE nodes ADD COLUMN remark TEXT`,
     `ALTER TABLE nodes ADD COLUMN port_hopping TEXT`,
     `ALTER TABLE nodes ADD COLUMN obfs_min_packet_size INTEGER`,
@@ -281,6 +282,7 @@ function migrate(database: DatabaseSync) {
       auth_token TEXT NOT NULL UNIQUE,
       role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user','admin')),
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
+      preferred_locale TEXT CHECK(preferred_locale IS NULL OR preferred_locale IN ('zh-CN','en-US')),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       last_login_at TEXT

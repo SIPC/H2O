@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 
+import { useI18n } from "@/components/i18n-provider"
+import { LanguageSwitcher } from "@/components/language-switcher"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function LoginPage() {
   const router = useRouter()
+  const { setLocale, t } = useI18n()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [turnstileToken, setTurnstileToken] = useState("")
@@ -51,7 +54,7 @@ export default function LoginPage() {
     event.preventDefault()
 
     if (turnstileRequired && !turnstileToken) {
-      setError("请先完成人机验证")
+      setError(t("auth.turnstileRequired"))
       return
     }
 
@@ -68,10 +71,14 @@ export default function LoginPage() {
     setLoading(false)
 
     if (!response.ok || !json.ok) {
-      setError(json?.error?.message ?? "登录失败")
+      setError(json?.error?.message ?? t("auth.loginFailed"))
       // 校验失败后强制重新验证
       setTurnstileToken("")
       return
+    }
+
+    if (json.data.user.resolvedLocale) {
+      setLocale(json.data.user.resolvedLocale)
     }
 
     if (json.data.user.role === "admin") {
@@ -84,7 +91,8 @@ export default function LoginPage() {
 
   if (!settingsLoaded) {
     return (
-      <div className="mx-auto flex min-h-svh max-w-md items-center p-6">
+      <div className="relative mx-auto flex min-h-svh max-w-md items-center p-6">
+        <LanguageSwitcher className="absolute top-4 right-4" />
         <Card className="w-full">
           <CardHeader>
             <Skeleton className="h-6 w-16" />
@@ -103,15 +111,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-md items-center p-6">
+    <div className="relative mx-auto flex min-h-svh max-w-md items-center p-6">
+      <LanguageSwitcher className="absolute top-4 right-4" />
       <Card className="w-full">
         <CardHeader>
-          <CardTitle>登录</CardTitle>
+          <CardTitle>{t("auth.login")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="username">用户名</Label>
+              <Label htmlFor="username">{t("auth.username")}</Label>
               <Input
                 id="username"
                 value={username}
@@ -120,7 +129,7 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">密码</Label>
+              <Label htmlFor="password">{t("auth.password")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -141,7 +150,7 @@ export default function LoginPage() {
                 type="submit"
                 disabled={loading || (turnstileRequired && !turnstileToken)}
               >
-                {loading ? "登录中..." : "登录"}
+                {loading ? t("auth.loggingIn") : t("auth.login")}
               </Button>
               {registrationEnabled ? (
                 <Button
@@ -149,7 +158,7 @@ export default function LoginPage() {
                   variant="outline"
                   onClick={() => router.push("/register")}
                 >
-                  去注册
+                  {t("auth.goRegister")}
                 </Button>
               ) : null}
             </div>

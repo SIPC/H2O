@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Line, LineChart, XAxis } from "recharts"
 
 import { Card, CardContent } from "@/components/ui/card"
+import { useI18n } from "@/components/i18n-provider"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChartContainer,
@@ -50,35 +51,10 @@ type TrendResult = {
   direction: "up" | "down" | "flat"
 }
 
-const TX_CHART_CONFIG = {
-  txBytes: {
-    label: "今日总出",
-    theme: {
-      light: "#171717",
-      dark: "#ffffff",
-    },
-  },
-} satisfies ChartConfig
-
-const RX_CHART_CONFIG = {
-  rxBytes: {
-    label: "今日总入",
-    theme: {
-      light: "#171717",
-      dark: "#ffffff",
-    },
-  },
-} satisfies ChartConfig
-
-const TOTAL_CHART_CONFIG = {
-  totalBytes: {
-    label: "今日总量",
-    theme: {
-      light: "#171717",
-      dark: "#ffffff",
-    },
-  },
-} satisfies ChartConfig
+const MONO_CHART_THEME = {
+  light: "#171717",
+  dark: "#ffffff",
+} as const
 
 function clampHour(hour: number): number {
   if (!Number.isFinite(hour)) return 0
@@ -193,6 +169,7 @@ function TrafficSparkCard({
   date: string
   previousDayBytes: number
 }) {
+  const { t } = useI18n()
   const trend = calculateDayTrend(totalBytes, previousDayBytes)
   const shouldAnimate = data.length > 0
 
@@ -226,7 +203,9 @@ function TrafficSparkCard({
           {formatBytes(totalBytes)}
         </p>
 
-        <p className="mb-2 text-xs text-muted-foreground">较前一天</p>
+        <p className="mb-2 text-xs text-muted-foreground">
+          {t("adminOverview.chart.previousDay")}
+        </p>
 
         <ChartContainer config={config} className="aspect-auto h-14 w-full">
           <LineChart
@@ -290,6 +269,7 @@ function TrafficSparkCard({
 }
 
 export default function AdminPage() {
+  const { t } = useI18n()
   const [overview, setOverview] = useState<AdminOverview>({
     users: 0,
     nodes: 0,
@@ -379,14 +359,49 @@ export default function AdminPage() {
   }, [])
 
   const tooltipDate = traffic.date || getLocalDateString()
+  const chartConfigs = useMemo<Record<"tx" | "rx" | "total", ChartConfig>>(
+    () => ({
+      tx: {
+        txBytes: {
+          label: t("adminOverview.chart.todayTx"),
+          theme: MONO_CHART_THEME,
+        },
+      },
+      rx: {
+        rxBytes: {
+          label: t("adminOverview.chart.todayRx"),
+          theme: MONO_CHART_THEME,
+        },
+      },
+      total: {
+        totalBytes: {
+          label: t("adminOverview.chart.todayTotal"),
+          theme: MONO_CHART_THEME,
+        },
+      },
+    }),
+    [t]
+  )
   const overviewItems = [
-    { label: "用户数", value: overview.users, description: "已创建账号" },
-    { label: "节点数", value: overview.nodes, description: "可用接入节点" },
-    { label: "套餐数", value: overview.plans, description: "已配置套餐" },
     {
-      label: "订阅数",
+      label: t("adminOverview.metric.users"),
+      value: overview.users,
+      description: t("adminOverview.metric.usersDescription"),
+    },
+    {
+      label: t("adminOverview.metric.nodes"),
+      value: overview.nodes,
+      description: t("adminOverview.metric.nodesDescription"),
+    },
+    {
+      label: t("adminOverview.metric.plans"),
+      value: overview.plans,
+      description: t("adminOverview.metric.plansDescription"),
+    },
+    {
+      label: t("adminOverview.metric.subscriptions"),
       value: overview.subscriptions,
-      description: "当前订阅记录",
+      description: t("adminOverview.metric.subscriptionsDescription"),
     },
   ]
   const todayTotalBytes = traffic.todayTxBytes + traffic.todayRxBytes
@@ -397,9 +412,9 @@ export default function AdminPage() {
     return (
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
         <div>
-          <h1 className="text-2xl font-bold">管理概览</h1>
+          <h1 className="text-2xl font-bold">{t("adminOverview.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            系统资源与今日流量趋势
+            {t("adminOverview.description")}
           </p>
         </div>
 
@@ -435,9 +450,9 @@ export default function AdminPage() {
       {/* 页面标题 */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">管理概览</h1>
+          <h1 className="text-2xl font-bold">{t("adminOverview.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            系统资源与今日流量趋势
+            {t("adminOverview.description")}
           </p>
         </div>
         <span className="text-xs text-muted-foreground tabular-nums">
@@ -465,30 +480,30 @@ export default function AdminPage() {
       {/* 今日流量趋势 */}
       <div className="grid gap-4 lg:grid-cols-3">
         <TrafficSparkCard
-          title="今日总量"
+          title={t("adminOverview.chart.todayTotal")}
           totalBytes={todayTotalBytes}
           previousDayBytes={yesterdayTotalBytes}
           data={traffic.hourly}
           dataKey="totalBytes"
-          config={TOTAL_CHART_CONFIG}
+          config={chartConfigs.total}
           date={tooltipDate}
         />
         <TrafficSparkCard
-          title="今日总出"
+          title={t("adminOverview.chart.todayTx")}
           totalBytes={traffic.todayTxBytes}
           previousDayBytes={traffic.yesterdayTxBytes}
           data={traffic.hourly}
           dataKey="txBytes"
-          config={TX_CHART_CONFIG}
+          config={chartConfigs.tx}
           date={tooltipDate}
         />
         <TrafficSparkCard
-          title="今日总入"
+          title={t("adminOverview.chart.todayRx")}
           totalBytes={traffic.todayRxBytes}
           previousDayBytes={traffic.yesterdayRxBytes}
           data={traffic.hourly}
           dataKey="rxBytes"
-          config={RX_CHART_CONFIG}
+          config={chartConfigs.rx}
           date={tooltipDate}
         />
       </div>

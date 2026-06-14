@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { runNotificationChecks } from "@/lib/notifications"
@@ -8,5 +8,5 @@ export async function POST(request: Request) {
   if (!auth.ok) return auth.response
 
   const result = await runNotificationChecks()
-  return NextResponse.json({ ok: true, data: result })
+  return localizedJson(request, { ok: true, data: result })
 }

@@ -1,5 +1,5 @@
 import { isIPv4, isIPv6 } from "node:net"
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import {
@@ -68,7 +68,8 @@ export async function POST(
   const nodeId = Number(id)
 
   if (!Number.isInteger(nodeId) || nodeId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "节点ID不合法" } },
       { status: 400 }
     )
@@ -93,7 +94,8 @@ export async function POST(
     | undefined
 
   if (!node) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NOT_FOUND", message: "节点不存在" } },
       { status: 404 }
     )
@@ -103,7 +105,8 @@ export async function POST(
   const domain = node.ip
 
   if (!isDomain(domain)) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -117,7 +120,8 @@ export async function POST(
 
   const targetResult = buildDnsTargets(node)
   if (!targetResult.ok) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: targetResult.message },
@@ -127,7 +131,8 @@ export async function POST(
   }
 
   if (targetResult.targets.length === 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -162,7 +167,8 @@ export async function POST(
   }
 
   if (!cfToken) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -185,7 +191,8 @@ export async function POST(
         reason: "CF_ZONE_NOT_FOUND",
         detail: { nodeId, domain },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -288,7 +295,7 @@ export async function POST(
       ? "changed"
       : "unchanged"
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         action,
@@ -309,7 +316,8 @@ export async function POST(
         error: error instanceof Error ? error.message : String(error),
       },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {

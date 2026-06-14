@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -15,8 +15,17 @@ type OutboundProfileBody = {
   config?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 export async function GET(request: Request) {
@@ -38,7 +47,7 @@ export async function GET(request: Request) {
     )
     .all()
 
-  return NextResponse.json({ ok: true, data: rows })
+  return localizedJson(request, { ok: true, data: rows })
 }
 
 export async function POST(request: Request) {
@@ -59,7 +68,7 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: name || null },
     })
-    return jsonError("INVALID_PAYLOAD", "参数不完整", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "参数不完整", 400)
   }
 
   const validation = validateOutboundProfileConfig(body.config)
@@ -72,7 +81,7 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name, error: validation.error },
     })
-    return jsonError("INVALID_PAYLOAD", validation.error, 400)
+    return jsonError(request, "INVALID_PAYLOAD", validation.error, 400)
   }
 
   const db = getDb()
@@ -83,12 +92,7 @@ export async function POST(request: Request) {
         `INSERT INTO outbound_profiles(name, remark, config, config_hash)
          VALUES (?, ?, ?, ?)`
       )
-      .run(
-        name,
-        remark,
-        JSON.stringify(validation.config),
-        validation.hash
-      )
+      .run(name, remark, JSON.stringify(validation.config), validation.hash)
     const profileId = Number(result.lastInsertRowid)
     const affectedNodeIds = bumpNodesForRoutingChange({
       database: db,
@@ -110,7 +114,7 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json({ ok: true, data: { id: profileId, name } })
+    return localizedJson(request, { ok: true, data: { id: profileId, name } })
   } catch {
     try {
       db.exec("ROLLBACK")
@@ -125,6 +129,6 @@ export async function POST(request: Request) {
       reason: "CREATE_FAILED",
       detail: { name },
     })
-    return jsonError("CREATE_FAILED", "出站配置创建失败", 400)
+    return jsonError(request, "CREATE_FAILED", "出站配置创建失败", 400)
   }
 }

@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation"
 import { useState } from "react"
 
+import { useI18n } from "@/components/i18n-provider"
+import { LanguageSwitcher } from "@/components/language-switcher"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,6 +12,7 @@ import { Label } from "@/components/ui/label"
 
 export default function InitPage() {
   const router = useRouter()
+  const { t } = useI18n()
   const [username, setUsername] = useState("admin")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
@@ -32,23 +35,24 @@ export default function InitPage() {
     setLoading(false)
 
     if (!response.ok || !json.ok) {
-      setError(json?.error?.message ?? "初始化失败")
+      setError(json?.error?.message ?? t("init.failed"))
       return
     }
 
-    setSuccess("管理员初始化成功，请前往登录")
+    setSuccess(t("init.success"))
   }
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-md items-center p-6">
+    <div className="relative mx-auto flex min-h-svh max-w-md items-center p-6">
+      <LanguageSwitcher className="absolute top-4 right-4" />
       <Card className="w-full">
         <CardHeader>
-          <CardTitle>初始化管理员</CardTitle>
+          <CardTitle>{t("init.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={onSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="username">管理员用户名</Label>
+              <Label htmlFor="username">{t("init.adminUsername")}</Label>
               <Input
                 id="username"
                 value={username}
@@ -57,7 +61,7 @@ export default function InitPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">管理员密码</Label>
+              <Label htmlFor="password">{t("init.adminPassword")}</Label>
               <Input
                 id="password"
                 type="password"
@@ -74,14 +78,14 @@ export default function InitPage() {
 
             <div className="flex items-center gap-2">
               <Button type="submit" disabled={loading}>
-                {loading ? "初始化中..." : "初始化管理员"}
+                {loading ? t("init.initializing") : t("init.title")}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => router.push("/login")}
               >
-                去登录
+                {t("auth.goLogin")}
               </Button>
             </div>
           </form>

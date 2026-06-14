@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import packageJson from "@/package.json"
 import { requireAdmin } from "@/lib/auth"
@@ -141,7 +141,8 @@ export async function GET(request: Request) {
   const currentParsed = parseVersion(currentVersion)
 
   if (!currentParsed) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -163,7 +164,7 @@ export async function GET(request: Request) {
     })
 
     if (!response.ok) {
-      return NextResponse.json({
+      return localizedJson(request, {
         ok: true,
         data: {
           currentVersion,
@@ -183,7 +184,7 @@ export async function GET(request: Request) {
     const latestParsed = parseVersion(latestVersion)
 
     if (!latestParsed) {
-      return NextResponse.json({
+      return localizedJson(request, {
         ok: true,
         data: {
           currentVersion,
@@ -198,7 +199,7 @@ export async function GET(request: Request) {
 
     const hasUpdate = compareVersion(latestParsed, currentParsed) > 0
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         currentVersion,
@@ -210,7 +211,7 @@ export async function GET(request: Request) {
       },
     })
   } catch {
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         currentVersion,

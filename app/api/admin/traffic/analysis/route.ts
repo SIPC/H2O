@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -33,7 +33,10 @@ type DailyNodeRow = {
 
 // 校验日期格式 YYYY-MM-DD
 function isValidDate(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(new Date(`${s}T00:00:00`).getTime())
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(s) &&
+    !Number.isNaN(new Date(`${s}T00:00:00`).getTime())
+  )
 }
 
 // 获取最近 N 天的日期字符串
@@ -63,11 +66,13 @@ export async function GET(request: Request) {
   const toParam = url.searchParams.get("to")?.trim() ?? ""
 
   // 默认最近 7 天
-  const fromDate = fromParam && isValidDate(fromParam) ? fromParam : recentDate(6)
+  const fromDate =
+    fromParam && isValidDate(fromParam) ? fromParam : recentDate(6)
   const toDate = toParam && isValidDate(toParam) ? toParam : todayDate()
 
   if (fromDate > toDate) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "起始日期不能晚于结束日期" },
@@ -182,7 +187,7 @@ export async function GET(request: Request) {
     totalRxBytes += d.rxBytes
   }
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       from: fromDate,

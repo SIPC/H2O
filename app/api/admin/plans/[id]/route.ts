@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -30,7 +30,8 @@ export async function PATCH(
   const planId = Number(id)
 
   if (!Number.isInteger(planId) || planId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "套餐ID不合法" } },
       { status: 400 }
     )
@@ -60,7 +61,8 @@ export async function PATCH(
         reason: "INVALID_TRAFFIC",
         detail: { planId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_TRAFFIC", message: "流量上限不合法" },
@@ -83,7 +85,8 @@ export async function PATCH(
         reason: "INVALID_TRAFFIC",
         detail: { planId, trafficBillingMode: body.trafficBillingMode },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_TRAFFIC", message: "流量计费方式不合法" },
@@ -107,7 +110,8 @@ export async function PATCH(
         reason: "INVALID_DURATION",
         detail: { planId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_DURATION", message: "时长不合法" },
@@ -136,7 +140,8 @@ export async function PATCH(
           reason: "INVALID_SPEED",
           detail: { planId, field: col },
         })
-        return NextResponse.json(
+        return localizedJson(
+          request,
           {
             ok: false,
             error: { code: "INVALID_SPEED", message: "限速数值不合法" },
@@ -171,7 +176,8 @@ export async function PATCH(
           reason: "INVALID_PAYLOAD",
           detail: { planId },
         })
-        return NextResponse.json(
+        return localizedJson(
+          request,
           {
             ok: false,
             error: {
@@ -203,7 +209,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { planId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: "续订周期必须为正整数" },
@@ -228,7 +235,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { planId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "没有可更新字段" },
@@ -260,7 +268,8 @@ export async function PATCH(
           reason: "NOT_FOUND",
           detail: { planId },
         })
-        return NextResponse.json(
+        return localizedJson(
+          request,
           { ok: false, error: { code: "NOT_FOUND", message: "套餐不存在" } },
           { status: 404 }
         )
@@ -295,7 +304,7 @@ export async function PATCH(
       },
     })
 
-    return NextResponse.json({ ok: true, data: { id: planId } })
+    return localizedJson(request, { ok: true, data: { id: planId } })
   } catch {
     db.exec("ROLLBACK")
     writeAdminEvent({
@@ -306,7 +315,8 @@ export async function PATCH(
       reason: "UPDATE_FAILED",
       detail: { planId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "UPDATE_FAILED", message: "套餐更新失败" } },
       { status: 400 }
     )
@@ -325,7 +335,8 @@ export async function DELETE(
   const planId = Number(id)
 
   if (!Number.isInteger(planId) || planId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "套餐ID不合法" } },
       { status: 400 }
     )
@@ -350,7 +361,8 @@ export async function DELETE(
       reason: "PLAN_IN_USE",
       detail: { planId, planName: target?.name ?? null, usedBy: used.c },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "PLAN_IN_USE", message: "仍有订阅关联该套餐，无法删除" },
@@ -371,7 +383,8 @@ export async function DELETE(
         reason: "NOT_FOUND",
         detail: { planId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         { ok: false, error: { code: "NOT_FOUND", message: "套餐不存在" } },
         { status: 404 }
       )
@@ -385,7 +398,7 @@ export async function DELETE(
       reason: "OK",
       detail: { planId, planName: target?.name ?? null },
     })
-    return NextResponse.json({ ok: true, data: { id: planId } })
+    return localizedJson(request, { ok: true, data: { id: planId } })
   } catch {
     writeAdminEvent({
       event: "PLAN_DELETE",
@@ -395,7 +408,8 @@ export async function DELETE(
       reason: "DELETE_FAILED",
       detail: { planId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "DELETE_FAILED", message: "套餐删除失败" } },
       { status: 400 }
     )

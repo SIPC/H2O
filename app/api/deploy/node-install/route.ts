@@ -2,6 +2,8 @@ import { createHash, randomBytes } from "node:crypto"
 
 import { NextResponse } from "next/server"
 
+import { localizedJson } from "@/lib/i18n/api-response"
+
 import {
   normalizeAcmeCaUrl,
   normalizeAcmeDnsConfig,
@@ -69,8 +71,17 @@ type InstallParams = {
   aclBlock: string | null
 }
 
-function errorJson(code: string, message: string, status = 400) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function errorJson(
+  request: Request,
+  code: string,
+  message: string,
+  status = 400
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function shellSingleQuote(value: string) {
@@ -753,6 +764,7 @@ export async function GET(request: Request) {
   const query = parseDeployTokenQuery(token)
   if (!query) {
     return errorJson(
+      request,
       "INVALID_TOKEN",
       "部署 token 无效或已过期，请在节点页面重新生成一键部署命令"
     )
@@ -762,12 +774,13 @@ export async function GET(request: Request) {
   const panelUrlRaw = query.get("panel_url")?.trim() || requestBase
   const panelUrl = parseBaseUrl(panelUrlRaw)
   if (!panelUrl) {
-    return errorJson("INVALID_PANEL_URL", "panel_url 不合法")
+    return errorJson(request, "INVALID_PANEL_URL", "panel_url 不合法")
   }
 
   const authPath = query.get("auth_path")?.trim() ?? ""
   if (!/^[A-Za-z0-9_-]{8,128}$/.test(authPath)) {
     return errorJson(
+      request,
       "INVALID_AUTH_PATH",
       "auth_path 不合法（仅允许字母数字下划线短横线，长度 8~128）"
     )
@@ -776,19 +789,23 @@ export async function GET(request: Request) {
   const portRaw = query.get("port")?.trim() ?? ""
   const port = parsePositiveInt(portRaw, 1, 65535)
   if (port == null) {
-    return errorJson("INVALID_PORT", "port 不合法")
+    return errorJson(request, "INVALID_PORT", "port 不合法")
   }
 
   const portHoppingRaw = query.get("port_hopping")?.trim() ?? ""
   const portHopping = portHoppingRaw.length > 0 ? portHoppingRaw : null
   if (portHopping && !/^\d+(-\d+)?(,\d+(-\d+)?)*$/.test(portHopping)) {
-    return errorJson("INVALID_PORT_HOPPING", "port_hopping 格式不合法")
+    return errorJson(request, "INVALID_PORT_HOPPING", "port_hopping 格式不合法")
   }
 
   const certPath = query.get("cert_path")?.trim() || "/etc/hysteria/server.crt"
   const keyPath = query.get("key_path")?.trim() || "/etc/hysteria/server.key"
   if (!certPath.startsWith("/") || !keyPath.startsWith("/")) {
-    return errorJson("INVALID_TLS_PATH", "cert_path 与 key_path 必须是绝对路径")
+    return errorJson(
+      request,
+      "INVALID_TLS_PATH",
+      "cert_path 与 key_path 必须是绝对路径"
+    )
   }
 
   const statsSecret =
@@ -799,6 +816,7 @@ export async function GET(request: Request) {
     /[\r\n]/.test(statsSecret)
   ) {
     return errorJson(
+      request,
       "INVALID_STATS_SECRET",
       "stats_secret 不合法（长度 8~256，且不能包含换行）"
     )
@@ -812,6 +830,7 @@ export async function GET(request: Request) {
     /[\r\n]/.test(agentSecret)
   ) {
     return errorJson(
+      request,
       "INVALID_AGENT_SECRET",
       "agent_secret 不合法（长度 32~256，且不能包含换行）"
     )
@@ -820,6 +839,7 @@ export async function GET(request: Request) {
   const obfsRaw = query.get("obfs")?.trim() ?? ""
   if (obfsRaw !== "" && !isSupportedHysteriaObfs(obfsRaw)) {
     return errorJson(
+      request,
       "UNSUPPORTED_OBFS",
       "当前仅支持 obfs 为空、salamander 或 gecko"
     )
@@ -830,6 +850,7 @@ export async function GET(request: Request) {
   const obfsPassword = obfsPasswordRaw.length > 0 ? obfsPasswordRaw : null
   if (obfs && !obfsPassword) {
     return errorJson(
+      request,
       "INVALID_OBFS_PASSWORD",
       `obfs=${obfs} 时必须提供 obfs_password`
     )
@@ -841,7 +862,7 @@ export async function GET(request: Request) {
     maxPacketSize: query.get("obfs_max_packet_size"),
   })
   if (!geckoPacketSizes.ok) {
-    return errorJson("INVALID_PAYLOAD", geckoPacketSizes.message)
+    return errorJson(request, "INVALID_PAYLOAD", geckoPacketSizes.message)
   }
 
   const intervalSeconds = parsePositiveInt(
@@ -850,13 +871,14 @@ export async function GET(request: Request) {
     86400
   )
   if (intervalSeconds == null) {
-    return errorJson("INVALID_INTERVAL", "interval_seconds 不合法")
+    return errorJson(request, "INVALID_INTERVAL", "interval_seconds 不合法")
   }
 
   const agentAutoUpdateRaw =
     query.get("agent_auto_update_enabled")?.trim().toLowerCase() ?? "true"
   if (agentAutoUpdateRaw !== "true" && agentAutoUpdateRaw !== "false") {
     return errorJson(
+      request,
       "INVALID_PAYLOAD",
       "agent_auto_update_enabled 必须是 true 或 false"
     )
@@ -867,6 +889,7 @@ export async function GET(request: Request) {
     query.get("hy2_auto_update_enabled")?.trim().toLowerCase() ?? "true"
   if (hy2AutoUpdateRaw !== "true" && hy2AutoUpdateRaw !== "false") {
     return errorJson(
+      request,
       "INVALID_PAYLOAD",
       "hy2_auto_update_enabled 必须是 true 或 false"
     )
@@ -878,7 +901,11 @@ export async function GET(request: Request) {
     ? agentBundleUrlRaw
     : null
   if (!agentBundleUrl) {
-    return errorJson("INVALID_AGENT_BUNDLE_URL", "agent_bundle_url 不合法")
+    return errorJson(
+      request,
+      "INVALID_AGENT_BUNDLE_URL",
+      "agent_bundle_url 不合法"
+    )
   }
 
   const agentBundleSha256UrlRaw =
@@ -890,6 +917,7 @@ export async function GET(request: Request) {
     : deriveOfficialAgentBundleSha256Url(agentBundleUrl)
   if (agentBundleSha256UrlRaw && !agentBundleSha256Url) {
     return errorJson(
+      request,
       "INVALID_AGENT_BUNDLE_URL",
       "agent_bundle_sha256_url 不合法"
     )
@@ -925,12 +953,12 @@ export async function GET(request: Request) {
         ? "zerossl"
         : normalizeAcmeCaUrl(acmeCaRaw)
   if (acmeCaRaw && acmeCaRaw !== "letsencrypt" && !acmeCa) {
-    return errorJson("INVALID_PAYLOAD", "acme_ca 不合法")
+    return errorJson(request, "INVALID_PAYLOAD", "acme_ca 不合法")
   }
   const acmeDnsProviderRaw = query.get("acme_dns_provider")?.trim() ?? ""
   const acmeDnsProvider = normalizeAcmeDnsProvider(acmeDnsProviderRaw)
   if (acmeDnsProviderRaw && !acmeDnsProvider) {
-    return errorJson("INVALID_PAYLOAD", "acme_dns_provider 不支持")
+    return errorJson(request, "INVALID_PAYLOAD", "acme_dns_provider 不支持")
   }
 
   let rawAcmeDnsConfig: Record<string, string> = {}
@@ -966,7 +994,7 @@ export async function GET(request: Request) {
     "server_bandwidth_up_mbps"
   )
   if (!serverBandwidthUpMbps.ok) {
-    return errorJson("INVALID_SPEED", serverBandwidthUpMbps.message)
+    return errorJson(request, "INVALID_SPEED", serverBandwidthUpMbps.message)
   }
 
   const serverBandwidthDownMbps = parseNonNegativeIntegerInput(
@@ -974,7 +1002,7 @@ export async function GET(request: Request) {
     "server_bandwidth_down_mbps"
   )
   if (!serverBandwidthDownMbps.ok) {
-    return errorJson("INVALID_SPEED", serverBandwidthDownMbps.message)
+    return errorJson(request, "INVALID_SPEED", serverBandwidthDownMbps.message)
   }
 
   const ignoreClientBandwidth = parseBooleanQueryFlag(
@@ -982,7 +1010,7 @@ export async function GET(request: Request) {
     "ignore_client_bandwidth"
   )
   if (!ignoreClientBandwidth.ok) {
-    return errorJson("INVALID_PAYLOAD", ignoreClientBandwidth.message)
+    return errorJson(request, "INVALID_PAYLOAD", ignoreClientBandwidth.message)
   }
 
   const quicInitStreamReceiveWindow = parseOptionalPositiveIntegerInput(
@@ -990,7 +1018,11 @@ export async function GET(request: Request) {
     "quic_init_stream_receive_window"
   )
   if (!quicInitStreamReceiveWindow.ok) {
-    return errorJson("INVALID_PAYLOAD", quicInitStreamReceiveWindow.message)
+    return errorJson(
+      request,
+      "INVALID_PAYLOAD",
+      quicInitStreamReceiveWindow.message
+    )
   }
 
   const quicMaxStreamReceiveWindow = parseOptionalPositiveIntegerInput(
@@ -998,7 +1030,11 @@ export async function GET(request: Request) {
     "quic_max_stream_receive_window"
   )
   if (!quicMaxStreamReceiveWindow.ok) {
-    return errorJson("INVALID_PAYLOAD", quicMaxStreamReceiveWindow.message)
+    return errorJson(
+      request,
+      "INVALID_PAYLOAD",
+      quicMaxStreamReceiveWindow.message
+    )
   }
 
   const quicInitConnReceiveWindow = parseOptionalPositiveIntegerInput(
@@ -1006,7 +1042,11 @@ export async function GET(request: Request) {
     "quic_init_conn_receive_window"
   )
   if (!quicInitConnReceiveWindow.ok) {
-    return errorJson("INVALID_PAYLOAD", quicInitConnReceiveWindow.message)
+    return errorJson(
+      request,
+      "INVALID_PAYLOAD",
+      quicInitConnReceiveWindow.message
+    )
   }
 
   const quicMaxConnReceiveWindow = parseOptionalPositiveIntegerInput(
@@ -1014,7 +1054,11 @@ export async function GET(request: Request) {
     "quic_max_conn_receive_window"
   )
   if (!quicMaxConnReceiveWindow.ok) {
-    return errorJson("INVALID_PAYLOAD", quicMaxConnReceiveWindow.message)
+    return errorJson(
+      request,
+      "INVALID_PAYLOAD",
+      quicMaxConnReceiveWindow.message
+    )
   }
 
   const quicMaxIdleTimeoutSeconds = parseOptionalPositiveIntegerInput(
@@ -1022,7 +1066,11 @@ export async function GET(request: Request) {
     "quic_max_idle_timeout_seconds"
   )
   if (!quicMaxIdleTimeoutSeconds.ok) {
-    return errorJson("INVALID_PAYLOAD", quicMaxIdleTimeoutSeconds.message)
+    return errorJson(
+      request,
+      "INVALID_PAYLOAD",
+      quicMaxIdleTimeoutSeconds.message
+    )
   }
 
   const quicMaxIncomingStreams = parseOptionalPositiveIntegerInput(
@@ -1030,7 +1078,7 @@ export async function GET(request: Request) {
     "quic_max_incoming_streams"
   )
   if (!quicMaxIncomingStreams.ok) {
-    return errorJson("INVALID_PAYLOAD", quicMaxIncomingStreams.message)
+    return errorJson(request, "INVALID_PAYLOAD", quicMaxIncomingStreams.message)
   }
 
   const quicDisablePathMtuDiscovery = parseBooleanQueryFlag(
@@ -1038,12 +1086,16 @@ export async function GET(request: Request) {
     "quic_disable_path_mtu_discovery"
   )
   if (!quicDisablePathMtuDiscovery.ok) {
-    return errorJson("INVALID_PAYLOAD", quicDisablePathMtuDiscovery.message)
+    return errorJson(
+      request,
+      "INVALID_PAYLOAD",
+      quicDisablePathMtuDiscovery.message
+    )
   }
 
   const congestionType = normalizeCongestionType(query.get("congestion_type"))
   if (!congestionType.ok) {
-    return errorJson("INVALID_PAYLOAD", congestionType.message)
+    return errorJson(request, "INVALID_PAYLOAD", congestionType.message)
   }
 
   const congestionBbrProfile = normalizeCongestionBbrProfile(
@@ -1051,7 +1103,7 @@ export async function GET(request: Request) {
     congestionType.value
   )
   if (!congestionBbrProfile.ok) {
-    return errorJson("INVALID_PAYLOAD", congestionBbrProfile.message)
+    return errorJson(request, "INVALID_PAYLOAD", congestionBbrProfile.message)
   }
 
   const outboundsBlock = parseOptionalYamlBlock(
@@ -1060,12 +1112,12 @@ export async function GET(request: Request) {
     "outbounds:"
   )
   if (outboundsBlock === "INVALID") {
-    return errorJson("INVALID_PAYLOAD", "outbounds_block 不合法")
+    return errorJson(request, "INVALID_PAYLOAD", "outbounds_block 不合法")
   }
 
   const aclBlock = parseOptionalYamlBlock(query, "acl_block", "acl:")
   if (aclBlock === "INVALID") {
-    return errorJson("INVALID_PAYLOAD", "acl_block 不合法")
+    return errorJson(request, "INVALID_PAYLOAD", "acl_block 不合法")
   }
 
   const script = buildScript({

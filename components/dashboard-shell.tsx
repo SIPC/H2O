@@ -9,6 +9,7 @@ import {
   Bell,
   ChevronRight,
   ChevronsUpDown,
+  Languages,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react"
 
 import { ConfirmProvider } from "@/components/confirm-provider"
+import { tr, useI18n } from "@/components/i18n-provider"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -27,11 +29,13 @@ import {
 } from "@/components/ui/breadcrumb"
 import { toast } from "sonner"
 
-import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -42,6 +46,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import type { UserLocalePreference } from "@/lib/i18n/locales"
 import {
   Sidebar,
   SidebarContent,
@@ -67,6 +72,8 @@ type SessionUser = {
   id: number
   username: string
   role: "user" | "admin"
+  preferredLocale?: UserLocalePreference
+  resolvedLocale?: "zh-CN" | "en-US"
 }
 
 type VersionCheckData = {
@@ -79,45 +86,60 @@ type VersionCheckData = {
 }
 
 type AdminSubMenu =
-  | { title: string; href: string }
-  | { title: string; items: { title: string; href: string }[] }
+  | { titleKey: string; href: string }
+  | { titleKey: string; items: { titleKey: string; href: string }[] }
 
 const adminSubMenus: AdminSubMenu[] = [
   {
-    title: "业务管理",
+    titleKey: "shell.menu.business",
     items: [
-      { title: "用户管理", href: "/admin/users" },
-      { title: "套餐管理", href: "/admin/plans" },
-      { title: "订阅管理", href: "/admin/subscriptions" },
+      { titleKey: "metadata.admin.users", href: "/admin/users" },
+      { titleKey: "metadata.admin.plans", href: "/admin/plans" },
+      {
+        titleKey: "metadata.admin.subscriptions",
+        href: "/admin/subscriptions",
+      },
     ],
   },
   {
-    title: "节点与路由",
+    titleKey: "shell.menu.nodesAndRouting",
     items: [
-      { title: "节点管理", href: "/admin/nodes" },
-      { title: "ACL 策略", href: "/admin/routing/acls" },
-      { title: "出站配置", href: "/admin/routing/outbounds" },
-      { title: "订阅分流", href: "/admin/subscription-rules" },
+      { titleKey: "metadata.admin.nodes", href: "/admin/nodes" },
+      { titleKey: "metadata.admin.routingAcls", href: "/admin/routing/acls" },
+      {
+        titleKey: "metadata.admin.routingOutbounds",
+        href: "/admin/routing/outbounds",
+      },
+      {
+        titleKey: "metadata.admin.subscriptionRules",
+        href: "/admin/subscription-rules",
+      },
     ],
   },
   {
-    title: "数据分析",
+    titleKey: "shell.menu.analytics",
     items: [
-      { title: "流量地图", href: "/admin/traffic-map" },
-      { title: "流量分析", href: "/admin/traffic-analysis" },
+      { titleKey: "metadata.admin.trafficMap", href: "/admin/traffic-map" },
+      {
+        titleKey: "metadata.admin.trafficAnalysis",
+        href: "/admin/traffic-analysis",
+      },
     ],
   },
   {
-    title: "日志审计",
+    titleKey: "shell.menu.logs",
     items: [
-      { title: "事件日志", href: "/admin/event-logs" },
-      { title: "通知历史", href: "/admin/notifications" },
-      { title: "认证日志", href: "/admin/auth-logs" },
-      { title: "上报日志", href: "/admin/report-logs" },
-      { title: "Agent 队列", href: "/admin/agent-tasks" },
+      { titleKey: "metadata.admin.eventLogs", href: "/admin/event-logs" },
+      {
+        titleKey: "metadata.admin.notifications",
+        href: "/admin/notifications",
+      },
+      { titleKey: "metadata.admin.authLogs", href: "/admin/auth-logs" },
+      { titleKey: "metadata.admin.reportLogs", href: "/admin/report-logs" },
+      { titleKey: "metadata.admin.agentTasks", href: "/admin/agent-tasks" },
     ],
   },
-  { title: "站点设置", href: "/admin/settings" },
+  { titleKey: "metadata.admin.settings", href: "/admin/settings" },
 ]
 
 function isRouteActive(pathname: string, href: string) {
@@ -125,22 +147,27 @@ function isRouteActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 
-type Crumb = { title: string; href?: string }
+type Crumb = { titleKey: string; href?: string }
 
 // 根据当前路径生成面包屑：admin 二级页先挂"管理概览"，再按菜单分组补齐层级
 function getBreadcrumbs(pathname: string): Crumb[] {
   if (pathname.startsWith("/admin")) {
-    const crumbs: Crumb[] = [{ title: "管理概览", href: "/admin" }]
+    const crumbs: Crumb[] = [
+      { titleKey: "metadata.admin.overview", href: "/admin" },
+    ]
     if (pathname !== "/admin") {
       for (const item of adminSubMenus) {
         if ("items" in item) {
           const child = item.items.find((c) => isRouteActive(pathname, c.href))
           if (child) {
-            crumbs.push({ title: item.title }, { title: child.title })
+            crumbs.push(
+              { titleKey: item.titleKey },
+              { titleKey: child.titleKey }
+            )
             break
           }
         } else if (isRouteActive(pathname, item.href)) {
-          crumbs.push({ title: item.title })
+          crumbs.push({ titleKey: item.titleKey })
           break
         }
       }
@@ -148,23 +175,40 @@ function getBreadcrumbs(pathname: string): Crumb[] {
     return crumbs
   }
   if (pathname.startsWith("/dashboard")) {
-    return [{ title: "我的订阅" }]
+    return [{ titleKey: "shell.dashboard" }]
   }
   return []
 }
 
 function SidebarUserMenu({
   user,
+  isDarkTheme,
   onLogout,
   onNotifications,
+  onToggleTheme,
+  onLanguageChange,
 }: {
   user: SessionUser
+  isDarkTheme: boolean
   onLogout: () => void
   onNotifications: () => void
+  onToggleTheme: () => void
+  onLanguageChange: (preference: UserLocalePreference) => void
 }) {
   const { isMobile } = useSidebar()
+  const { setUserLocalePreference, t } = useI18n()
   const initial = user.username.trim().charAt(0).toUpperCase() || "H"
-  const roleLabel = user.role === "admin" ? "管理员" : "普通用户"
+  const roleLabel = user.role === "admin" ? t("shell.admin") : t("shell.user")
+
+  async function changeLanguage(preference: UserLocalePreference) {
+    const result = await setUserLocalePreference(preference)
+    if (result.ok) {
+      onLanguageChange(preference)
+      toast.success(tr("settings.languageSaved"))
+      return
+    }
+    toast.error(result.message ?? t("common.retryLater"))
+  }
 
   return (
     <SidebarMenu>
@@ -196,12 +240,41 @@ function SidebarUserMenu({
           >
             <DropdownMenuItem onSelect={onNotifications}>
               <Bell className="size-4" />
-              <span>通知</span>
+              <span>{t("shell.notifications")}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuLabel>
+              <Languages className="mr-1 inline size-3" />
+              {t("common.language")}
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={user.preferredLocale ?? "inherit"}
+              onValueChange={(value) =>
+                void changeLanguage(value as UserLocalePreference)
+              }
+            >
+              <DropdownMenuRadioItem value="inherit">
+                {t("common.inheritSite")}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="zh-CN">
+                {t("language.zhCN")}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="en-US">
+                {t("language.enUS")}
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onToggleTheme}>
+              {isDarkTheme ? (
+                <Moon className="size-4" />
+              ) : (
+                <Sun className="size-4" />
+              )}
+              <span>{t("shell.toggleTheme")}</span>
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={onLogout}>
               <LogOut className="size-4" />
-              <span>退出登录</span>
+              <span>{t("auth.logout")}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -211,6 +284,7 @@ function SidebarUserMenu({
 }
 
 export function DashboardShell({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
   const pathname = usePathname()
   const router = useRouter()
   const [user, setUser] = useState<SessionUser | null>(null)
@@ -224,7 +298,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
         adminSubMenus
           .filter((item) => "items" in item)
           .map((item) => [
-            item.title,
+            item.titleKey,
             "items" in item &&
               item.items.some((child) => isRouteActive(pathname, child.href)),
           ])
@@ -276,22 +350,25 @@ export function DashboardShell({ children }: { children: ReactNode }) {
       const data = json.data as VersionCheckData
       if (!data.hasUpdate) return
 
-      toast.info(`发现新版本：v${data.latestVersion}`, {
-        description: `建议尽快更新以获取最新功能与修复。`,
-        action: {
-          label: "前往更新",
-          onClick: () => {
-            window.open(data.releaseUrl, "_blank", "noopener,noreferrer")
+      toast.info(
+        t("shell.versionUpdateFound", { version: data.latestVersion }),
+        {
+          description: t("shell.versionUpdateDescription"),
+          action: {
+            label: t("shell.versionUpdateAction"),
+            onClick: () => {
+              window.open(data.releaseUrl, "_blank", "noopener,noreferrer")
+            },
           },
-        },
-        duration: 12000,
-      })
+          duration: 12000,
+        }
+      )
     })()
 
     return () => {
       mounted = false
     }
-  }, [user?.role])
+  }, [t, user?.role])
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" })
@@ -301,7 +378,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   if (!ready || !user) {
     return (
       <div className="flex min-h-svh items-center justify-center text-sm text-muted-foreground">
-        加载中...
+        {t("common.loading")}
       </div>
     )
   }
@@ -359,18 +436,18 @@ export function DashboardShell({ children }: { children: ReactNode }) {
 
             <SidebarContent className="pt-1">
               <SidebarGroup className="py-1">
-                <SidebarGroupLabel>菜单</SidebarGroupLabel>
+                <SidebarGroupLabel>{t("shell.menu")}</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu className="gap-1">
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         asChild
                         isActive={isRouteActive(pathname, "/dashboard")}
-                        tooltip="我的订阅"
+                        tooltip={t("shell.dashboard")}
                       >
                         <Link href="/dashboard">
                           <LayoutDashboard className="size-4" />
-                          <span>我的订阅</span>
+                          <span>{t("shell.dashboard")}</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -386,17 +463,19 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                           <SidebarMenuButton
                             asChild
                             isActive={pathname.startsWith("/admin")}
-                            tooltip="管理概览"
+                            tooltip={t("shell.adminOverview")}
                           >
                             <Link href="/admin">
                               <Shield className="size-4" />
-                              <span>管理概览</span>
+                              <span>{t("shell.adminOverview")}</span>
                             </Link>
                           </SidebarMenuButton>
                           <CollapsibleTrigger asChild>
                             <SidebarMenuAction className="group-data-[collapsible=icon]:hidden">
                               <ChevronRight className="transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                              <span className="sr-only">切换子菜单</span>
+                              <span className="sr-only">
+                                {t("shell.toggleSubmenu")}
+                              </span>
                             </SidebarMenuAction>
                           </CollapsibleTrigger>
                           <CollapsibleContent>
@@ -409,13 +488,15 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                                   )
                                   return (
                                     <Collapsible
-                                      key={item.title}
+                                      key={item.titleKey}
                                       asChild
-                                      open={groupMenuOpen[item.title] ?? false}
+                                      open={
+                                        groupMenuOpen[item.titleKey] ?? false
+                                      }
                                       onOpenChange={(open) =>
                                         setGroupMenuOpen((current) => ({
                                           ...current,
-                                          [item.title]: open,
+                                          [item.titleKey]: open,
                                         }))
                                       }
                                       className="group/sub-collapsible"
@@ -431,7 +512,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                                               className="w-full"
                                             >
                                               <span className="flex-1 text-left">
-                                                {item.title}
+                                                {t(item.titleKey)}
                                               </span>
                                               <ChevronRight className="ml-auto size-3.5 transition-transform duration-200 group-data-[state=open]/sub-collapsible:rotate-90" />
                                             </button>
@@ -451,7 +532,9 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                                                   )}
                                                 >
                                                   <Link href={child.href}>
-                                                    <span>{child.title}</span>
+                                                    <span>
+                                                      {t(child.titleKey)}
+                                                    </span>
                                                   </Link>
                                                 </SidebarMenuSubButton>
                                               </SidebarMenuSubItem>
@@ -472,7 +555,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                                       )}
                                     >
                                       <Link href={item.href}>
-                                        <span>{item.title}</span>
+                                        <span>{t(item.titleKey)}</span>
                                       </Link>
                                     </SidebarMenuSubButton>
                                   </SidebarMenuSubItem>
@@ -491,13 +574,22 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             <SidebarFooter className="p-2 pt-1">
               <SidebarUserMenu
                 user={user}
+                isDarkTheme={resolvedTheme === "dark"}
                 onLogout={() => void logout()}
                 onNotifications={() => {
                   if (user.role === "admin") {
                     router.push("/admin/notifications")
                     return
                   }
-                  toast.info("暂无通知")
+                  toast.info(t("shell.noNotifications"))
+                }}
+                onToggleTheme={() =>
+                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
+                }
+                onLanguageChange={(preferredLocale) => {
+                  setUser((current) =>
+                    current ? { ...current, preferredLocale } : current
+                  )
                 }}
               />
             </SidebarFooter>
@@ -511,14 +603,14 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                   {getBreadcrumbs(pathname).map((crumb, index, arr) => {
                     const isLast = index === arr.length - 1
                     return (
-                      <Fragment key={`${crumb.title}-${index}`}>
+                      <Fragment key={`${crumb.titleKey}-${index}`}>
                         {index > 0 ? <BreadcrumbSeparator /> : null}
                         <BreadcrumbItem>
                           {isLast || !crumb.href ? (
-                            <BreadcrumbPage>{crumb.title}</BreadcrumbPage>
+                            <BreadcrumbPage>{t(crumb.titleKey)}</BreadcrumbPage>
                           ) : (
                             <BreadcrumbLink asChild>
-                              <Link href={crumb.href}>{crumb.title}</Link>
+                              <Link href={crumb.href}>{t(crumb.titleKey)}</Link>
                             </BreadcrumbLink>
                           )}
                         </BreadcrumbItem>
@@ -527,18 +619,6 @@ export function DashboardShell({ children }: { children: ReactNode }) {
                   })}
                 </BreadcrumbList>
               </Breadcrumb>
-              <Button
-                variant="outline"
-                size="icon"
-                className="ml-auto"
-                onClick={() =>
-                  setTheme(resolvedTheme === "dark" ? "light" : "dark")
-                }
-              >
-                <Sun className="size-4 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-                <Moon className="absolute size-4 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
-                <span className="sr-only">切换主题</span>
-              </Button>
             </header>
 
             <main className="flex-1">{children}</main>

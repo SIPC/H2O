@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { ChevronsUpDown, X } from "lucide-react"
 
+import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -85,43 +86,25 @@ type SuccessFilter = "all" | "1" | "0"
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
 
-const reasonLabel: Record<string, string> = {
-  OK: "成功",
-  BAD_PAYLOAD: "请求体非法",
-  NO_NODE: "节点不存在",
-  NO_USER: "账号不存在",
-  USER_DISABLED: "账号已禁用",
-  NO_SUB: "无可用订阅",
-  TRAFFIC_EXCEEDED: "流量超限",
-  INTERNAL: "内部错误",
+type TFunction = ReturnType<typeof useI18n>["t"]
+
+function getReasonLabel(t: TFunction, reason: string | null | undefined) {
+  if (!reason) return "-"
+  const key = `logs.reason.${reason}`
+  const label = t(key)
+  return label === key ? reason : label
 }
 
-const detailValueLabel: Record<string, string> = {
-  INVALID_JSON: "JSON 格式非法",
-  INVALID_FIELD_TYPE: "字段类型非法",
-  tx_rx: "上行 + 下行",
-  tx: "仅上行",
-  rx: "仅下行",
+function getReportDetailValueLabel(t: TFunction, value: string) {
+  const key = `logs.report.detailValue.${value}`
+  const label = t(key)
+  return label === key ? value : label
 }
 
-const detailLabel: Record<string, string> = {
-  processed: "已处理用户",
-  skipped: "跳过用户",
-  blocked: "封禁订阅",
-  error: "错误",
-  counter_reset: "计数器重置",
-  discarded_delta_tx_bytes: "未计费 TX 增量",
-  discarded_delta_rx_bytes: "未计费 RX 增量",
-  node_delta_users: "节点有增量用户",
-  node_counter_reset_users: "节点计数器重置用户",
-  node_snapshot_fallback_users: "快照兜底用户",
-  subscription_delta_tx_bytes: "订阅计费 TX 增量",
-  subscription_delta_rx_bytes: "订阅计费 RX 增量",
-  billable_delta_bytes: "计费用量增量",
-  traffic_billing_mode: "计费口径",
-  used_traffic_bytes: "原已用流量",
-  next_usage_bytes: "新已用流量",
-  traffic_limit_bytes: "套餐流量上限",
+function getReportDetailLabel(t: TFunction, key: string) {
+  const labelKey = `logs.report.detail.${key}`
+  const label = t(labelKey)
+  return label === labelKey ? key : label
 }
 
 function formatDate(value: string) {
@@ -155,23 +138,25 @@ function parseDetail(detail: string | null): Array<[string, unknown]> | null {
   }
 }
 
-function renderDetailValue(value: unknown): string {
+function renderDetailValue(t: TFunction, value: unknown): string {
   if (value === null || value === undefined) return "-"
-  if (typeof value === "boolean") return value ? "是" : "否"
+  if (typeof value === "boolean") {
+    return value ? t("logs.common.yes") : t("logs.common.no")
+  }
   if (typeof value === "number")
     return Number.isFinite(value) ? String(value) : "-"
   if (typeof value === "object") return JSON.stringify(value, null, 2)
   const raw = String(value)
-  return detailValueLabel[raw] ?? raw
+  return getReportDetailValueLabel(t, raw)
 }
 
-function renderDetailSummary(detail: string | null) {
+function renderDetailSummary(t: TFunction, detail: string | null) {
   const entries = parseDetail(detail)
   if (!entries || entries.length === 0) return "-"
   return entries
     .map(
       ([key, value]) =>
-        `${detailLabel[key] ?? key}: ${renderDetailValue(value)}`
+        `${getReportDetailLabel(t, key)}: ${renderDetailValue(t, value)}`
     )
     .join("\n")
 }
@@ -251,6 +236,7 @@ function NamedEntityCombobox({
 }
 
 export default function AdminReportLogsPage() {
+  const { t } = useI18n()
   const [rows, setRows] = useState<ReportRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -383,35 +369,38 @@ export default function AdminReportLogsPage() {
   const columns: ColumnDef<ReportRow>[] = [
     {
       accessorKey: "created_at",
-      header: "时间",
+      header: t("logs.common.time"),
       cell: ({ row }) => formatDate(row.original.created_at),
     },
     {
       accessorKey: "node_name",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="节点" />
+        <DataTableColumnHeader column={column} title={t("logs.common.node")} />
       ),
       cell: ({ row }) => row.original.node_name ?? "-",
     },
     {
       accessorKey: "ip",
-      header: "来源 IP",
+      header: t("logs.common.sourceIp"),
       cell: ({ row }) => (
         <span className="font-mono text-xs">{row.original.ip ?? "-"}</span>
       ),
     },
     {
       id: "summary",
-      header: "用户 / 在线",
+      header: t("logs.report.usersOnlineColumn"),
       cell: ({ row }) => (
         <span className="text-xs">
-          {row.original.reported_users} 用户 / {row.original.online_count} 在线
+          {t("logs.common.usersOnline", {
+            users: row.original.reported_users,
+            online: row.original.online_count,
+          })}
         </span>
       ),
     },
     {
       id: "delta",
-      header: "本次增量",
+      header: t("logs.report.deltaColumn"),
       cell: ({ row }) => (
         <span className="font-mono text-xs">
           {formatTrafficPair(
@@ -423,28 +412,30 @@ export default function AdminReportLogsPage() {
     },
     {
       accessorKey: "success",
-      header: "结果",
+      header: t("logs.common.result"),
       cell: ({ row }) =>
         row.original.success === 1 ? (
           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-            成功
+            {t("logs.common.success")}
           </Badge>
         ) : (
-          <Badge className="bg-destructive/15 text-destructive">失败</Badge>
+          <Badge className="bg-destructive/15 text-destructive">
+            {t("logs.common.failure")}
+          </Badge>
         ),
     },
     {
       accessorKey: "reason",
-      header: "原因",
+      header: t("logs.common.reason"),
       cell: ({ row }) => (
         <span className="text-xs">
-          {reasonLabel[row.original.reason] ?? row.original.reason}
+          {getReasonLabel(t, row.original.reason)}
         </span>
       ),
     },
     {
-      id: "操作",
-      header: "操作",
+      id: "actions",
+      header: t("logs.common.actions"),
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => (
@@ -454,7 +445,7 @@ export default function AdminReportLogsPage() {
           variant="outline"
           onClick={() => void openDetail(row.original)}
         >
-          详情
+          {t("logs.common.details")}
         </Button>
       ),
     },
@@ -464,42 +455,42 @@ export default function AdminReportLogsPage() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
       {/* 页面标题 */}
       <div>
-        <h1 className="text-2xl font-bold">上报日志</h1>
+        <h1 className="text-2xl font-bold">{t("logs.report.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Agent 流量上报记录。
+          {t("logs.report.description")}
         </p>
       </div>
 
       {/* 筛选条件 */}
       <form className="grid gap-3 md:grid-cols-4" onSubmit={submit}>
         <div className="space-y-1">
-          <Label>账号</Label>
+          <Label>{t("logs.common.account")}</Label>
           <NamedEntityCombobox
             items={users.map((u) => ({ id: u.id, name: u.username }))}
             value={username}
             onChange={(v) => void switchUsername(v)}
-            placeholder="全部账号"
-            searchPlaceholder="搜索用户名"
-            clearLabel="全部账号"
-            emptyText="无匹配账号"
+            placeholder={t("logs.common.allAccounts")}
+            searchPlaceholder={t("logs.common.searchUsername")}
+            clearLabel={t("logs.common.allAccounts")}
+            emptyText={t("logs.common.noMatchingAccounts")}
             className="w-full"
           />
         </div>
         <div className="space-y-1">
-          <Label>节点</Label>
+          <Label>{t("logs.common.node")}</Label>
           <NamedEntityCombobox
             items={nodes}
             value={nodeName}
             onChange={(v) => void switchNode(v)}
-            placeholder="全部节点"
-            searchPlaceholder="搜索节点名"
-            clearLabel="全部节点"
-            emptyText="无匹配节点"
+            placeholder={t("logs.common.allNodes")}
+            searchPlaceholder={t("logs.common.searchNodeName")}
+            clearLabel={t("logs.common.allNodes")}
+            emptyText={t("logs.common.noMatchingNodes")}
             className="w-full"
           />
         </div>
         <div className="space-y-1">
-          <Label>结果</Label>
+          <Label>{t("logs.common.result")}</Label>
           <div className="flex gap-2">
             <Button
               type="button"
@@ -507,7 +498,7 @@ export default function AdminReportLogsPage() {
               variant={successFilter === "all" ? "default" : "outline"}
               onClick={() => void switchFilter("all")}
             >
-              全部
+              {t("logs.common.all")}
             </Button>
             <Button
               type="button"
@@ -515,7 +506,7 @@ export default function AdminReportLogsPage() {
               variant={successFilter === "1" ? "default" : "outline"}
               onClick={() => void switchFilter("1")}
             >
-              成功
+              {t("logs.common.success")}
             </Button>
             <Button
               type="button"
@@ -523,12 +514,12 @@ export default function AdminReportLogsPage() {
               variant={successFilter === "0" ? "default" : "outline"}
               onClick={() => void switchFilter("0")}
             >
-              失败
+              {t("logs.common.failure")}
             </Button>
           </div>
         </div>
         <div className="flex items-end gap-2">
-          <Button type="submit">查询</Button>
+          <Button type="submit">{t("logs.common.query")}</Button>
           <Button
             type="button"
             variant="outline"
@@ -544,7 +535,7 @@ export default function AdminReportLogsPage() {
               })
             }}
           >
-            重置
+            {t("logs.common.reset")}
           </Button>
         </div>
       </form>
@@ -589,6 +580,7 @@ function ReportLogDetailSheet({
   loading: boolean
   onClose: () => void
 }) {
+  const { t } = useI18n()
   const entries = parseDetail(report?.detail ?? null)
 
   return (
@@ -600,9 +592,11 @@ function ReportLogDetailSheet({
     >
       <SheetContent className="data-[side=right]:sm:max-w-6xl">
         <SheetHeader>
-          <SheetTitle>上报详情</SheetTitle>
+          <SheetTitle>{t("logs.report.detailTitle")}</SheetTitle>
           <SheetDescription>
-            {report ? `#${report.id} · ${report.node_name ?? "未知节点"}` : ""}
+            {report
+              ? `#${report.id} · ${report.node_name ?? t("logs.common.unknownNode")}`
+              : ""}
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -610,30 +604,48 @@ function ReportLogDetailSheet({
             <div className="grid gap-4 text-sm">
               <div className="grid gap-3 md:grid-cols-2">
                 <DetailField
-                  label="时间"
+                  label={t("logs.common.time")}
                   value={formatDate(report.created_at)}
                 />
-                <DetailField label="节点" value={report.node_name ?? "-"} />
-                <DetailField label="auth_path" value={report.auth_path} mono />
-                <DetailField label="来源 IP" value={report.ip ?? "-"} mono />
                 <DetailField
-                  label="Agent"
+                  label={t("logs.common.node")}
+                  value={report.node_name ?? "-"}
+                />
+                <DetailField
+                  label={t("logs.report.authPath")}
+                  value={report.auth_path}
+                  mono
+                />
+                <DetailField
+                  label={t("logs.common.sourceIp")}
+                  value={report.ip ?? "-"}
+                  mono
+                />
+                <DetailField
+                  label={t("logs.common.agent")}
                   value={report.agent_version ?? "-"}
                 />
                 <DetailField
-                  label="结果"
-                  value={report.success === 1 ? "成功" : "失败"}
+                  label={t("logs.common.result")}
+                  value={
+                    report.success === 1
+                      ? t("logs.common.success")
+                      : t("logs.common.failure")
+                  }
                 />
                 <DetailField
-                  label="原因"
-                  value={reasonLabel[report.reason] ?? report.reason}
+                  label={t("logs.common.reason")}
+                  value={getReasonLabel(t, report.reason)}
                 />
                 <DetailField
-                  label="用户 / 在线"
-                  value={`${report.reported_users} 用户 / ${report.online_count} 在线`}
+                  label={t("logs.report.usersOnlineColumn")}
+                  value={t("logs.common.usersOnline", {
+                    users: report.reported_users,
+                    online: report.online_count,
+                  })}
                 />
                 <DetailField
-                  label="上报快照"
+                  label={t("logs.report.snapshot")}
                   value={formatTrafficPair(
                     report.total_tx_bytes,
                     report.total_rx_bytes
@@ -641,7 +653,7 @@ function ReportLogDetailSheet({
                   mono
                 />
                 <DetailField
-                  label="本次增量"
+                  label={t("logs.report.deltaColumn")}
                   value={formatTrafficPair(
                     report.delta_tx_bytes,
                     report.delta_rx_bytes
@@ -653,7 +665,7 @@ function ReportLogDetailSheet({
               {entries && entries.length > 0 ? (
                 <div className="rounded-md border">
                   <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
-                    汇总数据
+                    {t("logs.common.summaryData")}
                   </div>
                   <div className="divide-y">
                     {entries.map(([key, value]) => (
@@ -662,10 +674,10 @@ function ReportLogDetailSheet({
                         className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2 text-xs"
                       >
                         <div className="text-muted-foreground">
-                          {detailLabel[key] ?? key}
+                          {getReportDetailLabel(t, key)}
                         </div>
                         <div className="font-mono break-all whitespace-pre-wrap">
-                          {renderDetailValue(value)}
+                          {renderDetailValue(t, value)}
                         </div>
                       </div>
                     ))}
@@ -675,27 +687,27 @@ function ReportLogDetailSheet({
 
               <div className="rounded-md border">
                 <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
-                  用户明细
+                  {t("logs.common.userDetails")}
                 </div>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>账号</TableHead>
-                      <TableHead>在线</TableHead>
-                      <TableHead>上报 TX/RX</TableHead>
-                      <TableHead>上次 TX/RX</TableHead>
-                      <TableHead>增量 TX/RX</TableHead>
-                      <TableHead>订阅</TableHead>
-                      <TableHead>结果</TableHead>
-                      <TableHead>原因</TableHead>
-                      <TableHead>详情</TableHead>
+                      <TableHead>{t("logs.common.account")}</TableHead>
+                      <TableHead>{t("logs.common.online")}</TableHead>
+                      <TableHead>{t("logs.report.reportedTxRx")}</TableHead>
+                      <TableHead>{t("logs.report.lastTxRx")}</TableHead>
+                      <TableHead>{t("logs.report.deltaTxRx")}</TableHead>
+                      <TableHead>{t("logs.common.subscription")}</TableHead>
+                      <TableHead>{t("logs.common.result")}</TableHead>
+                      <TableHead>{t("logs.common.reason")}</TableHead>
+                      <TableHead>{t("logs.common.details")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       <TableRow>
                         <TableCell colSpan={9} className="h-20 text-center">
-                          加载中...
+                          {t("logs.common.loading")}
                         </TableCell>
                       </TableRow>
                     ) : userLogs.length > 0 ? (
@@ -704,7 +716,9 @@ function ReportLogDetailSheet({
                           <TableCell>
                             <div className="font-medium">{log.username}</div>
                             <div className="text-xs text-muted-foreground">
-                              {log.user_id ? `#${log.user_id}` : "未匹配用户"}
+                              {log.user_id
+                                ? `#${log.user_id}`
+                                : t("logs.common.unmatchedUser")}
                             </div>
                           </TableCell>
                           <TableCell>{log.online_count}</TableCell>
@@ -737,28 +751,28 @@ function ReportLogDetailSheet({
                           <TableCell>
                             {log.success === 1 ? (
                               <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                                成功
+                                {t("logs.common.success")}
                               </Badge>
                             ) : (
                               <Badge className="bg-destructive/15 text-destructive">
-                                失败
+                                {t("logs.common.failure")}
                               </Badge>
                             )}
                           </TableCell>
                           <TableCell>
                             <span className="text-xs">
-                              {reasonLabel[log.reason] ?? log.reason}
+                              {getReasonLabel(t, log.reason)}
                             </span>
                           </TableCell>
                           <TableCell className="max-w-65 font-mono text-xs break-all whitespace-pre-wrap">
-                            {renderDetailSummary(log.detail)}
+                            {renderDetailSummary(t, log.detail)}
                           </TableCell>
                         </TableRow>
                       ))
                     ) : (
                       <TableRow>
                         <TableCell colSpan={9} className="h-20 text-center">
-                          暂无用户明细
+                          {t("logs.common.noUserDetails")}
                         </TableCell>
                       </TableRow>
                     )}

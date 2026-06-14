@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import {
   clearSessionCookie,
@@ -24,7 +24,10 @@ export async function POST(request: Request) {
     })
   }
 
-  const response = NextResponse.json({ ok: true, data: { loggedOut: true } })
+  const response = localizedJson(request, {
+    ok: true,
+    data: { loggedOut: true },
+  })
   clearSessionCookie(response)
   return response
 }

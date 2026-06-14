@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getCountryCentroid } from "@/lib/country-centroids"
@@ -969,7 +969,7 @@ export async function GET(request: Request) {
   const totalBytes = totalTxBytes + totalRxBytes
   const locatedBytes = locatedTxBytes + locatedRxBytes
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       window,

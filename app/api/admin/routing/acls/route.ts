@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -18,8 +18,17 @@ type AclProfileBody = {
   config?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function getOutboundConfig(
@@ -83,7 +92,7 @@ export async function GET(request: Request) {
     )
     .all()
 
-  return NextResponse.json({ ok: true, data: rows })
+  return localizedJson(request, { ok: true, data: rows })
 }
 
 export async function POST(request: Request) {
@@ -105,7 +114,7 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: name || null },
     })
-    return jsonError("INVALID_PAYLOAD", "参数不完整", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "参数不完整", 400)
   }
 
   const db = getDb()
@@ -119,10 +128,18 @@ export async function POST(request: Request) {
       reason: outboundResult.code,
       detail: { name, outboundProfileId },
     })
-    return jsonError(outboundResult.code, outboundResult.error, outboundResult.status)
+    return jsonError(
+      request,
+      outboundResult.code,
+      outboundResult.error,
+      outboundResult.status
+    )
   }
 
-  const validation = validateAclProfileConfig(body.config, outboundResult.config)
+  const validation = validateAclProfileConfig(
+    body.config,
+    outboundResult.config
+  )
   if (!validation.ok) {
     writeAdminEvent({
       event: "ACL_PROFILE_CREATE",
@@ -132,7 +149,7 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name, error: validation.error },
     })
-    return jsonError("INVALID_PAYLOAD", validation.error, 400)
+    return jsonError(request, "INVALID_PAYLOAD", validation.error, 400)
   }
 
   try {
@@ -171,7 +188,7 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json({ ok: true, data: { id: profileId, name } })
+    return localizedJson(request, { ok: true, data: { id: profileId, name } })
   } catch {
     try {
       db.exec("ROLLBACK")
@@ -186,6 +203,6 @@ export async function POST(request: Request) {
       reason: "CREATE_FAILED",
       detail: { name },
     })
-    return jsonError("CREATE_FAILED", "ACL 策略创建失败", 400)
+    return jsonError(request, "CREATE_FAILED", "ACL 策略创建失败", 400)
   }
 }

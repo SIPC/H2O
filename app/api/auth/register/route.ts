@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { getDb } from "@/lib/db"
 import { writeEventLog } from "@/lib/logs-db"
@@ -27,7 +27,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "REGISTRATION_DISABLED",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "REGISTRATION_DISABLED", message: "注册已关闭" },
@@ -45,7 +46,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "INVALID_PAYLOAD",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "用户名或密码不合法" },
@@ -64,7 +66,8 @@ export async function POST(request: Request) {
       success: false,
       reason: turnstile.code,
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: turnstile.code, message: turnstile.message },
@@ -105,7 +108,7 @@ export async function POST(request: Request) {
       detail: JSON.stringify({ status }),
     })
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         user: {
@@ -125,7 +128,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "USER_EXISTS",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "USER_EXISTS", message: "用户名已存在" } },
       { status: 400 }
     )

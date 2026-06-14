@@ -5,6 +5,7 @@ import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -57,10 +58,10 @@ type PlanRow = {
 
 type NodeRow = { id: number; name: string }
 
-const TRAFFIC_BILLING_LABEL: Record<TrafficBillingMode, string> = {
-  tx_rx: "上行 + 下行",
-  tx: "仅上行",
-  rx: "仅下行",
+const TRAFFIC_BILLING_LABEL_KEY: Record<TrafficBillingMode, string> = {
+  tx_rx: "adminBasic.trafficBilling.txRx",
+  tx: "adminBasic.trafficBilling.tx",
+  rx: "adminBasic.trafficBilling.rx",
 }
 
 function normalizeTrafficBillingMode(
@@ -69,8 +70,8 @@ function normalizeTrafficBillingMode(
   return value === "tx" || value === "rx" ? value : "tx_rx"
 }
 
-function formatTrafficBillingMode(value: string | null | undefined) {
-  return TRAFFIC_BILLING_LABEL[normalizeTrafficBillingMode(value)]
+function trafficBillingModeKey(value: string | null | undefined) {
+  return TRAFFIC_BILLING_LABEL_KEY[normalizeTrafficBillingMode(value)]
 }
 
 // 前端统一用 GB 展示，提交 / 存库仍走 bytes
@@ -95,8 +96,12 @@ function formatBytes(bytes: number): string {
 }
 
 // 限速展示：0 视为不限速
-function formatSpeed(mbps: number): string {
-  if (!Number.isFinite(mbps) || mbps <= 0) return "不限"
+function formatSpeed(
+  mbps: number,
+  t: (key: string, params?: Record<string, unknown>) => string
+): string {
+  if (!Number.isFinite(mbps) || mbps <= 0)
+    return t("adminBasic.label.unlimited")
   return `${mbps} Mbps`
 }
 
@@ -117,6 +122,8 @@ function NodeCheckboxGroup({
   value: number[]
   onChange: (next: number[]) => void
 }) {
+  const { t } = useI18n()
+
   function toggle(nodeId: number, checked: boolean) {
     if (checked) {
       if (!value.includes(nodeId)) onChange([...value, nodeId])
@@ -126,7 +133,11 @@ function NodeCheckboxGroup({
   }
 
   if (nodes.length === 0) {
-    return <p className="text-xs text-muted-foreground">暂无节点</p>
+    return (
+      <p className="text-xs text-muted-foreground">
+        {t("adminBasic.label.noNodes")}
+      </p>
+    )
   }
 
   return (
@@ -207,6 +218,8 @@ function PlanForm({
   submitLabel: string
   onCancel?: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <form
       className="space-y-4 **:data-[slot=label]:text-xs"
@@ -216,12 +229,12 @@ function PlanForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            基础信息
+            {t("adminPlans.form.basicInfo")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>名称</Label>
+            <Label>{t("adminPlans.form.name")}</Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -230,7 +243,7 @@ function PlanForm({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>流量上限 (GB)</Label>
+              <Label>{t("adminPlans.form.trafficLimitGb")}</Label>
               <Input
                 type="number"
                 min="0"
@@ -241,7 +254,7 @@ function PlanForm({
               />
             </div>
             <div className="space-y-1">
-              <Label>计费方式</Label>
+              <Label>{t("adminPlans.form.billingMode")}</Label>
               <Select
                 value={trafficBillingMode}
                 onValueChange={(v) =>
@@ -249,26 +262,34 @@ function PlanForm({
                 }
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="选择计费方式" />
+                  <SelectValue
+                    placeholder={t("adminPlans.form.billingModePlaceholder")}
+                  />
                 </SelectTrigger>
                 <SelectContent position="popper">
-                  <SelectItem value="tx_rx">上行 + 下行</SelectItem>
-                  <SelectItem value="tx">仅上行</SelectItem>
-                  <SelectItem value="rx">仅下行</SelectItem>
+                  <SelectItem value="tx_rx">
+                    {t("adminBasic.trafficBilling.txRx")}
+                  </SelectItem>
+                  <SelectItem value="tx">
+                    {t("adminBasic.trafficBilling.tx")}
+                  </SelectItem>
+                  <SelectItem value="rx">
+                    {t("adminBasic.trafficBilling.rx")}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <Label>时长 (天)</Label>
+              <Label>{t("adminPlans.form.durationDays")}</Label>
               <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
                 <Switch
                   checked={permanent}
                   onCheckedChange={setPermanent}
                   size="sm"
                 />
-                永久有效
+                {t("adminPlans.form.permanentEnabled")}
               </label>
             </div>
             {!permanent && (
@@ -286,31 +307,31 @@ function PlanForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            限速设置
+            {t("adminPlans.form.speedSettings")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label>上行限速 (Mbps)</Label>
+              <Label>{t("adminPlans.form.upSpeedMbps")}</Label>
               <Input
                 type="number"
                 min="0"
                 step="1"
                 value={upMbps}
                 onChange={(e) => setUpMbps(e.target.value)}
-                placeholder="0 = 不限"
+                placeholder={t("adminPlans.form.unlimitedPlaceholder")}
               />
             </div>
             <div className="space-y-1">
-              <Label>下行限速 (Mbps)</Label>
+              <Label>{t("adminPlans.form.downSpeedMbps")}</Label>
               <Input
                 type="number"
                 min="0"
                 step="1"
                 value={downMbps}
                 onChange={(e) => setDownMbps(e.target.value)}
-                placeholder="0 = 不限"
+                placeholder={t("adminPlans.form.unlimitedPlaceholder")}
               />
             </div>
           </div>
@@ -321,7 +342,7 @@ function PlanForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            可用节点
+            {t("adminPlans.form.availableNodes")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -337,29 +358,29 @@ function PlanForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            其他设置
+            {t("adminPlans.form.otherSettings")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <Label>自动续订</Label>
+              <Label>{t("adminPlans.form.autoRenew")}</Label>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                开启后流量按周期自动重置
+                {t("adminPlans.form.autoRenewDescription")}
               </p>
             </div>
             <Switch checked={autoRenew} onCheckedChange={setAutoRenew} />
           </div>
           {autoRenew && (
             <div className="space-y-1">
-              <Label>续订周期 (天)</Label>
+              <Label>{t("adminPlans.form.renewalPeriodDays")}</Label>
               <Input
                 type="number"
                 min="1"
                 step="1"
                 value={renewalPeriodDays}
                 onChange={(e) => setRenewalPeriodDays(e.target.value)}
-                placeholder="例如 30"
+                placeholder={t("adminPlans.form.renewalPlaceholder")}
                 required
               />
             </div>
@@ -371,7 +392,7 @@ function PlanForm({
         <Button type="submit">{submitLabel}</Button>
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel}>
-            取消
+            {t("common.cancel")}
           </Button>
         )}
       </div>
@@ -381,6 +402,7 @@ function PlanForm({
 
 export default function AdminPlansPage() {
   const { confirm, alert } = useConfirm()
+  const { t } = useI18n()
   const [rows, setRows] = useState<PlanRow[]>([])
   const [nodes, setNodes] = useState<NodeRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -540,9 +562,12 @@ export default function AdminPlansPage() {
 
   async function remove(row: PlanRow) {
     const ok = await confirm({
-      title: `删除套餐 #${row.id} (${row.name})？`,
-      description: "仍有订阅关联该套餐时无法删除。",
-      confirmText: "删除",
+      title: t("adminPlans.delete.confirmTitle", {
+        id: row.id,
+        name: row.name,
+      }),
+      description: t("adminPlans.delete.confirmDescription"),
+      confirmText: t("common.delete"),
       variant: "destructive",
     })
     if (!ok) return
@@ -553,8 +578,8 @@ export default function AdminPlansPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) {
       await alert({
-        title: "删除失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("adminPlans.delete.failedTitle"),
+        description: json?.error?.message ?? t("common.retryLater"),
         variant: "destructive",
       })
       return
@@ -577,63 +602,81 @@ export default function AdminPlansPage() {
       {
         accessorKey: "id",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="ID" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminBasic.label.id")}
+          />
         ),
-        meta: { label: "ID" },
+        meta: { label: t("adminBasic.label.id") },
       },
       {
         accessorKey: "name",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="名称" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminBasic.label.name")}
+          />
         ),
         cell: ({ row }) => (
           <span className="font-medium">{row.getValue("name")}</span>
         ),
-        meta: { label: "名称" },
+        meta: { label: t("adminBasic.label.name") },
       },
       {
         accessorKey: "traffic_limit_bytes",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="流量上限" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminBasic.label.trafficLimit")}
+          />
         ),
         cell: ({ row }) => formatBytes(row.getValue("traffic_limit_bytes")),
-        meta: { label: "流量上限" },
+        meta: { label: t("adminBasic.label.trafficLimit") },
       },
       {
         id: "traffic_billing_mode",
         accessorFn: (row) =>
           normalizeTrafficBillingMode(row.traffic_billing_mode),
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="计费方式" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminBasic.label.billingMode")}
+          />
         ),
         cell: ({ row }) => (
           <Badge>
-            {formatTrafficBillingMode(row.original.traffic_billing_mode)}
+            {t(trafficBillingModeKey(row.original.traffic_billing_mode))}
           </Badge>
         ),
         filterFn: "arrIncludesSome" as const,
-        meta: { label: "计费方式" },
+        meta: { label: t("adminBasic.label.billingMode") },
       },
       {
         accessorKey: "duration_days",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="时长 (天)" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminPlans.table.durationDays")}
+          />
         ),
         cell: ({ row }) =>
           row.getValue("duration_days") === 0
-            ? "永久"
+            ? t("adminBasic.label.permanent")
             : row.getValue("duration_days"),
-        meta: { label: "时长" },
+        meta: { label: t("adminPlans.table.duration") },
       },
       {
         id: "speed",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="上/下行限速" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminPlans.table.speed")}
+          />
         ),
         cell: ({ row }) => (
           <span className="text-xs">
-            {formatSpeed(row.original.up_mbps ?? 0)} /{" "}
-            {formatSpeed(row.original.down_mbps ?? 0)}
+            {formatSpeed(row.original.up_mbps ?? 0, t)} /{" "}
+            {formatSpeed(row.original.down_mbps ?? 0, t)}
           </span>
         ),
         enableSorting: false,
@@ -642,24 +685,36 @@ export default function AdminPlansPage() {
         id: "auto_renew",
         accessorFn: (row) => (row.auto_renew === 1 ? "1" : "0"),
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="自动续订" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminPlans.form.autoRenew")}
+          />
         ),
         filterFn: "arrIncludesSome" as const,
-        meta: { label: "自动续订" },
+        meta: { label: t("adminPlans.form.autoRenew") },
         cell: ({ row }) =>
           row.original.auto_renew === 1 && row.original.renewal_period_days ? (
-            <Badge>每 {row.original.renewal_period_days} 天</Badge>
+            <Badge>
+              {t("adminPlans.table.autoRenewEveryDays", {
+                days: row.original.renewal_period_days,
+              })}
+            </Badge>
           ) : (
-            <span className="text-muted-foreground">关闭</span>
+            <span className="text-muted-foreground">
+              {t("adminBasic.label.closed")}
+            </span>
           ),
       },
       {
         id: "node_ids",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="可用节点" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminPlans.form.availableNodes")}
+          />
         ),
         cell: ({ row }) => (
-          <span className="block max-w-[280px] truncate text-xs">
+          <span className="block max-w-70 truncate text-xs">
             {renderNodeNames(parseNodeIds(row.original.node_ids))}
           </span>
         ),
@@ -680,7 +735,7 @@ export default function AdminPlansPage() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => startEdit(row.original)}>
                 <Pencil className="mr-2 h-4 w-4" />
-                编辑
+                {t("adminBasic.action.edit")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -688,7 +743,7 @@ export default function AdminPlansPage() {
                 onClick={() => void remove(row.original)}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                删除
+                {t("adminBasic.action.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -696,7 +751,7 @@ export default function AdminPlansPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nodes]
+    [nodes, t]
   )
 
   return (
@@ -704,22 +759,22 @@ export default function AdminPlansPage() {
       {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">套餐管理</h1>
+          <h1 className="text-2xl font-bold">{t("adminPlans.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            共 {rows.length} 个套餐
+            {t("adminPlans.count", { count: rows.length })}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="mr-1.5 h-4 w-4" />
-          添加套餐
+          {t("adminPlans.add")}
         </Button>
       </div>
 
       {/* 套餐列表 */}
       {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p className="text-sm">暂无套餐</p>
-          <p className="mt-1 text-xs">点击右上角「添加套餐」创建第一个套餐</p>
+          <p className="text-sm">{t("adminPlans.empty.title")}</p>
+          <p className="mt-1 text-xs">{t("adminPlans.empty.description")}</p>
         </Card>
       ) : (
         <DataTable
@@ -733,19 +788,22 @@ export default function AdminPlansPage() {
             <>
               <DataTableFacetedFilter
                 column={table.getColumn("traffic_billing_mode")}
-                title="计费方式"
+                title={t("adminBasic.label.billingMode")}
                 options={[
-                  { label: "上行 + 下行", value: "tx_rx" },
-                  { label: "仅上行", value: "tx" },
-                  { label: "仅下行", value: "rx" },
+                  {
+                    label: t("adminBasic.trafficBilling.txRx"),
+                    value: "tx_rx",
+                  },
+                  { label: t("adminBasic.trafficBilling.tx"), value: "tx" },
+                  { label: t("adminBasic.trafficBilling.rx"), value: "rx" },
                 ]}
               />
               <DataTableFacetedFilter
                 column={table.getColumn("auto_renew")}
-                title="自动续订"
+                title={t("adminPlans.form.autoRenew")}
                 options={[
-                  { label: "开启", value: "1" },
-                  { label: "关闭", value: "0" },
+                  { label: t("adminPlans.filter.autoRenewOn"), value: "1" },
+                  { label: t("adminPlans.filter.autoRenewOff"), value: "0" },
                 ]}
               />
               <DataTableViewOptions table={table} />
@@ -764,9 +822,9 @@ export default function AdminPlansPage() {
       >
         <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
-            <SheetTitle>添加套餐</SheetTitle>
+            <SheetTitle>{t("adminPlans.create.title")}</SheetTitle>
             <SheetDescription>
-              创建新的订阅套餐，设置流量、时长和限速。
+              {t("adminPlans.create.description")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -793,7 +851,7 @@ export default function AdminPlansPage() {
               setSelectedNodeIds={setSelectedNodeIds}
               nodes={nodes}
               onSubmit={create}
-              submitLabel="创建套餐"
+              submitLabel={t("adminPlans.create.submit")}
             />
           </div>
         </SheetContent>
@@ -809,10 +867,12 @@ export default function AdminPlansPage() {
         <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>
-              编辑套餐{" "}
+              {t("adminPlans.edit.title")}{" "}
               {editingRow ? `#${editingRow.id} (${editingRow.name})` : ""}
             </SheetTitle>
-            <SheetDescription>修改套餐配置，保存后立即生效。</SheetDescription>
+            <SheetDescription>
+              {t("adminPlans.edit.description")}
+            </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             <PlanForm
@@ -838,7 +898,7 @@ export default function AdminPlansPage() {
               setSelectedNodeIds={setEditNodeIds}
               nodes={nodes}
               onSubmit={submitEdit}
-              submitLabel="保存修改"
+              submitLabel={t("adminPlans.edit.submit")}
               onCancel={() => setEditingRow(null)}
             />
           </div>

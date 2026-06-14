@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { validateGlobalAcmeCaInput } from "@/lib/acme-config"
 import { getSessionTokenHashFromRequest, requireAdmin } from "@/lib/auth"
+import { isLocale } from "@/lib/i18n/locales"
 import { cleanupExpiredLogsBySetting, writeAdminEvent } from "@/lib/logs-db"
 import {
   getAllSettings,
@@ -62,7 +63,7 @@ export async function GET(request: Request) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
 
-  return NextResponse.json({ ok: true, data: getAllSettings() })
+  return localizedJson(request, { ok: true, data: getAllSettings() })
 }
 
 export async function POST(request: Request) {
@@ -83,7 +84,8 @@ export async function POST(request: Request) {
   const token = body[TURNSTILE_VERIFY_TOKEN_FIELD]
 
   if (!sessionHash || !siteKey || !secretKey || typeof token !== "string") {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -97,13 +99,14 @@ export async function POST(request: Request) {
 
   const verified = await verifyTurnstileToken(secretKey, token, ip)
   if (!verified.ok) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: verified.code, message: verified.message } },
       { status: 400 }
     )
   }
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       proof: createTurnstileSettingsProof(siteKey, secretKey, sessionHash),
@@ -125,7 +128,8 @@ export async function PATCH(request: Request) {
       success: false,
       reason: "INVALID_PAYLOAD",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "请求体格式不合法" },
@@ -146,7 +150,8 @@ export async function PATCH(request: Request) {
         reason: "UNKNOWN_KEY",
         detail: { key },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "UNKNOWN_KEY", message: `未知设置项: ${key}` },
@@ -165,7 +170,8 @@ export async function PATCH(request: Request) {
         reason: "INVALID_PAYLOAD",
         detail: { key },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -193,7 +199,8 @@ export async function PATCH(request: Request) {
           reason: "INVALID_PAYLOAD",
           detail: { key, value },
         })
-        return NextResponse.json(
+        return localizedJson(
+          request,
           {
             ok: false,
             error: {
@@ -204,6 +211,25 @@ export async function PATCH(request: Request) {
           { status: 400 }
         )
       }
+    }
+
+    if (settingKey === SETTING_KEYS.uiLanguage && !isLocale(body[key])) {
+      writeAdminEvent({
+        event: "SETTINGS_UPDATE",
+        actor: auth.user,
+        ip,
+        success: false,
+        reason: "INVALID_PAYLOAD",
+        detail: { key, value: body[key] },
+      })
+      return localizedJson(
+        request,
+        {
+          ok: false,
+          error: { code: "INVALID_LOCALE", message: "语言设置不合法" },
+        },
+        { status: 400 }
+      )
     }
 
     if (settingKey === SETTING_KEYS.telegramNodeOfflineThresholdMinutes) {
@@ -222,7 +248,8 @@ export async function PATCH(request: Request) {
           reason: "INVALID_PAYLOAD",
           detail: { key, value },
         })
-        return NextResponse.json(
+        return localizedJson(
+          request,
           {
             ok: false,
             error: {
@@ -253,7 +280,8 @@ export async function PATCH(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { key: "acme_ca" },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: nextAcmeCa.message },
@@ -300,7 +328,8 @@ export async function PATCH(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { key: "telegram" },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -355,7 +384,8 @@ export async function PATCH(request: Request) {
         reason: "TURNSTILE_MISCONFIGURED",
         detail: { key: "turnstile" },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -386,7 +416,8 @@ export async function PATCH(request: Request) {
           reason: "TURNSTILE_FAILED",
           detail: { key: "turnstile" },
         })
-        return NextResponse.json(
+        return localizedJson(
+          request,
           {
             ok: false,
             error: {
@@ -418,5 +449,5 @@ export async function PATCH(request: Request) {
   })
   cleanupExpiredLogsBySetting(true)
 
-  return NextResponse.json({ ok: true, data: getAllSettings() })
+  return localizedJson(request, { ok: true, data: getAllSettings() })
 }

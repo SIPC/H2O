@@ -12,6 +12,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -96,52 +97,34 @@ type RankBarPoint = {
 /*  图表配置                                                             */
 /* ------------------------------------------------------------------ */
 
-const TX_SPARK_CONFIG = {
-  txBytes: {
-    label: "出站",
-    theme: { light: "#8b5cf6", dark: "#a78bfa" },
-  },
-} satisfies ChartConfig
+const TRAFFIC_COLORS = {
+  txBytes: { light: "#8b5cf6", dark: "#a78bfa" },
+  rxBytes: { light: "#3b82f6", dark: "#60a5fa" },
+  totalBytes: { light: "#171717", dark: "#ffffff" },
+} as const
 
-const RX_SPARK_CONFIG = {
-  rxBytes: {
-    label: "入站",
-    theme: { light: "#3b82f6", dark: "#60a5fa" },
-  },
-} satisfies ChartConfig
+type TFunction = (key: string, params?: Record<string, unknown>) => string
 
-const TOTAL_SPARK_CONFIG = {
-  totalBytes: {
-    label: "总量",
-    theme: { light: "#171717", dark: "#ffffff" },
-  },
-} satisfies ChartConfig
+function makeTrafficConfig(
+  t: TFunction,
+  keys: Array<"txBytes" | "rxBytes" | "totalBytes">
+): ChartConfig {
+  const labelKeys = {
+    txBytes: "routing.common.tx",
+    rxBytes: "routing.common.rx",
+    totalBytes: "routing.common.total",
+  } as const
 
-const DAILY_TREND_CONFIG = {
-  txBytes: {
-    label: "出站",
-    theme: { light: "#8b5cf6", dark: "#a78bfa" },
-  },
-  rxBytes: {
-    label: "入站",
-    theme: { light: "#3b82f6", dark: "#60a5fa" },
-  },
-  totalBytes: {
-    label: "总量",
-    theme: { light: "#171717", dark: "#ffffff" },
-  },
-} satisfies ChartConfig
-
-const RANK_BAR_CONFIG = {
-  txBytes: {
-    label: "出站",
-    theme: { light: "#8b5cf6", dark: "#a78bfa" },
-  },
-  rxBytes: {
-    label: "入站",
-    theme: { light: "#3b82f6", dark: "#60a5fa" },
-  },
-} satisfies ChartConfig
+  return Object.fromEntries(
+    keys.map((key) => [
+      key,
+      {
+        label: t(labelKeys[key]),
+        theme: TRAFFIC_COLORS[key],
+      },
+    ])
+  ) as ChartConfig
+}
 
 const NODE_COLORS = [
   "#2563eb",
@@ -257,12 +240,12 @@ function truncateLabel(value: string, max = 10): string {
   return `${value.slice(0, max)}…`
 }
 
-function metricLabel(name: unknown): string {
+function metricLabel(name: unknown, t: TFunction): string {
   const value = String(name)
 
-  if (value === "txBytes") return "出站"
-  if (value === "rxBytes") return "入站"
-  if (value === "totalBytes") return "总量"
+  if (value === "txBytes") return t("routing.common.tx")
+  if (value === "rxBytes") return t("routing.common.rx")
+  if (value === "totalBytes") return t("routing.common.total")
 
   return value
 }
@@ -296,6 +279,7 @@ function rankTooltipLabel(payload: unknown, fallback: unknown): string {
 }
 
 function renderBytesTooltip(
+  t: TFunction,
   value: unknown,
   name: unknown,
   item?: { color?: unknown }
@@ -311,7 +295,7 @@ function renderBytesTooltip(
             style={{ backgroundColor: color }}
           />
         )}
-        <span className="truncate">{metricLabel(name)}</span>
+        <span className="truncate">{metricLabel(name, t)}</span>
       </span>
       <span className="font-mono font-medium text-foreground tabular-nums">
         {formatBytes(Number(value))}
@@ -362,7 +346,8 @@ type AnalysisFetchResult =
   | { ok: false; message: string }
 
 async function loadAnalysisData(
-  range: DateRange
+  range: DateRange,
+  t: TFunction
 ): Promise<AnalysisFetchResult> {
   try {
     const params = new URLSearchParams({ from: range.from, to: range.to })
@@ -372,13 +357,13 @@ async function loadAnalysisData(
     if (!json.ok) {
       return {
         ok: false,
-        message: json.error?.message ?? "请求失败",
+        message: json.error?.message ?? t("routing.common.requestFailed"),
       }
     }
 
     return { ok: true, data: json.data as AnalysisData }
   } catch {
-    return { ok: false, message: "网络错误" }
+    return { ok: false, message: t("routing.common.networkError") }
   }
 }
 
@@ -403,6 +388,7 @@ const TrafficSparkCard = memo(function TrafficSparkCard({
   subtitle: string
   animate: boolean
 }) {
+  const { t } = useI18n()
   const shouldAnimate = data.some((item) => item[dataKey] > 0)
 
   return (
@@ -429,7 +415,9 @@ const TrafficSparkCard = memo(function TrafficSparkCard({
                   labelFormatter={(value, payload) =>
                     tooltipDateLabel(payload, value)
                   }
-                  formatter={renderBytesTooltip}
+                  formatter={(value, name, item) =>
+                    renderBytesTooltip(t, value, name, item)
+                  }
                 />
               }
             />
@@ -488,21 +476,23 @@ function DailyTrafficTrendCard({
   data: DailyChartPoint[]
   animate: boolean
 }) {
+  const { t } = useI18n()
   const shouldAnimate = data.some((item) => item.totalBytes > 0)
+  const config = useMemo(
+    () => makeTrafficConfig(t, ["txBytes", "rxBytes", "totalBytes"]),
+    [t]
+  )
 
   return (
     <Card className="border-border/70">
       <CardHeader>
-        <CardTitle>每日流量趋势</CardTitle>
+        <CardTitle>{t("routing.trafficAnalysis.dailyTrendTitle")}</CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          出站、入站与总量按日展示
+          {t("routing.trafficAnalysis.dailyTrendDescription")}
         </p>
       </CardHeader>
       <CardContent>
-        <ChartContainer
-          config={DAILY_TREND_CONFIG}
-          className="aspect-auto h-80 w-full"
-        >
+        <ChartContainer config={config} className="aspect-auto h-80 w-full">
           <LineChart
             accessibilityLayer
             data={data}
@@ -528,7 +518,9 @@ function DailyTrafficTrendCard({
                   labelFormatter={(value, payload) =>
                     tooltipDateLabel(payload, value)
                   }
-                  formatter={renderBytesTooltip}
+                  formatter={(value, name, item) =>
+                    renderBytesTooltip(t, value, name, item)
+                  }
                 />
               }
             />
@@ -536,7 +528,7 @@ function DailyTrafficTrendCard({
             <Line
               type="monotone"
               dataKey="txBytes"
-              name="出站"
+              name={t("routing.common.tx")}
               stroke="var(--color-txBytes)"
               strokeWidth={2}
               dot={false}
@@ -546,7 +538,7 @@ function DailyTrafficTrendCard({
             <Line
               type="monotone"
               dataKey="rxBytes"
-              name="入站"
+              name={t("routing.common.rx")}
               stroke="var(--color-rxBytes)"
               strokeWidth={2}
               dot={false}
@@ -556,7 +548,7 @@ function DailyTrafficTrendCard({
             <Line
               type="monotone"
               dataKey="totalBytes"
-              name="总量"
+              name={t("routing.common.total")}
               stroke="var(--color-totalBytes)"
               strokeWidth={2}
               dot={false}
@@ -581,14 +573,19 @@ function NodeTrendCard({
   config: ChartConfig
   animate: boolean
 }) {
+  const { t } = useI18n()
   const shouldAnimate = data.length > 0
 
   return (
     <Card className="border-border/70">
       <CardHeader>
-        <CardTitle>Top {nodeNames.size} 节点每日趋势</CardTitle>
+        <CardTitle>
+          {t("routing.trafficAnalysis.nodeTrendTitle", {
+            count: nodeNames.size,
+          })}
+        </CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          按总流量排序展示 Top 节点的每日趋势
+          {t("routing.trafficAnalysis.nodeTrendDescription")}
         </p>
       </CardHeader>
       <CardContent>
@@ -618,7 +615,9 @@ function NodeTrendCard({
                   labelFormatter={(value, payload) =>
                     tooltipDateLabel(payload, value)
                   }
-                  formatter={renderBytesTooltip}
+                  formatter={(value, name, item) =>
+                    renderBytesTooltip(t, value, name, item)
+                  }
                 />
               }
             />
@@ -655,7 +654,12 @@ function StackedBarComparisonCard({
   description: string
   data: RankBarPoint[]
 }) {
+  const { t } = useI18n()
   const chartHeight = Math.max(260, data.length * 38 + 96)
+  const config = useMemo(
+    () => makeTrafficConfig(t, ["txBytes", "rxBytes"]),
+    [t]
+  )
 
   return (
     <Card className="border-border/70">
@@ -665,7 +669,7 @@ function StackedBarComparisonCard({
       </CardHeader>
       <CardContent>
         <ChartContainer
-          config={RANK_BAR_CONFIG}
+          config={config}
           className="aspect-auto w-full"
           style={{ height: chartHeight }}
         >
@@ -693,21 +697,23 @@ function StackedBarComparisonCard({
                   labelFormatter={(value, payload) =>
                     rankTooltipLabel(payload, value)
                   }
-                  formatter={renderBytesTooltip}
+                  formatter={(value, name, item) =>
+                    renderBytesTooltip(t, value, name, item)
+                  }
                 />
               }
             />
             <Legend />
             <Bar
               dataKey="txBytes"
-              name="出站"
+              name={t("routing.common.tx")}
               stackId="traffic"
               fill="var(--color-txBytes)"
               radius={[4, 0, 0, 4]}
             />
             <Bar
               dataKey="rxBytes"
-              name="入站"
+              name={t("routing.common.rx")}
               stackId="traffic"
               fill="var(--color-rxBytes)"
               radius={[0, 4, 4, 0]}
@@ -752,24 +758,28 @@ function NodeDetailTable({
   rows: NodeItem[]
   totalBytes: number
 }) {
+  const { t } = useI18n()
+
   return (
     <Card className="border-border/70">
       <CardHeader>
-        <CardTitle>节点流量明细</CardTitle>
+        <CardTitle>{t("routing.trafficAnalysis.nodeDetailTitle")}</CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          按总流量降序排列，包含出入站拆分与占比
+          {t("routing.trafficAnalysis.nodeDetailDescription")}
         </p>
       </CardHeader>
       <CardContent>
         <Table className="min-w-190">
           <THead>
             <TR>
-              <TH>排名</TH>
-              <TH>节点</TH>
-              <TH className="text-right">出站</TH>
-              <TH className="text-right">入站</TH>
-              <TH className="text-right">总量</TH>
-              <TH className="text-right">占比</TH>
+              <TH>{t("routing.trafficAnalysis.rank")}</TH>
+              <TH>{t("routing.trafficAnalysis.node")}</TH>
+              <TH className="text-right">{t("routing.common.tx")}</TH>
+              <TH className="text-right">{t("routing.common.rx")}</TH>
+              <TH className="text-right">{t("routing.common.total")}</TH>
+              <TH className="text-right">
+                {t("routing.trafficAnalysis.share")}
+              </TH>
             </TR>
           </THead>
           <TBody>
@@ -810,24 +820,28 @@ function UserDetailTable({
   rows: UserItem[]
   totalBytes: number
 }) {
+  const { t } = useI18n()
+
   return (
     <Card className="border-border/70">
       <CardHeader>
-        <CardTitle>用户流量明细</CardTitle>
+        <CardTitle>{t("routing.trafficAnalysis.userDetailTitle")}</CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          按用户订阅汇总流量，按总量降序排列
+          {t("routing.trafficAnalysis.userDetailDescription")}
         </p>
       </CardHeader>
       <CardContent>
         <Table className="min-w-190">
           <THead>
             <TR>
-              <TH>排名</TH>
-              <TH>用户</TH>
-              <TH className="text-right">出站</TH>
-              <TH className="text-right">入站</TH>
-              <TH className="text-right">总量</TH>
-              <TH className="text-right">占比</TH>
+              <TH>{t("routing.trafficAnalysis.rank")}</TH>
+              <TH>{t("routing.trafficAnalysis.user")}</TH>
+              <TH className="text-right">{t("routing.common.tx")}</TH>
+              <TH className="text-right">{t("routing.common.rx")}</TH>
+              <TH className="text-right">{t("routing.common.total")}</TH>
+              <TH className="text-right">
+                {t("routing.trafficAnalysis.share")}
+              </TH>
             </TR>
           </THead>
           <TBody>
@@ -889,15 +903,19 @@ function LoadingState() {
 }
 
 function EmptyState({ rangeLabel }: { rangeLabel: string }) {
+  const { t } = useI18n()
+
   return (
     <Card className="border-dashed border-border/70">
       <CardContent className="flex min-h-52 flex-col items-center justify-center p-8 text-center">
         <div className="rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
           {rangeLabel}
         </div>
-        <h2 className="mt-4 text-lg font-semibold">暂无流量数据</h2>
+        <h2 className="mt-4 text-lg font-semibold">
+          {t("routing.trafficAnalysis.emptyTitle")}
+        </h2>
         <p className="mt-2 max-w-md text-sm text-muted-foreground">
-          所选时间范围内暂无流量统计。请调整日期范围或检查 Agent 上报状态。
+          {t("routing.trafficAnalysis.emptyDescription")}
         </p>
       </CardContent>
     </Card>
@@ -909,6 +927,7 @@ function EmptyState({ rangeLabel }: { rangeLabel: string }) {
 /* ------------------------------------------------------------------ */
 
 export default function TrafficAnalysisPage() {
+  const { t } = useI18n()
   const defaultRange = useMemo(() => quickRange(7), [])
   const requestIdRef = useRef(0)
 
@@ -920,58 +939,61 @@ export default function TrafficAnalysisPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState("")
   const [shouldAnimate, setShouldAnimate] = useState(true)
 
-  const requestAnalysis = useCallback(async (range: DateRange) => {
-    const from = range.from.trim()
-    const to = range.to.trim()
+  const requestAnalysis = useCallback(
+    async (range: DateRange) => {
+      const from = range.from.trim()
+      const to = range.to.trim()
 
-    if (!from || !to) {
-      setError("请选择完整日期范围")
-      return
-    }
-
-    if (from > to) {
-      setError("起始日期不能晚于结束日期")
-      return
-    }
-
-    const requestId = requestIdRef.current + 1
-    requestIdRef.current = requestId
-    setLoading(true)
-    setError("")
-
-    try {
-      const result = await loadAnalysisData({ from, to })
-
-      if (requestId !== requestIdRef.current) return
-
-      if (!result.ok) {
-        setError(result.message)
-        setData(null)
+      if (!from || !to) {
+        setError(t("routing.trafficAnalysis.completeDateRangeRequired"))
         return
       }
 
-      setData(result.data)
-      setLastUpdatedAt(
-        new Date().toLocaleTimeString("zh-CN", {
-          hour12: false,
-        })
-      )
-    } catch {
-      if (requestId !== requestIdRef.current) return
+      if (from > to) {
+        setError(t("routing.trafficAnalysis.invalidDateRange"))
+        return
+      }
 
-      setError("网络错误")
-      setData(null)
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false)
-    }
-  }, [])
+      const requestId = requestIdRef.current + 1
+      requestIdRef.current = requestId
+      setLoading(true)
+      setError("")
+
+      try {
+        const result = await loadAnalysisData({ from, to }, t)
+
+        if (requestId !== requestIdRef.current) return
+
+        if (!result.ok) {
+          setError(result.message)
+          setData(null)
+          return
+        }
+
+        setData(result.data)
+        setLastUpdatedAt(
+          new Date().toLocaleTimeString("zh-CN", {
+            hour12: false,
+          })
+        )
+      } catch {
+        if (requestId !== requestIdRef.current) return
+
+        setError(t("routing.common.networkError"))
+        setData(null)
+      } finally {
+        if (requestId === requestIdRef.current) setLoading(false)
+      }
+    },
+    [t]
+  )
 
   useEffect(() => {
     let mounted = true
     const requestId = requestIdRef.current + 1
     requestIdRef.current = requestId
 
-    void loadAnalysisData(defaultRange)
+    void loadAnalysisData(defaultRange, t)
       .then((result) => {
         if (!mounted || requestId !== requestIdRef.current) return
 
@@ -997,7 +1019,7 @@ export default function TrafficAnalysisPage() {
     return () => {
       mounted = false
     }
-  }, [defaultRange])
+  }, [defaultRange, t])
 
   useEffect(() => {
     if (!data || !shouldAnimate) return
@@ -1122,8 +1144,14 @@ export default function TrafficAnalysisPage() {
   )
 
   const rangeLabel = data
-    ? `${data.from} 至 ${data.to}`
-    : `${fromDate || "-"} 至 ${toDate || "-"}`
+    ? t("routing.trafficAnalysis.rangeLabel", {
+        from: data.from,
+        to: data.to,
+      })
+    : t("routing.trafficAnalysis.rangeLabel", {
+        from: fromDate || "-",
+        to: toDate || "-",
+      })
   const rangeDays = summary?.days ?? getInclusiveDayCount(fromDate, toDate)
   const isUpdating = loading && Boolean(data)
 
@@ -1131,22 +1159,27 @@ export default function TrafficAnalysisPage() {
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">流量分析</h1>
+          <h1 className="text-2xl font-bold">
+            {t("routing.trafficAnalysis.title")}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            按日期范围查看全局、节点、用户流量统计
+            {t("routing.trafficAnalysis.description")}
             {isUpdating && (
               <span className="ml-2 text-blue-600 dark:text-blue-400">
-                · 更新中…
+                · {t("routing.common.updating")}
               </span>
             )}
           </p>
         </div>
         <div className="hidden text-right text-xs text-muted-foreground sm:block">
-          <p>{rangeDays || "-"} 天</p>
+          <p>{t("routing.common.days", { count: rangeDays || "-" })}</p>
           <p>
             {data
-              ? `${data.byNode.length} 个节点 · ${data.byUser.length} 个用户`
-              : "等待数据"}
+              ? t("routing.trafficAnalysis.nodeUserCount", {
+                  nodes: data.byNode.length,
+                  users: data.byUser.length,
+                })
+              : t("routing.trafficAnalysis.waitingData")}
           </p>
         </div>
       </div>
@@ -1155,7 +1188,9 @@ export default function TrafficAnalysisPage() {
         <CardContent className="grid gap-4 p-4 lg:grid-cols-[1fr_auto] lg:items-end">
           <div className="grid gap-3 sm:grid-cols-2 md:max-w-md">
             <div className="space-y-1.5">
-              <Label htmlFor="from">起始日期</Label>
+              <Label htmlFor="from">
+                {t("routing.trafficAnalysis.fromDate")}
+              </Label>
               <Input
                 id="from"
                 type="date"
@@ -1164,7 +1199,7 @@ export default function TrafficAnalysisPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="to">结束日期</Label>
+              <Label htmlFor="to">{t("routing.trafficAnalysis.toDate")}</Label>
               <Input
                 id="to"
                 type="date"
@@ -1178,7 +1213,10 @@ export default function TrafficAnalysisPage() {
             {QUICK_RANGES.map((days) => {
               const range = quickRange(days)
               const active = fromDate === range.from && toDate === range.to
-              const label = days === 1 ? "今天" : `近 ${days} 天`
+              const label =
+                days === 1
+                  ? t("routing.common.today")
+                  : t("routing.common.recentDays", { days })
 
               return (
                 <Button
@@ -1198,13 +1236,19 @@ export default function TrafficAnalysisPage() {
               onClick={runCurrentQuery}
               disabled={loading || !fromDate || !toDate}
             >
-              {loading ? "加载中…" : "查询"}
+              {loading
+                ? t("routing.common.loading")
+                : t("routing.common.query")}
             </Button>
           </div>
 
           <div className="text-xs text-muted-foreground lg:col-span-2">
-            当前范围：{rangeLabel}
-            {lastUpdatedAt ? ` · 最近更新 ${lastUpdatedAt}` : ""}
+            {t("routing.trafficAnalysis.currentRange", { range: rangeLabel })}
+            {lastUpdatedAt
+              ? ` · ${t("routing.trafficAnalysis.lastUpdated", {
+                  time: lastUpdatedAt,
+                })}`
+              : ""}
           </div>
         </CardContent>
       </Card>
@@ -1225,52 +1269,68 @@ export default function TrafficAnalysisPage() {
         <>
           <div className="grid gap-4 md:grid-cols-3">
             <TrafficSparkCard
-              title="总出站流量"
+              title={t("routing.trafficAnalysis.totalTxTraffic")}
               totalBytes={data.totalTxBytes}
               data={dailyChartData}
               dataKey="txBytes"
-              config={TX_SPARK_CONFIG}
-              subtitle={`${rangeLabel} · 占总量 ${summary.txShare}%`}
+              config={makeTrafficConfig(t, ["txBytes"])}
+              subtitle={t("routing.trafficAnalysis.shareOfTotal", {
+                range: rangeLabel,
+                share: summary.txShare,
+              })}
               animate={shouldAnimate}
             />
             <TrafficSparkCard
-              title="总入站流量"
+              title={t("routing.trafficAnalysis.totalRxTraffic")}
               totalBytes={data.totalRxBytes}
               data={dailyChartData}
               dataKey="rxBytes"
-              config={RX_SPARK_CONFIG}
-              subtitle={`${rangeLabel} · 占总量 ${summary.rxShare}%`}
+              config={makeTrafficConfig(t, ["rxBytes"])}
+              subtitle={t("routing.trafficAnalysis.shareOfTotal", {
+                range: rangeLabel,
+                share: summary.rxShare,
+              })}
               animate={shouldAnimate}
             />
             <TrafficSparkCard
-              title="总流量"
+              title={t("routing.trafficAnalysis.totalTraffic")}
               totalBytes={data.totalBytes}
               data={dailyChartData}
               dataKey="totalBytes"
-              config={TOTAL_SPARK_CONFIG}
-              subtitle={`${summary.days} 天 · 日均 ${formatBytes(summary.averageDailyBytes)}`}
+              config={makeTrafficConfig(t, ["totalBytes"])}
+              subtitle={t("routing.trafficAnalysis.dailyAverageSubtitle", {
+                days: summary.days,
+                average: formatBytes(summary.averageDailyBytes),
+              })}
               animate={shouldAnimate}
             />
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <InsightCard
-              title="日均流量"
+              title={t("routing.trafficAnalysis.dailyAverage")}
               value={formatBytes(summary.averageDailyBytes)}
-              description={`按 ${summary.days} 天统计周期计算`}
+              description={t(
+                "routing.trafficAnalysis.dailyAverageDescription",
+                {
+                  days: summary.days,
+                }
+              )}
             />
             <InsightCard
-              title="峰值日期"
+              title={t("routing.trafficAnalysis.peakDay")}
               value={summary.peakDay?.date ?? "-"}
               description={
                 summary.peakDay
-                  ? `当天 ${formatBytes(summary.peakDay.totalBytes)}`
-                  : "暂无峰值"
+                  ? t("routing.trafficAnalysis.peakDayDescription", {
+                      traffic: formatBytes(summary.peakDay.totalBytes),
+                    })
+                  : t("routing.trafficAnalysis.noPeak")
               }
               className="text-violet-600 dark:text-violet-400"
             />
             <InsightCard
-              title="最高节点"
+              title={t("routing.trafficAnalysis.topNode")}
               value={summary.topNode?.nodeName ?? "-"}
               description={
                 summary.topNode
@@ -1278,12 +1338,12 @@ export default function TrafficAnalysisPage() {
                       summary.topNode.totalBytes,
                       data.totalBytes
                     )}%`
-                  : "暂无节点数据"
+                  : t("routing.trafficAnalysis.noNodeData")
               }
               className="text-blue-600 dark:text-blue-400"
             />
             <InsightCard
-              title="最高用户"
+              title={t("routing.trafficAnalysis.topUser")}
               value={summary.topUser?.username ?? "-"}
               description={
                 summary.topUser
@@ -1291,7 +1351,7 @@ export default function TrafficAnalysisPage() {
                       summary.topUser.totalBytes,
                       data.totalBytes
                     )}%`
-                  : "暂无用户数据"
+                  : t("routing.trafficAnalysis.noUserData")
               }
               className="text-emerald-600 dark:text-emerald-400"
             />
@@ -1316,15 +1376,23 @@ export default function TrafficAnalysisPage() {
           <div className="grid gap-4 xl:grid-cols-2">
             {nodeBarData.length > 0 && (
               <StackedBarComparisonCard
-                title={`节点流量排行 Top ${nodeBarData.length}`}
-                description="按节点总流量降序展示出站 / 入站构成"
+                title={t("routing.trafficAnalysis.nodeRankingTitle", {
+                  count: nodeBarData.length,
+                })}
+                description={t(
+                  "routing.trafficAnalysis.nodeRankingDescription"
+                )}
                 data={nodeBarData}
               />
             )}
             {userBarData.length > 0 && (
               <StackedBarComparisonCard
-                title={`用户流量排行 Top ${userBarData.length}`}
-                description="按用户总流量降序展示出站 / 入站构成"
+                title={t("routing.trafficAnalysis.userRankingTitle", {
+                  count: userBarData.length,
+                })}
+                description={t(
+                  "routing.trafficAnalysis.userRankingDescription"
+                )}
                 data={userBarData}
               />
             )}

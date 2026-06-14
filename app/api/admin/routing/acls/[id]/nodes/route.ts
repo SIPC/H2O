@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -10,8 +10,17 @@ type BindingBody = {
   nodeIds?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function parseId(id: string) {
@@ -28,13 +37,14 @@ export async function GET(
 
   const { id } = await params
   const profileId = parseId(id)
-  if (!profileId) return jsonError("INVALID_ID", "ACL 策略 ID 不合法", 400)
+  if (!profileId)
+    return jsonError(request, "INVALID_ID", "ACL 策略 ID 不合法", 400)
 
   const db = getDb()
   const profile = db
     .prepare(`SELECT id, name FROM acl_profiles WHERE id = ? LIMIT 1`)
     .get(profileId) as { id: number; name: string } | undefined
-  if (!profile) return jsonError("NOT_FOUND", "ACL 策略不存在", 404)
+  if (!profile) return jsonError(request, "NOT_FOUND", "ACL 策略不存在", 404)
 
   const nodes = db
     .prepare(
@@ -48,7 +58,7 @@ export async function GET(
     )
     .all()
 
-  return NextResponse.json({ ok: true, data: { profile, nodes } })
+  return localizedJson(request, { ok: true, data: { profile, nodes } })
 }
 
 export async function PUT(
@@ -61,7 +71,8 @@ export async function PUT(
   const ip = getClientIp(request)
   const { id } = await params
   const profileId = parseId(id)
-  if (!profileId) return jsonError("INVALID_ID", "ACL 策略 ID 不合法", 400)
+  if (!profileId)
+    return jsonError(request, "INVALID_ID", "ACL 策略 ID 不合法", 400)
 
   const body = (await request.json()) as BindingBody
   if (
@@ -77,7 +88,7 @@ export async function PUT(
       reason: "INVALID_PAYLOAD",
       detail: { profileId },
     })
-    return jsonError("INVALID_PAYLOAD", "节点绑定参数不合法", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "节点绑定参数不合法", 400)
   }
 
   const nodeIds = body.nodeIds as number[]
@@ -94,7 +105,7 @@ export async function PUT(
       reason: "NOT_FOUND",
       detail: { profileId },
     })
-    return jsonError("NOT_FOUND", "ACL 策略不存在", 404)
+    return jsonError(request, "NOT_FOUND", "ACL 策略不存在", 404)
   }
 
   if (nodeIds.length > 0) {
@@ -115,7 +126,7 @@ export async function PUT(
           missingIds: nodeIds.filter((nodeId) => !existing.has(nodeId)),
         },
       })
-      return jsonError("NOT_FOUND", "部分节点不存在", 404)
+      return jsonError(request, "NOT_FOUND", "部分节点不存在", 404)
     }
   }
 
@@ -132,13 +143,15 @@ export async function PUT(
       .all(profileId, ...nodeIds) as Array<{ node_id: number }>
     const previousNodeIds = previousRows.map((row) => row.node_id)
 
-    db.prepare(`DELETE FROM node_acl_bindings WHERE acl_profile_id = ?`).run(profileId)
+    db.prepare(`DELETE FROM node_acl_bindings WHERE acl_profile_id = ?`).run(
+      profileId
+    )
 
     if (nodeIds.length > 0) {
       const placeholders = nodeIds.map(() => "?").join(",")
-      db.prepare(`DELETE FROM node_acl_bindings WHERE node_id IN (${placeholders})`).run(
-        ...nodeIds
-      )
+      db.prepare(
+        `DELETE FROM node_acl_bindings WHERE node_id IN (${placeholders})`
+      ).run(...nodeIds)
     }
 
     const insert = db.prepare(
@@ -168,7 +181,7 @@ export async function PUT(
       },
     })
 
-    return NextResponse.json({ ok: true, data: { profileId, nodeIds } })
+    return localizedJson(request, { ok: true, data: { profileId, nodeIds } })
   } catch {
     try {
       db.exec("ROLLBACK")
@@ -183,6 +196,6 @@ export async function PUT(
       reason: "UPDATE_FAILED",
       detail: { profileId },
     })
-    return jsonError("UPDATE_FAILED", "ACL 节点绑定保存失败", 400)
+    return jsonError(request, "UPDATE_FAILED", "ACL 节点绑定保存失败", 400)
   }
 }

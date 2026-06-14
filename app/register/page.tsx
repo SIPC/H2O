@@ -3,6 +3,8 @@
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 
+import { useI18n } from "@/components/i18n-provider"
+import { LanguageSwitcher } from "@/components/language-switcher"
 import { TurnstileWidget } from "@/components/turnstile-widget"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function RegisterPage() {
   const router = useRouter()
+  const { t } = useI18n()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [turnstileToken, setTurnstileToken] = useState("")
@@ -49,7 +52,7 @@ export default function RegisterPage() {
     event.preventDefault()
 
     if (turnstileRequired && !turnstileToken) {
-      setError("请先完成人机验证")
+      setError(t("auth.turnstileRequired"))
       return
     }
 
@@ -66,7 +69,7 @@ export default function RegisterPage() {
     setLoading(false)
 
     if (!response.ok || !json.ok) {
-      setError(json?.error?.message ?? "注册失败")
+      setError(json?.error?.message ?? t("auth.registerFailed"))
       setTurnstileToken("")
       return
     }
@@ -75,10 +78,11 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-svh max-w-md items-center p-6">
+    <div className="relative mx-auto flex min-h-svh max-w-md items-center p-6">
+      <LanguageSwitcher className="absolute top-4 right-4" />
       <Card className="w-full">
         <CardHeader>
-          <CardTitle>注册</CardTitle>
+          <CardTitle>{t("auth.register")}</CardTitle>
         </CardHeader>
         <CardContent>
           {registrationEnabled === null ? (
@@ -93,20 +97,20 @@ export default function RegisterPage() {
           ) : registrationEnabled === false ? (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
-                当前站点已关闭注册。
+                {t("auth.registrationClosed")}
               </p>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => router.push("/login")}
               >
-                去登录
+                {t("auth.goLogin")}
               </Button>
             </div>
           ) : (
             <form className="space-y-4" onSubmit={onSubmit}>
               <div className="space-y-2">
-                <Label htmlFor="username">用户名</Label>
+                <Label htmlFor="username">{t("auth.username")}</Label>
                 <Input
                   id="username"
                   value={username}
@@ -115,7 +119,7 @@ export default function RegisterPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="password">密码（至少 6 位）</Label>
+                <Label htmlFor="password">{t("auth.passwordMinLength")}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -138,14 +142,14 @@ export default function RegisterPage() {
                   type="submit"
                   disabled={loading || (turnstileRequired && !turnstileToken)}
                 >
-                  {loading ? "注册中..." : "注册"}
+                  {loading ? t("auth.registering") : t("auth.register")}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   onClick={() => router.push("/login")}
                 >
-                  去登录
+                  {t("auth.goLogin")}
                 </Button>
               </div>
             </form>

@@ -3,6 +3,7 @@
 import type { Column } from "@tanstack/react-table"
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react"
 
+import { T } from "@/components/i18n-provider"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -51,11 +52,11 @@ export function DataTableColumnHeader<TData, TValue>({
         <DropdownMenuContent align="start">
           <DropdownMenuItem onClick={() => column.toggleSorting(false)}>
             <ArrowUp />
-            升序
+            <T k="dataTable.sortAscending" />
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => column.toggleSorting(true)}>
             <ArrowDown />
-            降序
+            <T k="dataTable.sortDescending" />
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { writeAdminEvent } from "@/lib/logs-db"
@@ -9,15 +9,24 @@ import {
 } from "@/lib/subscription/rule-config"
 import { getClientIp } from "@/lib/turnstile"
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 export async function GET(request: Request) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
 
-  return NextResponse.json({ ok: true, data: getSubscriptionRuleConfig() })
+  return localizedJson(request, { ok: true, data: getSubscriptionRuleConfig() })
 }
 
 export async function PATCH(request: Request) {
@@ -37,7 +46,7 @@ export async function PATCH(request: Request) {
       reason: "SUBSCRIPTION_RULES_INVALID",
       detail: { error: validation.error },
     })
-    return jsonError("INVALID_PAYLOAD", validation.error, 400)
+    return jsonError(request, "INVALID_PAYLOAD", validation.error, 400)
   }
 
   setSubscriptionRuleConfig(validation.config)
@@ -58,5 +67,5 @@ export async function PATCH(request: Request) {
     },
   })
 
-  return NextResponse.json({ ok: true, data: validation.config })
+  return localizedJson(request, { ok: true, data: validation.config })
 }

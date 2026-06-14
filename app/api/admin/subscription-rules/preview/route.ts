@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -57,8 +57,17 @@ type PreviewBody = {
   config?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 export async function POST(request: Request) {
@@ -68,17 +77,22 @@ export async function POST(request: Request) {
   const body = (await request.json()) as PreviewBody
   const format = body.format
   if (format !== "clash" && format !== "singbox") {
-    return jsonError("INVALID_PAYLOAD", "预览格式不合法", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "预览格式不合法", 400)
   }
 
   const validation = validateSubscriptionRuleConfig(body.config)
   if (!validation.ok) {
-    return jsonError("INVALID_PAYLOAD", validation.error, 400)
+    return jsonError(request, "INVALID_PAYLOAD", validation.error, 400)
   }
 
   const nodes = getPreviewNodes()
   if (nodes.length === 0) {
-    return jsonError("NO_NODES", "暂无可预览节点，请先添加并启用节点", 404)
+    return jsonError(
+      request,
+      "NO_NODES",
+      "暂无可预览节点，请先添加并启用节点",
+      404
+    )
   }
 
   const content =
@@ -86,5 +100,5 @@ export async function POST(request: Request) {
       ? buildClashConfig(PREVIEW_TOKEN, nodes, validation.config)
       : buildSingboxConfig(PREVIEW_TOKEN, nodes, validation.config)
 
-  return NextResponse.json({ ok: true, data: { content } })
+  return localizedJson(request, { ok: true, data: { content } })
 }

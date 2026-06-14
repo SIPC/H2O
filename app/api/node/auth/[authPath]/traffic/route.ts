@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { getDb } from "@/lib/db"
 import {
@@ -194,7 +194,8 @@ export async function POST(
         delta_rx_bytes: 0,
       },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NO_NODE", message: "未知节点" } },
       { status: 404 }
     )
@@ -235,7 +236,8 @@ export async function POST(
         detail: stringifyDetail({ error: detailError }),
       },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -276,7 +278,8 @@ export async function POST(
         detail: stringifyDetail({ error: "INVALID_FIELD_TYPE" }),
       },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "BAD_PAYLOAD", message: "上报字段类型不合法" },
@@ -869,7 +872,8 @@ export async function POST(
         delta_rx_bytes: 0,
       },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INTERNAL", message: "处理失败" } },
       { status: 500 }
     )
@@ -905,7 +909,7 @@ export async function POST(
 
   void processNotificationOutboxSafely(db)
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: { processed, skipped, blocked },
   })

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -31,8 +31,12 @@ export async function PUT(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { action: "NODE_ORDER_UPDATE" },
     })
-    return NextResponse.json(
-      { ok: false, error: { code: "INVALID_PAYLOAD", message: "节点排序参数不合法" } },
+    return localizedJson(
+      request,
+      {
+        ok: false,
+        error: { code: "INVALID_PAYLOAD", message: "节点排序参数不合法" },
+      },
       { status: 400 }
     )
   }
@@ -57,7 +61,8 @@ export async function PUT(request: Request) {
         missingIds: nodeIds.filter((id) => !existingIds.has(id)),
       },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NOT_FOUND", message: "部分节点不存在" } },
       { status: 404 }
     )
@@ -80,7 +85,7 @@ export async function PUT(request: Request) {
       detail: { ids: nodeIds },
     })
 
-    return NextResponse.json({ ok: true, data: { ids: nodeIds } })
+    return localizedJson(request, { ok: true, data: { ids: nodeIds } })
   } catch {
     try {
       db.exec("ROLLBACK")
@@ -96,8 +101,12 @@ export async function PUT(request: Request) {
       reason: "UPDATE_FAILED",
       detail: { action: "NODE_ORDER_UPDATE" },
     })
-    return NextResponse.json(
-      { ok: false, error: { code: "UPDATE_FAILED", message: "节点排序保存失败" } },
+    return localizedJson(
+      request,
+      {
+        ok: false,
+        error: { code: "UPDATE_FAILED", message: "节点排序保存失败" },
+      },
       { status: 500 }
     )
   }

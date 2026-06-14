@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     )
     .all()
 
-  return NextResponse.json({ ok: true, data: rows })
+  return localizedJson(request, { ok: true, data: rows })
 }
 
 export async function POST(request: Request) {
@@ -46,7 +46,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { userId: body.userId ?? null, planId: body.planId ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
       { status: 400 }
     )
@@ -69,7 +70,8 @@ export async function POST(request: Request) {
       reason: "PLAN_NOT_FOUND",
       detail: { userId: body.userId, planId: body.planId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "PLAN_NOT_FOUND", message: "套餐不存在" } },
       { status: 400 }
     )
@@ -108,7 +110,7 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         id: newSubId,
@@ -127,7 +129,8 @@ export async function POST(request: Request) {
       reason: "CREATE_FAILED",
       detail: { userId: body.userId, planId: body.planId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "CREATE_FAILED", message: "订阅创建失败" } },
       { status: 400 }
     )

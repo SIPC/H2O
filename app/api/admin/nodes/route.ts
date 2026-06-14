@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto"
 
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import {
   validateAcmeDnsConfig,
@@ -161,7 +161,7 @@ export async function GET(request: Request) {
     )
     .all() as Array<Record<string, unknown>>
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: rows.map((row) => {
       const item = {
@@ -223,7 +223,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: nodeName || body.name || null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
       { status: 400 }
     )
@@ -239,7 +240,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: nodeName },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_PAYLOAD", message: nodeNameError } },
       { status: 400 }
     )
@@ -260,7 +262,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: nodeName, duplicateNodeId: duplicateNode.id },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "节点名称已存在" },
@@ -281,7 +284,8 @@ export async function POST(request: Request) {
       reason: "UNSUPPORTED_OBFS",
       detail: { name: body.name ?? null, obfs: obfsInput },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -303,7 +307,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null, obfs },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -328,7 +333,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null, obfs },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: geckoPacketSizes.message },
@@ -349,7 +355,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PORT",
       detail: { name: body.name ?? null, port: body.port ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -382,7 +389,8 @@ export async function POST(request: Request) {
         reason: "INVALID_NODE_PORT",
         detail: { name: body.name, nodePort: body.nodePort },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_NODE_PORT", message: resolvedNode.error },
@@ -404,7 +412,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null, nodeIpv4: body.nodeIpv4 ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: nodeIpv4.message },
@@ -423,7 +432,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null, nodeIpv6: body.nodeIpv6 ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: nodeIpv6.message },
@@ -453,7 +463,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null, field: "acmeCa" },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: acmeCa.message },
@@ -475,7 +486,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null, field: "acmeDns" },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: acmeDns.message },
@@ -523,7 +535,8 @@ export async function POST(request: Request) {
       reason: networkConfig.code ?? "INVALID_PAYLOAD",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -547,7 +560,8 @@ export async function POST(request: Request) {
       reason: "INVALID_TRAFFIC",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_TRAFFIC", message: hostTrafficLimit.message },
@@ -566,7 +580,8 @@ export async function POST(request: Request) {
       reason: "INVALID_TRAFFIC",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_TRAFFIC", message: hostTrafficUsed.message },
@@ -587,7 +602,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -611,7 +627,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: hostTrafficCycle.message },
@@ -632,7 +649,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -658,7 +676,8 @@ export async function POST(request: Request) {
         reason: "INVALID_PAYLOAD",
         detail: { name: body.name ?? null },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -683,7 +702,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: hostTrafficAnchor.message },
@@ -706,7 +726,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null, field: "geoOverride" },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: geoOverride.message },
@@ -813,7 +834,7 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         id: newNodeId,
@@ -833,7 +854,8 @@ export async function POST(request: Request) {
       reason: "CREATE_FAILED",
       detail: { name: nodeName },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "CREATE_FAILED", message: "节点创建失败" } },
       { status: 400 }
     )

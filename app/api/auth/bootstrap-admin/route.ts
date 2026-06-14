@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { getDb } from "@/lib/db"
 import { writeEventLog } from "@/lib/logs-db"
@@ -24,7 +24,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "INVALID_PAYLOAD",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "用户名或密码不合法" },
@@ -47,7 +48,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "ADMIN_EXISTS",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "ADMIN_EXISTS", message: "管理员已存在" } },
       { status: 400 }
     )
@@ -71,7 +73,7 @@ export async function POST(request: Request) {
       reason: "OK",
     })
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         user: {
@@ -90,7 +92,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "CREATE_FAILED",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "CREATE_FAILED", message: "管理员创建失败" },

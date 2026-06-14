@@ -53,12 +53,12 @@ import {
 } from "lucide-react"
 
 import { useConfirm } from "@/components/confirm-provider"
+import { T, useI18n } from "@/components/i18n-provider"
 import {
   ACME_CA_PROVIDERS,
   ACME_DNS_PROVIDER_FIELDS,
   ACME_DNS_PROVIDERS,
   ACME_DNS_PROVIDER_LABELS,
-  NODE_ACME_CA_PROVIDER_LABELS,
   isAcmeDnsProvider,
   type NodeAcmeCaProvider,
 } from "@/lib/acme-config"
@@ -174,6 +174,7 @@ type HostTrafficBillingMode = "tx_rx" | "tx" | "rx"
 type CongestionType = "default" | "bbr" | "reno"
 type CongestionBbrProfile = "standard" | "conservative" | "aggressive"
 type AcmeDnsConfigDraft = Record<string, string>
+type TFunction = (key: string, params?: Record<string, unknown>) => string
 
 type HostTrafficUnit = "GB" | "TB"
 
@@ -336,30 +337,20 @@ const HOST_TRAFFIC_UNIT_MULTIPLIER: Record<HostTrafficUnit, number> = {
   TB: 1024 ** 4,
 }
 
-const HOST_TRAFFIC_RESET_LABEL: Record<HostTrafficResetCycle, string> = {
-  none: "不自动重置",
-  daily: "每天",
-  weekly: "每周",
-  monthly: "每月",
-  custom_days: "每 N 天",
+const HOST_TRAFFIC_RESET_LABEL_KEYS: Record<HostTrafficResetCycle, string> = {
+  none: "nodes.hostTraffic.reset.none",
+  daily: "nodes.hostTraffic.reset.daily",
+  weekly: "nodes.hostTraffic.reset.weekly",
+  monthly: "nodes.hostTraffic.reset.monthly",
+  custom_days: "nodes.hostTraffic.reset.customDays",
 }
 
-const HOST_TRAFFIC_BILLING_LABEL: Record<HostTrafficBillingMode, string> = {
-  tx_rx: "上行 + 下行",
-  tx: "仅上行",
-  rx: "仅下行",
-}
-
-const CHART_CONFIG = {
-  rxBytes: {
-    label: "下载",
-    theme: { light: "#3b82f6", dark: "#60a5fa" },
-  },
-  txBytes: {
-    label: "上传",
-    theme: { light: "#8b5cf6", dark: "#a78bfa" },
-  },
-} satisfies ChartConfig
+const HOST_TRAFFIC_BILLING_LABEL_KEYS: Record<HostTrafficBillingMode, string> =
+  {
+    tx_rx: "nodes.hostTraffic.billing.txRx",
+    tx: "nodes.hostTraffic.billing.tx",
+    rx: "nodes.hostTraffic.billing.rx",
+  }
 
 // 节点心跳判定：最近 3 分钟内上报视为"在线"
 const FRESH_THRESHOLD_MS = 3 * 60 * 1000
@@ -367,34 +358,40 @@ const FRESH_THRESHOLD_MS = 3 * 60 * 1000
 // 控制面心跳判定：最近 3 分钟内同步视为在线
 const AGENT_FRESH_THRESHOLD_MS = 3 * 60 * 1000
 
-const TASK_LABEL: Record<AgentTaskType, string> = {
-  HY2_STATUS: "检查 Hysteria2 状态",
-  HY2_START: "启动 Hysteria2",
-  HY2_STOP: "停止 Hysteria2",
-  HY2_RESTART: "重启 Hysteria2",
-  HY2_LOGS: "查看 Hysteria2 日志",
-  HY2_SELF_UPDATE: "更新 Hysteria2",
-  AGENT_LOGS: "查看 Agent 日志",
-  AGENT_RESTART: "重启 Agent",
-  APPLY_CONFIG: "应用配置",
-  AGENT_SELF_UPDATE: "更新 Agent",
+const TASK_LABEL_KEYS: Record<AgentTaskType, string> = {
+  HY2_STATUS: "nodes.task.type.HY2_STATUS",
+  HY2_START: "nodes.task.type.HY2_START",
+  HY2_STOP: "nodes.task.type.HY2_STOP",
+  HY2_RESTART: "nodes.task.type.HY2_RESTART",
+  HY2_LOGS: "nodes.task.type.HY2_LOGS",
+  HY2_SELF_UPDATE: "nodes.task.type.HY2_SELF_UPDATE",
+  AGENT_LOGS: "nodes.task.type.AGENT_LOGS",
+  AGENT_RESTART: "nodes.task.type.AGENT_RESTART",
+  APPLY_CONFIG: "nodes.task.type.APPLY_CONFIG",
+  AGENT_SELF_UPDATE: "nodes.task.type.AGENT_SELF_UPDATE",
 }
 
-const TASK_STATUS_LABEL: Record<AgentTaskStatus, string> = {
-  queued: "排队中",
-  claimed: "执行中",
-  succeeded: "成功",
-  failed: "失败",
-  cancelled: "已取消",
+const TASK_STATUS_LABEL_KEYS: Record<AgentTaskStatus, string> = {
+  queued: "nodes.task.status.queued",
+  claimed: "nodes.task.status.claimed",
+  succeeded: "nodes.task.status.succeeded",
+  failed: "nodes.task.status.failed",
+  cancelled: "nodes.task.status.cancelled",
 }
 
 function isTimedOutTask(task: AgentTaskRow) {
   return task.status === "failed" && isAgentTaskTimeoutError(task.error)
 }
 
-function getTaskStatusLabel(task: AgentTaskRow) {
-  if (isTimedOutTask(task)) return "超时"
-  return TASK_STATUS_LABEL[task.status] ?? task.status
+function getTaskLabel(type: AgentTaskType, t: TFunction) {
+  return t(TASK_LABEL_KEYS[type] ?? "nodes.task.type.unknown", { type })
+}
+
+function getTaskStatusLabel(task: AgentTaskRow, t: TFunction) {
+  if (isTimedOutTask(task)) return t("nodes.task.status.timeout")
+  return t(TASK_STATUS_LABEL_KEYS[task.status] ?? "nodes.task.status.unknown", {
+    status: task.status,
+  })
 }
 
 function getTaskStatusClass(task: AgentTaskRow) {
@@ -416,40 +413,40 @@ function getTaskStatusClass(task: AgentTaskRow) {
 const DNS_STATUS_META: Record<
   Exclude<DnsStatus, "skip">,
   {
-    label: string
-    shortLabel: string
+    labelKey: string
+    shortLabelKey: string
     dotClassName: string
     badgeClassName: string
-    description: string
+    descriptionKey: string
   }
 > = {
   match: {
-    label: "DNS 正常",
-    shortLabel: "正常",
+    labelKey: "nodes.dns.status.match.label",
+    shortLabelKey: "nodes.dns.status.match.short",
     dotClassName: "bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]",
     badgeClassName: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-    description: "所有 DNS 源均已指向正确 IP",
+    descriptionKey: "nodes.dns.status.match.description",
   },
   partial: {
-    label: "DNS 部分生效",
-    shortLabel: "部分生效",
+    labelKey: "nodes.dns.status.partial.label",
+    shortLabelKey: "nodes.dns.status.partial.short",
     dotClassName: "bg-blue-500 shadow-[0_0_4px_rgba(59,130,246,0.6)]",
     badgeClassName: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
-    description: "部分 DNS 源已指向正确 IP，仍在传播或存在缓存差异",
+    descriptionKey: "nodes.dns.status.partial.description",
   },
   mismatch: {
-    label: "DNS 不匹配",
-    shortLabel: "不匹配",
+    labelKey: "nodes.dns.status.mismatch.label",
+    shortLabelKey: "nodes.dns.status.mismatch.short",
     dotClassName: "bg-red-500 shadow-[0_0_4px_rgba(239,68,68,0.6)]",
     badgeClassName: "bg-red-500/15 text-red-700 dark:text-red-400",
-    description: "所有已解析 DNS 源均未指向节点公网地址",
+    descriptionKey: "nodes.dns.status.mismatch.description",
   },
   unresolved: {
-    label: "DNS 未解析",
-    shortLabel: "未解析",
+    labelKey: "nodes.dns.status.unresolved.label",
+    shortLabelKey: "nodes.dns.status.unresolved.short",
     dotClassName: "bg-yellow-500 shadow-[0_0_4px_rgba(234,179,8,0.6)]",
     badgeClassName: "bg-yellow-500/15 text-yellow-700 dark:text-yellow-300",
-    description: "所有 DNS 源均无法解析该域名",
+    descriptionKey: "nodes.dns.status.unresolved.description",
   },
 }
 
@@ -484,42 +481,42 @@ function getNodeStatusLight(
   if (trafficFresh && agentFresh) {
     return {
       className: "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]",
-      title: "流量上报与控制面均在线",
+      titleKey: "nodes.statusLight.allOnline",
     }
   }
   if (trafficFresh) {
     return {
       className: "bg-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.5)]",
-      title: "流量上报在线，控制面离线",
+      titleKey: "nodes.statusLight.trafficOnlineAgentOffline",
     }
   }
   if (agentFresh) {
     if (hy2Status === "failed") {
       return {
         className: "bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]",
-        title: "控制面在线，Hysteria2 异常",
+        titleKey: "nodes.statusLight.agentOnlineHy2Failed",
       }
     }
     return {
       className: "bg-yellow-500 shadow-[0_0_6px_rgba(234,179,8,0.5)]",
-      title:
+      titleKey:
         hy2Status === "stopped"
-          ? "控制面在线，Hysteria2 已停止"
-          : "控制面在线，暂无流量上报",
+          ? "nodes.statusLight.agentOnlineHy2Stopped"
+          : "nodes.statusLight.agentOnlineNoTraffic",
     }
   }
   return {
     className: "bg-muted-foreground/40",
-    title: "流量上报与控制面均离线",
+    titleKey: "nodes.statusLight.allOffline",
   }
 }
 
-function getHy2StatusLabel(status: string | null) {
-  if (status === "running") return "Hysteria2 运行中"
-  if (status === "stopped") return "Hysteria2 已停止"
-  if (status === "failed") return "Hysteria2 异常"
-  if (status === "unknown") return "Hysteria2 未知"
-  return status || "Hysteria2 未知"
+function getHy2StatusLabel(status: string | null, t: TFunction) {
+  if (status === "running") return t("nodes.hy2.status.running")
+  if (status === "stopped") return t("nodes.hy2.status.stopped")
+  if (status === "failed") return t("nodes.hy2.status.failed")
+  if (status === "unknown") return t("nodes.hy2.status.unknown")
+  return status || t("nodes.hy2.status.unknown")
 }
 
 function getHy2StatusClass(status: string | null) {
@@ -560,10 +557,23 @@ function normalizeCountryFilter(code: string | null) {
   return normalized && /^[A-Z]{2}$/.test(normalized) ? normalized : null
 }
 
-function getCountryOption(code: string | null) {
+function translateKnownKey(t: TFunction, key: string, fallback: string) {
+  const translated = t(key)
+  return translated === key ? fallback : translated
+}
+
+function getCountryDisplayName(
+  code: string | null,
+  t: TFunction,
+  fallback?: string | null
+) {
   const normalized = normalizeCountryFilter(code)
-  if (!normalized) return null
-  return COUNTRY_OPTIONS.find((item) => item.code === normalized) ?? null
+  if (!normalized) return fallback?.trim() || ""
+  return translateKnownKey(
+    t,
+    `nodes.country.${normalized}`,
+    fallback || normalized
+  )
 }
 
 function getCountryFlagUrl(countryCode: string | null) {
@@ -572,23 +582,34 @@ function getCountryFlagUrl(countryCode: string | null) {
   return `https://flagcdn.com/w40/${code}.png`
 }
 
-function getNodeGeoTitle(row: NodeRow, hideIp: boolean) {
+function getNodeGeoTitle(row: NodeRow, hideIp: boolean, t: TFunction) {
   const manual = row.geo_provider === "manual"
-  const lines = [
+  const countryName = getCountryDisplayName(
+    row.geo_country_code,
+    t,
     row.geo_country_name || row.geo_country_code
-      ? `位置：${[row.geo_country_name, row.geo_region, row.geo_city]
-          .filter(Boolean)
-          .join(" / ")}`
+  )
+  const location = [countryName, row.geo_region, row.geo_city]
+    .filter(Boolean)
+    .join(" / ")
+  const lines = [
+    location ? t("nodes.geo.location", { value: location }) : null,
+    manual ? t("nodes.geo.source.manual") : null,
+    row.geo_asn ? t("nodes.geo.asn", { value: row.geo_asn }) : null,
+    row.geo_org ? t("nodes.geo.org", { value: row.geo_org }) : null,
+    !hideIp && row.public_ip
+      ? t("nodes.geo.publicIp", { value: row.public_ip })
       : null,
-    manual ? "来源：手动覆盖" : null,
-    row.geo_asn ? `ASN：${row.geo_asn}` : null,
-    row.geo_org ? `运营商：${row.geo_org}` : null,
-    !hideIp && row.public_ip ? `公网 IP：${row.public_ip}` : null,
     !manual && row.public_ip_source
-      ? `来源：${row.public_ip_source === "agent" ? "Agent 探测" : "面板观测"}`
+      ? t("nodes.geo.sourceLine", {
+          value:
+            row.public_ip_source === "agent"
+              ? t("nodes.geo.source.agentProbe")
+              : t("nodes.geo.source.panelObserved"),
+        })
       : null,
     !manual && row.geo_updated_at
-      ? `GeoIP 更新时间：${row.geo_updated_at}`
+      ? t("nodes.geo.updatedAt", { value: row.geo_updated_at })
       : null,
   ].filter(Boolean)
 
@@ -707,15 +728,15 @@ function formatLocalDateTimeInput(value: string | null): string {
   return formatLocalDateTime(value).replace(" ", "T")
 }
 
-function certModeLabel(value: string | undefined) {
-  if (value === "acme-http") return "ACME HTTP"
-  if (value === "acme-dns" || value === "acme") return "ACME DNS"
-  if (value === "custom") return "自定义证书"
-  return "自签证书"
+function certModeLabel(value: string | undefined, t: TFunction) {
+  if (value === "acme-http") return t("nodes.cert.acmeHttp")
+  if (value === "acme-dns" || value === "acme") return t("nodes.cert.acmeDns")
+  if (value === "custom") return t("nodes.cert.custom")
+  return t("nodes.cert.selfSigned")
 }
 
-function acmeDnsProviderLabel(value: string | null | undefined) {
-  if (!value) return "未设置"
+function acmeDnsProviderLabel(value: string | null | undefined, t: TFunction) {
+  if (!value) return t("nodes.common.notSet")
   return isAcmeDnsProvider(value) ? ACME_DNS_PROVIDER_LABELS[value] : value
 }
 
@@ -727,13 +748,65 @@ function acmeCaLabel(
         source?: "node" | "global"
       }
     | null
-    | undefined
+    | undefined,
+  t: TFunction
 ) {
-  const source = value?.source === "node" ? "节点覆盖" : "全局默认"
-  if (value?.provider === "custom")
-    return `${source} · ${value.url ?? "自定义"}`
+  const source =
+    value?.source === "node"
+      ? t("nodes.acme.source.node")
+      : t("nodes.acme.source.global")
+  if (value?.provider === "custom") {
+    return `${source} · ${value.url ?? t("nodes.common.custom")}`
+  }
   if (value?.provider === "zerossl") return `${source} · ZeroSSL`
   return `${source} · Let’s Encrypt`
+}
+
+function getAcmeCaProviderOptionLabel(
+  provider: NodeAcmeCaProvider,
+  t: TFunction
+) {
+  if (provider === "inherit") return t("nodes.acme.provider.inherit")
+  if (provider === "custom") return t("nodes.acme.provider.custom")
+  if (provider === "zerossl") return "ZeroSSL"
+  return "Let’s Encrypt"
+}
+
+function getAcmeDnsFieldLabel(
+  field: { key: string; label: string },
+  t: TFunction
+) {
+  return translateKnownKey(t, `nodes.acmeDns.field.${field.key}`, field.label)
+}
+
+function getAcmeDnsFieldPlaceholder(
+  field: { key: string; placeholder?: string; required?: boolean },
+  t: TFunction
+) {
+  if (field.key === "cloudflare_api_token") {
+    return t("nodes.acmeDns.placeholder.cloudflareToken")
+  }
+  if (field.key === "duckdns_override_domain") {
+    return t("nodes.acmeDns.placeholder.overrideDomain")
+  }
+  return (
+    field.placeholder ??
+    t(
+      field.required
+        ? "nodes.placeholder.required"
+        : "nodes.placeholder.optional"
+    )
+  )
+}
+
+function getApiErrorDescription(json: unknown, t: TFunction) {
+  const error =
+    json && typeof json === "object" && "error" in json
+      ? (json as { error?: { code?: unknown } }).error
+      : null
+  const code = typeof error?.code === "string" ? error.code : ""
+  if (code) return t("nodes.error.apiWithCode", { code })
+  return t("nodes.common.retryLater")
 }
 
 function DeployInfoItem({
@@ -934,9 +1007,25 @@ function normalizeHourly(input: unknown): HourPoint[] {
 
 // 节点卡片底部的流量折线图
 function NodeTrafficChart({ hourly }: { hourly: HourPoint[] }) {
+  const { t } = useI18n()
+  const chartConfig = useMemo(
+    () =>
+      ({
+        rxBytes: {
+          label: t("nodes.chart.download"),
+          theme: { light: "#3b82f6", dark: "#60a5fa" },
+        },
+        txBytes: {
+          label: t("nodes.chart.upload"),
+          theme: { light: "#8b5cf6", dark: "#a78bfa" },
+        },
+      }) satisfies ChartConfig,
+    [t]
+  )
+
   return (
     <ChartContainer
-      config={CHART_CONFIG}
+      config={chartConfig}
       className="absolute inset-0 h-full w-full"
     >
       <AreaChart
@@ -978,7 +1067,7 @@ function NodeTrafficChart({ hourly }: { hourly: HourPoint[] }) {
             <ChartTooltipContent
               hideLabel
               formatter={(value, name) =>
-                `${name === "rxBytes" ? "下载" : "上传"}: ${formatBytes(Number(value))}`
+                `${t(name === "rxBytes" ? "nodes.chart.download" : "nodes.chart.upload")}: ${formatBytes(Number(value))}`
               }
             />
           }
@@ -1141,13 +1230,27 @@ function AgentLogTable({ entries }: { entries: AgentLogEntry[] }) {
         </colgroup>
         <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
-            <TableHead>时间</TableHead>
-            <TableHead>级别</TableHead>
-            <TableHead>事件</TableHead>
-            <TableHead>用户</TableHead>
-            <TableHead>来源</TableHead>
-            <TableHead>目标</TableHead>
-            <TableHead>错误 / 详情</TableHead>
+            <TableHead>
+              <T k="nodes.logs.time" />
+            </TableHead>
+            <TableHead>
+              <T k="nodes.logs.level" />
+            </TableHead>
+            <TableHead>
+              <T k="nodes.logs.event" />
+            </TableHead>
+            <TableHead>
+              <T k="nodes.logs.user" />
+            </TableHead>
+            <TableHead>
+              <T k="nodes.logs.source" />
+            </TableHead>
+            <TableHead>
+              <T k="nodes.logs.target" />
+            </TableHead>
+            <TableHead>
+              <T k="nodes.logs.errorDetails" />
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -1222,6 +1325,7 @@ function NodeCard({
   onQueueAgentTask: (row: NodeRow, type: AgentTaskType) => void
   onShowAgentDetail: (row: NodeRow) => void
 }) {
+  const { t } = useI18n()
   const fresh = isFresh(row.last_report_at)
   const agentFresh = isAgentFresh(row.agent_last_seen_at)
   const displayAgentVersion = row.control_agent_version
@@ -1229,9 +1333,11 @@ function NodeCard({
   const supportsHy2Update = hasAgentCapability(row, "hy2-update")
   const onlineCount = row.online_count ?? 0
   const dnsStatusMeta = getDnsStatusMeta(row.dns_status)
-  const dnsStatusTitle = row.dns_status_detail || dnsStatusMeta?.description
+  const dnsStatusTitle =
+    row.dns_status_detail ||
+    (dnsStatusMeta ? t(dnsStatusMeta.descriptionKey) : undefined)
   const countryFlagUrl = getCountryFlagUrl(row.geo_country_code)
-  const geoTitle = getNodeGeoTitle(row, hideIp)
+  const geoTitle = getNodeGeoTitle(row, hideIp, t)
   const statusLight = getNodeStatusLight(fresh, agentFresh, row.hy2_status)
 
   // 计算今日上传/下载
@@ -1253,7 +1359,9 @@ function NodeCard({
         {displayHy2Version && (
           <Badge
             className="inline-flex items-center gap-1 bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
-            title={`Hysteria2 版本：${displayHy2Version}`}
+            title={t("nodes.card.hy2VersionTitle", {
+              version: displayHy2Version,
+            })}
           >
             <Server className="h-2.5 w-2.5" />
             {displayHy2Version}
@@ -1262,7 +1370,9 @@ function NodeCard({
         {displayAgentVersion && (
           <Badge
             className="inline-flex items-center gap-1 bg-muted px-1.5 py-0 font-mono text-[10px] text-muted-foreground"
-            title={`Agent 版本：${displayAgentVersion}`}
+            title={t("nodes.card.agentVersionTitle", {
+              version: displayAgentVersion,
+            })}
           >
             <Bot className="h-2.5 w-2.5" />
             {displayAgentVersion}
@@ -1279,7 +1389,11 @@ function NodeCard({
               {countryFlagUrl && (
                 <span
                   aria-label={
-                    row.geo_country_name ?? row.geo_country_code ?? "节点位置"
+                    getCountryDisplayName(
+                      row.geo_country_code,
+                      t,
+                      row.geo_country_name
+                    ) || t("nodes.geo.nodeLocation")
                   }
                   title={geoTitle}
                   className="inline-block h-3.5 w-5 shrink-0 rounded-xs bg-cover bg-center shadow-sm"
@@ -1312,7 +1426,7 @@ function NodeCard({
                 "inline-block h-2 w-2 rounded-full",
                 statusLight.className
               )}
-              title={statusLight.title}
+              title={t(statusLight.titleKey)}
             />
             {/* 更多操作菜单 */}
             <DropdownMenu>
@@ -1324,68 +1438,68 @@ function NodeCard({
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={() => onEdit(row)}>
                   <Pencil className="h-4 w-4" />
-                  编辑节点
+                  <T k="nodes.actions.editNode" />
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onShowAgentConfig(row)}>
                   <Copy className="h-4 w-4" />
-                  Agent 配置
+                  <T k="nodes.actions.agentConfig" />
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onShowDeployCommand(row)}>
                   <Terminal className="h-4 w-4" />
-                  一键部署
+                  <T k="nodes.actions.deploy" />
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onShowAgentDetail(row)}>
                   <Bot className="h-4 w-4" />
-                  Agent 状态
+                  <T k="nodes.actions.agentStatus" />
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Server className="h-4 w-4" />
-                    Hy2 操作
+                    <T k="nodes.actions.hy2Operations" />
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-44">
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "APPLY_CONFIG")}
                     >
                       <RefreshCw className="h-4 w-4" />
-                      下发配置
+                      <T k="nodes.actions.applyConfig" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_RESTART")}
                     >
                       <RotateCw className="h-4 w-4" />
-                      重启 Hysteria2
+                      <T k="nodes.actions.restartHy2" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_START")}
                     >
                       <Play className="h-4 w-4" />
-                      启动 Hysteria2
+                      <T k="nodes.actions.startHy2" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_STOP")}
                     >
                       <Square className="h-4 w-4" />
-                      停止 Hysteria2
+                      <T k="nodes.actions.stopHy2" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       disabled={!supportsHy2Update}
                       title={
                         supportsHy2Update
                           ? undefined
-                          : "请先更新 Agent 后再更新 Hysteria2"
+                          : t("nodes.actions.updateAgentFirst")
                       }
                       onClick={() => onQueueAgentTask(row, "HY2_SELF_UPDATE")}
                     >
                       <RefreshCw className="h-4 w-4" />
-                      更新 Hysteria2
+                      <T k="nodes.actions.updateHy2" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "HY2_LOGS")}
                     >
                       <FileText className="h-4 w-4" />
-                      Hysteria2 日志
+                      <T k="nodes.actions.hy2Logs" />
                     </DropdownMenuItem>
                     {(row.node_ipv4 || row.node_ipv6) &&
                       row.dns_status !== "skip" &&
@@ -1393,7 +1507,7 @@ function NodeCard({
                       row.ip !== row.node_ipv6 && (
                         <DropdownMenuItem onClick={() => onDnsResolve(row)}>
                           <Globe className="h-4 w-4" />
-                          DNS 解析
+                          <T k="nodes.actions.dnsResolve" />
                           {dnsStatusMeta && (
                             <span
                               className={cn(
@@ -1410,26 +1524,26 @@ function NodeCard({
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Bot className="h-4 w-4" />
-                    Agent 操作
+                    <T k="nodes.actions.agentOperations" />
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="w-44">
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "AGENT_RESTART")}
                     >
                       <RotateCw className="h-4 w-4" />
-                      重启 Agent
+                      <T k="nodes.actions.restartAgent" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "AGENT_LOGS")}
                     >
                       <FileText className="h-4 w-4" />
-                      Agent 日志
+                      <T k="nodes.actions.agentLogs" />
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => onQueueAgentTask(row, "AGENT_SELF_UPDATE")}
                     >
                       <Bot className="h-4 w-4" />
-                      更新 Agent
+                      <T k="nodes.actions.updateAgent" />
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
@@ -1438,12 +1552,12 @@ function NodeCard({
                   {row.status === "enabled" ? (
                     <>
                       <Square className="h-4 w-4" />
-                      禁用节点
+                      <T k="nodes.actions.disableNode" />
                     </>
                   ) : (
                     <>
                       <Play className="h-4 w-4" />
-                      启用节点
+                      <T k="nodes.actions.enableNode" />
                     </>
                   )}
                 </DropdownMenuItem>
@@ -1453,7 +1567,7 @@ function NodeCard({
                   onClick={() => onRemove(row)}
                 >
                   <Trash2 className="h-4 w-4" />
-                  删除节点
+                  <T k="nodes.actions.deleteNode" />
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1472,7 +1586,11 @@ function NodeCard({
                   : "bg-muted text-muted-foreground"
               )}
             >
-              {row.status === "enabled" ? "启用" : "禁用"}
+              {row.status === "enabled" ? (
+                <T k="nodes.status.enabled" />
+              ) : (
+                <T k="nodes.status.disabled" />
+              )}
             </Badge>
             {dnsStatusMeta && (
               <Badge
@@ -1483,7 +1601,7 @@ function NodeCard({
                 title={dnsStatusTitle}
               >
                 <Globe className="h-2.5 w-2.5" />
-                {dnsStatusMeta.label}
+                {t(dnsStatusMeta.labelKey)}
               </Badge>
             )}
             {fresh && (
@@ -1494,15 +1612,15 @@ function NodeCard({
             )}
             {!fresh && !agentFresh && row.last_report_at && (
               <Badge className="bg-muted px-1.5 py-0 text-[10px] text-muted-foreground">
-                离线
+                <T k="nodes.status.offline" />
               </Badge>
             )}
             {!fresh && agentFresh && row.hy2_status === "running" && (
               <Badge
                 className="bg-yellow-500/15 px-1.5 py-0 text-[10px] text-yellow-700 dark:text-yellow-300"
-                title="控制面在线且 Hysteria2 运行中，但最近未收到流量上报"
+                title={t("nodes.status.trafficAbnormalTitle")}
               >
-                流量异常
+                <T k="nodes.status.trafficAbnormal" />
               </Badge>
             )}
             {row.hy2_status && (
@@ -1512,7 +1630,7 @@ function NodeCard({
                   getHy2StatusClass(row.hy2_status)
                 )}
               >
-                {getHy2StatusLabel(row.hy2_status)}
+                {getHy2StatusLabel(row.hy2_status, t)}
               </Badge>
             )}
             {row.acl_profile_name && (
@@ -1520,8 +1638,10 @@ function NodeCard({
                 className="bg-purple-500/15 px-1.5 py-0 text-[10px] text-purple-700 dark:text-purple-300"
                 title={
                   row.outbound_profile_name
-                    ? `出站配置：${row.outbound_profile_name}`
-                    : "仅使用内置出口"
+                    ? t("nodes.card.outboundProfileTitle", {
+                        name: row.outbound_profile_name,
+                      })
+                    : t("nodes.card.builtInOutboundOnly")
                 }
               >
                 ACL: {row.acl_profile_name}
@@ -1531,7 +1651,9 @@ function NodeCard({
 
           {/* 今日流量 */}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 pr-20 text-[11px]">
-            <span className="text-muted-foreground">今日</span>
+            <span className="text-muted-foreground">
+              <T k="nodes.card.today" />
+            </span>
             <span className="font-medium text-violet-600 dark:text-violet-400">
               ↑ {formatBytes(todayTx)}
             </span>
@@ -1548,8 +1670,12 @@ function NodeCard({
                 )}
               >
                 {hostTrafficOverLimit
-                  ? `超出 ${formatBytes(Math.abs(hostTrafficRemaining))}`
-                  : `剩余 ${formatBytes(hostTrafficRemaining)}`}
+                  ? t("nodes.card.hostTrafficExceeded", {
+                      value: formatBytes(Math.abs(hostTrafficRemaining)),
+                    })
+                  : t("nodes.card.hostTrafficRemaining", {
+                      value: formatBytes(hostTrafficRemaining),
+                    })}
               </span>
             )}
           </div>
@@ -1809,6 +1935,7 @@ function NodeForm({
   submitLabel: string
   onCancel?: () => void
 }) {
+  const { t } = useI18n()
   const sniRef = useRef(sni)
   const acmeDomainsInputRef = useRef(acmeDomainsInput)
   const lastAutoDomainRef = useRef<string | null>(null)
@@ -1864,27 +1991,33 @@ function NodeForm({
       onSubmit={onSubmit}
     >
       {/* === 基础信息 === */}
-      <NodeFormSection title="基础信息">
+      <NodeFormSection title={t("nodes.form.section.basic")}>
         <div className="space-y-1">
-          <Label>节点名称</Label>
+          <Label>
+            <T k="nodes.form.label.nodeName" />
+          </Label>
           <Input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="节点名称"
+            placeholder={t("nodes.form.placeholder.nodeName")}
             required
           />
         </div>
         <div className="space-y-1">
-          <Label>备注</Label>
+          <Label>
+            <T k="nodes.form.label.remark" />
+          </Label>
           <Textarea
             value={remark}
             onChange={(e) => setRemark(e.target.value)}
-            placeholder="可选，仅管理员可见"
+            placeholder={t("nodes.form.placeholder.remark")}
             rows={2}
           />
         </div>
         <div className="space-y-1">
-          <Label>国家覆盖</Label>
+          <Label>
+            <T k="nodes.form.label.countryOverride" />
+          </Label>
           <Select
             value={geoOverride.countryCode || "auto"}
             onValueChange={(value) => {
@@ -1892,46 +2025,55 @@ function NodeForm({
                 setGeoOverride(emptyGeoOverrideDraft())
                 return
               }
-              const option = getCountryOption(value)
               setGeoOverride({
                 ...emptyGeoOverrideDraft(),
                 countryCode: value,
-                countryName: option?.name ?? value,
+                countryName: getCountryDisplayName(value, t, value),
               })
             }}
           >
             <SelectTrigger className="w-full">
-              <SelectValue placeholder="自动 GeoIP" />
+              <SelectValue placeholder={t("nodes.form.geo.autoGeoip")} />
             </SelectTrigger>
             <SelectContent position="popper">
               <SelectGroup>
-                <SelectItem value="auto">自动 GeoIP</SelectItem>
+                <SelectItem value="auto">
+                  <T k="nodes.form.geo.autoGeoip" />
+                </SelectItem>
                 {COUNTRY_OPTIONS.map((country) => (
                   <SelectItem key={country.code} value={country.code}>
-                    {country.code} · {country.name}
+                    {country.code} ·{" "}
+                    {getCountryDisplayName(country.code, t, country.code)}
                   </SelectItem>
                 ))}
               </SelectGroup>
             </SelectContent>
           </Select>
           <p className="text-[11px] text-muted-foreground">
-            如需修正 GeoIP 识别结果，可手动选择国家；留空时自动识别。
+            <T k="nodes.form.help.countryOverride" />
           </p>
         </div>
       </NodeFormSection>
 
       {/* === 连接地址 === */}
-      <NodeFormSection title="连接地址" contentClassName="space-y-4">
+      <NodeFormSection
+        title={t("nodes.form.section.connection")}
+        contentClassName="space-y-4"
+      >
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">订阅连接地址</p>
+            <p className="text-sm font-medium">
+              <T k="nodes.form.group.subscriptionAddress" />
+            </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              用于生成订阅配置中的服务器地址与端口，客户端将依据该信息建立连接。
+              <T k="nodes.form.help.subscriptionAddress" />
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>订阅地址</Label>
+              <Label>
+                <T k="nodes.form.label.subscriptionHost" />
+              </Label>
               <Input
                 value={ip}
                 onChange={(e) => setIp(e.target.value)}
@@ -1940,11 +2082,13 @@ function NodeForm({
               />
             </div>
             <div className="space-y-1">
-              <Label>订阅端口</Label>
+              <Label>
+                <T k="nodes.form.label.subscriptionPort" />
+              </Label>
               <Input
                 value={portInput}
                 onChange={(e) => setPortInput(e.target.value)}
-                placeholder="443 或 5000-6000"
+                placeholder={t("nodes.form.placeholder.subscriptionPort")}
                 required
               />
             </div>
@@ -1953,36 +2097,46 @@ function NodeForm({
 
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">节点公网地址</p>
+            <p className="text-sm font-medium">
+              <T k="nodes.form.group.publicAddress" />
+            </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              用于 Cloudflare DNS 解析；IPv4 与 IPv6 可单独或同时填写。
+              <T k="nodes.form.help.publicAddress" />
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-3">
               <div className="space-y-1">
-                <Label>公网 IPv4</Label>
+                <Label>
+                  <T k="nodes.form.label.publicIpv4" />
+                </Label>
                 <Input
                   value={nodeIpv4}
                   onChange={(e) => setNodeIpv4(e.target.value)}
-                  placeholder="如 1.2.3.4"
+                  placeholder={t("nodes.form.placeholder.ipv4Example")}
                 />
               </div>
               <div className="space-y-1">
-                <Label>公网 IPv6</Label>
+                <Label>
+                  <T k="nodes.form.label.publicIpv6" />
+                </Label>
                 <Input
                   value={nodeIpv6}
                   onChange={(e) => setNodeIpv6(e.target.value)}
-                  placeholder="如 2001:db8::1"
+                  placeholder={t("nodes.form.placeholder.ipv6Example")}
                 />
               </div>
             </div>
             <div className="space-y-1">
-              <Label>节点端口</Label>
+              <Label>
+                <T k="nodes.form.label.nodePort" />
+              </Label>
               <Input
                 value={nodePortInput}
                 onChange={(e) => setNodePortInput(e.target.value)}
-                placeholder="留空继承订阅端口"
+                placeholder={t(
+                  "nodes.form.placeholder.inheritSubscriptionPort"
+                )}
               />
             </div>
           </div>
@@ -1990,24 +2144,28 @@ function NodeForm({
       </NodeFormSection>
 
       {/* === TLS 与证书 === */}
-      <NodeFormSection title="TLS 与证书">
+      <NodeFormSection title={t("nodes.form.section.tls")}>
         <div className="space-y-1">
-          <Label>SNI</Label>
+          <Label>
+            <T k="nodes.form.label.sni" />
+          </Label>
           <Input
             value={sni}
             onChange={(e) => setSni(e.target.value)}
-            placeholder="可选，TLS SNI"
+            placeholder={t("nodes.form.placeholder.sni")}
           />
           <p className="text-[11px] text-muted-foreground">
-            TLS 握手使用的服务器名称；订阅地址为域名时将自动同步该值。
+            <T k="nodes.form.help.sni" />
           </p>
         </div>
         <div className="space-y-1">
-          <Label>pinSHA256</Label>
+          <Label>
+            <T k="nodes.form.label.pinSha256" />
+          </Label>
           <Input
             value={pinSha256}
             onChange={(e) => setPinSha256(e.target.value)}
-            placeholder="可选，自签证书的 SHA-256 指纹"
+            placeholder={t("nodes.form.placeholder.pinSha256")}
           />
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -2015,21 +2173,33 @@ function NodeForm({
             checked={insecure}
             onCheckedChange={(next) => setInsecure(next === true)}
           />
-          <span>跳过证书校验 (insecure)</span>
+          <span>
+            <T k="nodes.form.label.insecure" />
+          </span>
         </label>
 
         <div className="space-y-1 pt-1">
-          <Label>证书模式</Label>
+          <Label>
+            <T k="nodes.form.label.certMode" />
+          </Label>
           <Select value={certMode} onValueChange={setCertMode}>
             <SelectTrigger className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent position="popper">
               <SelectGroup>
-                <SelectItem value="self-signed">自签证书</SelectItem>
-                <SelectItem value="acme-http">ACME HTTP</SelectItem>
-                <SelectItem value="acme-dns">ACME DNS</SelectItem>
-                <SelectItem value="custom">自定义路径</SelectItem>
+                <SelectItem value="self-signed">
+                  <T k="nodes.cert.selfSigned" />
+                </SelectItem>
+                <SelectItem value="acme-http">
+                  <T k="nodes.cert.acmeHttp" />
+                </SelectItem>
+                <SelectItem value="acme-dns">
+                  <T k="nodes.cert.acmeDns" />
+                </SelectItem>
+                <SelectItem value="custom">
+                  <T k="nodes.cert.customPath" />
+                </SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
@@ -2037,28 +2207,32 @@ function NodeForm({
         {(certMode === "acme-http" || certMode === "acme-dns") && (
           <>
             <div className="space-y-1">
-              <Label>ACME 域名</Label>
+              <Label>
+                <T k="nodes.form.label.acmeDomains" />
+              </Label>
               <Textarea
                 value={acmeDomainsInput}
                 onChange={(e) => setAcmeDomainsInput(e.target.value)}
-                placeholder={"每行一个，如\nexample.com\n*.example.com"}
+                placeholder={t("nodes.form.placeholder.acmeDomains")}
                 rows={3}
               />
               <p className="text-[11px] text-muted-foreground">
                 {certMode === "acme-http"
-                  ? "HTTP-01 验证仅支持普通域名，不支持通配符证书。"
-                  : "DNS-01 验证支持普通域名与通配符证书。"}
-                订阅地址为域名时将自动填入首个域名。
+                  ? t("nodes.form.help.acmeHttpDomains")
+                  : t("nodes.form.help.acmeDnsDomains")}
+                <T k="nodes.form.help.acmeAutoFill" />
               </p>
             </div>
             <div className="space-y-1">
-              <Label>ACME 邮箱</Label>
+              <Label>
+                <T k="nodes.form.label.acmeEmail" />
+              </Label>
               <div className="flex gap-2">
                 <Input
                   type="email"
                   value={acmeEmail}
                   onChange={(e) => setAcmeEmail(e.target.value)}
-                  placeholder="留空则使用全局设置"
+                  placeholder={t("nodes.form.placeholder.globalDefault")}
                 />
                 <Button
                   type="button"
@@ -2067,12 +2241,14 @@ function NodeForm({
                     setAcmeEmail(generateAcmeEmail(getAutoFillDomain(ip)))
                   }
                 >
-                  随机
+                  <T k="nodes.actions.random" />
                 </Button>
               </div>
             </div>
             <div className="space-y-1">
-              <Label>ACME CA</Label>
+              <Label>
+                <T k="nodes.form.label.acmeCa" />
+              </Label>
               <Select
                 value={acmeCaProvider}
                 onValueChange={(value) =>
@@ -2086,19 +2262,21 @@ function NodeForm({
                   <SelectGroup>
                     {NODE_ACME_CA_PROVIDERS.map((provider) => (
                       <SelectItem key={provider} value={provider}>
-                        {NODE_ACME_CA_PROVIDER_LABELS[provider]}
+                        {getAcmeCaProviderOptionLabel(provider, t)}
                       </SelectItem>
                     ))}
                   </SelectGroup>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                选择签发证书使用的 ACME CA，节点配置优先于全局设置。
+                <T k="nodes.form.help.acmeCa" />
               </p>
             </div>
             {acmeCaProvider === "custom" && (
               <div className="space-y-1">
-                <Label>ACME Directory URL</Label>
+                <Label>
+                  <T k="nodes.form.label.acmeDirectoryUrl" />
+                </Label>
                 <Input
                   value={acmeCaUrl}
                   onChange={(e) => setAcmeCaUrl(e.target.value)}
@@ -2111,7 +2289,9 @@ function NodeForm({
         {certMode === "acme-dns" && (
           <>
             <div className="space-y-1">
-              <Label>DNS 服务商</Label>
+              <Label>
+                <T k="nodes.form.label.dnsProvider" />
+              </Label>
               <Select
                 value={acmeDnsProvider}
                 onValueChange={(value) => {
@@ -2120,7 +2300,9 @@ function NodeForm({
                 }}
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="选择 DNS 服务商" />
+                  <SelectValue
+                    placeholder={t("nodes.form.placeholder.dnsProvider")}
+                  />
                 </SelectTrigger>
                 <SelectContent position="popper">
                   <SelectGroup>
@@ -2133,23 +2315,19 @@ function NodeForm({
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                DNS-01 证书签发需要可用的 DNS
-                服务商凭据；同一张证书的所有域名需使用同一服务商。 Cloudflare
-                Token 留空时可使用全局设置。
+                <T k="nodes.form.help.dnsProvider" />
               </p>
             </div>
             {selectedAcmeDnsFields.map((field) => (
               <div key={field.key} className="space-y-1">
-                <Label>{field.label}</Label>
+                <Label>{getAcmeDnsFieldLabel(field, t)}</Label>
                 <Input
                   type={field.secret ? "password" : "text"}
                   value={acmeDnsConfig[field.key] ?? ""}
                   onChange={(e) =>
                     setAcmeDnsConfigField(field.key, e.target.value)
                   }
-                  placeholder={
-                    field.placeholder ?? (field.required ? "必填" : "可选")
-                  }
+                  placeholder={getAcmeDnsFieldPlaceholder(field, t)}
                 />
               </div>
             ))}
@@ -2158,7 +2336,9 @@ function NodeForm({
         {certMode === "custom" && (
           <>
             <div className="space-y-1">
-              <Label>证书路径</Label>
+              <Label>
+                <T k="nodes.form.label.certPath" />
+              </Label>
               <Input
                 value={certPath}
                 onChange={(e) => setCertPath(e.target.value)}
@@ -2166,7 +2346,9 @@ function NodeForm({
               />
             </div>
             <div className="space-y-1">
-              <Label>私钥路径</Label>
+              <Label>
+                <T k="nodes.form.label.keyPath" />
+              </Label>
               <Input
                 value={keyPath}
                 onChange={(e) => setKeyPath(e.target.value)}
@@ -2179,21 +2361,24 @@ function NodeForm({
 
       {/* === 混淆与伪装 === */}
       <NodeFormSection
-        title="混淆与伪装"
+        title={t("nodes.form.section.obfsMasquerade")}
         defaultOpen={false}
         contentClassName="space-y-4"
       >
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">Obfs 混淆</p>
+            <p className="text-sm font-medium">
+              <T k="nodes.form.group.obfs" />
+            </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              配置 Hysteria2 Salamander / Gecko 混淆参数。Gecko
-              为实验性功能，节点端与客户端均需支持。
+              <T k="nodes.form.help.obfs" />
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
             <div className="space-y-1">
-              <Label>Obfs 类型</Label>
+              <Label>
+                <T k="nodes.form.label.obfsType" />
+              </Label>
               <Select
                 value={obfs || "none"}
                 onValueChange={(v) => setObfs(v === "none" ? "" : v)}
@@ -2203,23 +2388,31 @@ function NodeForm({
                 </SelectTrigger>
                 <SelectContent position="popper">
                   <SelectGroup>
-                    <SelectItem value="none">不使用</SelectItem>
-                    <SelectItem value="salamander">Salamander</SelectItem>
-                    <SelectItem value="gecko">Gecko（实验性）</SelectItem>
+                    <SelectItem value="none">
+                      <T k="nodes.obfs.none" />
+                    </SelectItem>
+                    <SelectItem value="salamander">
+                      <T k="nodes.obfs.salamander" />
+                    </SelectItem>
+                    <SelectItem value="gecko">
+                      <T k="nodes.obfs.geckoExperimental" />
+                    </SelectItem>
                   </SelectGroup>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Obfs 密码</Label>
+              <Label>
+                <T k="nodes.form.label.obfsPassword" />
+              </Label>
               <div className="flex gap-2">
                 <Input
                   value={obfsPassword}
                   onChange={(e) => setObfsPassword(e.target.value)}
                   placeholder={
                     obfsRequiresPassword(obfs)
-                      ? "启用 obfs 时必填"
-                      : "不使用 obfs 时可留空"
+                      ? t("nodes.form.placeholder.obfsPasswordRequired")
+                      : t("nodes.form.placeholder.obfsPasswordOptional")
                   }
                   required={obfsRequiresPassword(obfs)}
                 />
@@ -2228,7 +2421,7 @@ function NodeForm({
                   variant="outline"
                   onClick={() => setObfsPassword(generateStrongObfsPassword())}
                 >
-                  随机
+                  <T k="nodes.actions.random" />
                 </Button>
               </div>
             </div>
@@ -2236,7 +2429,9 @@ function NodeForm({
           {obfs === "gecko" && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
-                <Label>minPacketSize</Label>
+                <Label>
+                  <T k="nodes.form.label.minPacketSize" />
+                </Label>
                 <Input
                   type="number"
                   min={1}
@@ -2248,7 +2443,9 @@ function NodeForm({
                 />
               </div>
               <div className="space-y-1">
-                <Label>maxPacketSize</Label>
+                <Label>
+                  <T k="nodes.form.label.maxPacketSize" />
+                </Label>
                 <Input
                   type="number"
                   min={1}
@@ -2260,8 +2457,7 @@ function NodeForm({
                 />
               </div>
               <p className="text-[11px] text-muted-foreground sm:col-span-2">
-                建议保持默认范围 512 / 1200；maxPacketSize 不小于
-                minPacketSize，且不超过 2048。
+                <T k="nodes.form.help.geckoPacketSize" />
               </p>
             </div>
           )}
@@ -2269,23 +2465,35 @@ function NodeForm({
 
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">伪装 Masquerade</p>
+            <p className="text-sm font-medium">
+              <T k="nodes.form.group.masquerade" />
+            </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              配置非协议流量的 HTTP/HTTPS 响应，用于服务端伪装。
+              <T k="nodes.form.help.masquerade" />
             </p>
           </div>
           <div className="space-y-1">
-            <Label>伪装类型</Label>
+            <Label>
+              <T k="nodes.form.label.masqueradeType" />
+            </Label>
             <Select value={masqueradeType} onValueChange={setMasqueradeType}>
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent position="popper">
                 <SelectGroup>
-                  <SelectItem value="none">不伪装</SelectItem>
-                  <SelectItem value="string">字符串</SelectItem>
-                  <SelectItem value="proxy">反向代理</SelectItem>
-                  <SelectItem value="file">静态文件</SelectItem>
+                  <SelectItem value="none">
+                    <T k="nodes.masquerade.none" />
+                  </SelectItem>
+                  <SelectItem value="string">
+                    <T k="nodes.masquerade.string" />
+                  </SelectItem>
+                  <SelectItem value="proxy">
+                    <T k="nodes.masquerade.proxy" />
+                  </SelectItem>
+                  <SelectItem value="file">
+                    <T k="nodes.masquerade.file" />
+                  </SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -2293,7 +2501,9 @@ function NodeForm({
           {masqueradeType === "string" && (
             <>
               <div className="space-y-1">
-                <Label>响应内容</Label>
+                <Label>
+                  <T k="nodes.form.label.responseContent" />
+                </Label>
                 <Textarea
                   value={masqContent}
                   onChange={(e) => setMasqContent(e.target.value)}
@@ -2303,7 +2513,9 @@ function NodeForm({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label>Content-Type</Label>
+                  <Label>
+                    <T k="nodes.form.label.contentType" />
+                  </Label>
                   <Input
                     value={masqContentType}
                     onChange={(e) => setMasqContentType(e.target.value)}
@@ -2311,7 +2523,9 @@ function NodeForm({
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>状态码</Label>
+                  <Label>
+                    <T k="nodes.form.label.statusCode" />
+                  </Label>
                   <Input
                     type="number"
                     value={masqStatusCode}
@@ -2325,7 +2539,9 @@ function NodeForm({
           {masqueradeType === "proxy" && (
             <>
               <div className="space-y-1">
-                <Label>代理 URL</Label>
+                <Label>
+                  <T k="nodes.form.label.proxyUrl" />
+                </Label>
                 <Input
                   value={masqProxyUrl}
                   onChange={(e) => setMasqProxyUrl(e.target.value)}
@@ -2339,7 +2555,9 @@ function NodeForm({
                     setMasqProxyRewriteHost(next === true)
                   }
                 />
-                <span>Rewrite Host</span>
+                <span>
+                  <T k="nodes.form.label.rewriteHost" />
+                </span>
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <Checkbox
@@ -2348,7 +2566,9 @@ function NodeForm({
                     setMasqProxyInsecure(next === true)
                   }
                 />
-                <span>跳过代理目标证书校验 (Insecure)</span>
+                <span>
+                  <T k="nodes.form.label.proxyInsecure" />
+                </span>
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-sm">
                 <Checkbox
@@ -2357,13 +2577,17 @@ function NodeForm({
                     setMasqProxyXForwarded(next === true)
                   }
                 />
-                <span>X-Forwarded-For</span>
+                <span>
+                  <T k="nodes.form.label.xForwardedFor" />
+                </span>
               </label>
             </>
           )}
           {masqueradeType === "file" && (
             <div className="space-y-1">
-              <Label>文件目录</Label>
+              <Label>
+                <T k="nodes.form.label.fileDirectory" />
+              </Label>
               <Input
                 value={masqFileDir}
                 onChange={(e) => setMasqFileDir(e.target.value)}
@@ -2375,43 +2599,54 @@ function NodeForm({
       </NodeFormSection>
 
       {/* === Hy2 高级网络 === */}
-      <NodeFormSection title="Hy2 高级网络" defaultOpen={false}>
+      <NodeFormSection
+        title={t("nodes.form.section.hy2Advanced")}
+        defaultOpen={false}
+      >
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">服务端带宽</p>
+            <p className="text-sm font-medium">
+              <T k="nodes.form.group.serverBandwidth" />
+            </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              设置服务端上下行带宽限制；0 或留空表示不限速。
+              <T k="nodes.form.help.serverBandwidth" />
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>服务端上传限速 (Mbps)</Label>
+              <Label>
+                <T k="nodes.form.label.serverUploadLimit" />
+              </Label>
               <Input
                 type="number"
                 min="0"
                 step="1"
                 value={serverBandwidthUpMbps}
                 onChange={(e) => setServerBandwidthUpMbps(e.target.value)}
-                placeholder="0 = 不配置"
+                placeholder={t("nodes.form.placeholder.zeroNotConfigured")}
               />
             </div>
             <div className="space-y-1">
-              <Label>服务端下载限速 (Mbps)</Label>
+              <Label>
+                <T k="nodes.form.label.serverDownloadLimit" />
+              </Label>
               <Input
                 type="number"
                 min="0"
                 step="1"
                 value={serverBandwidthDownMbps}
                 onChange={(e) => setServerBandwidthDownMbps(e.target.value)}
-                placeholder="0 = 不配置"
+                placeholder={t("nodes.form.placeholder.zeroNotConfigured")}
               />
             </div>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-2">
             <div>
-              <Label>忽略客户端带宽配置</Label>
+              <Label>
+                <T k="nodes.form.label.ignoreClientBandwidth" />
+              </Label>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                启用后统一采用服务端带宽策略，并使用非 Brutal 拥塞控制。
+                <T k="nodes.form.help.ignoreClientBandwidth" />
               </p>
             </div>
             <Switch
@@ -2423,14 +2658,18 @@ function NodeForm({
 
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">拥塞控制</p>
+            <p className="text-sm font-medium">
+              <T k="nodes.form.group.congestion" />
+            </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              未选择控制器时使用默认拥塞控制；选择 BBR 后可配置预设参数。
+              <T k="nodes.form.help.congestion" />
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>控制器</Label>
+              <Label>
+                <T k="nodes.form.label.controller" />
+              </Label>
               <Select
                 value={congestionType}
                 onValueChange={(v) => setCongestionType(v as CongestionType)}
@@ -2439,14 +2678,22 @@ function NodeForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper">
-                  <SelectItem value="default">默认（不配置）</SelectItem>
-                  <SelectItem value="bbr">BBR</SelectItem>
-                  <SelectItem value="reno">Reno</SelectItem>
+                  <SelectItem value="default">
+                    <T k="nodes.congestion.default" />
+                  </SelectItem>
+                  <SelectItem value="bbr">
+                    <T k="nodes.congestion.bbr" />
+                  </SelectItem>
+                  <SelectItem value="reno">
+                    <T k="nodes.congestion.reno" />
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>BBR 预设</Label>
+              <Label>
+                <T k="nodes.form.label.bbrPreset" />
+              </Label>
               <Select
                 value={congestionBbrProfile}
                 onValueChange={(v) =>
@@ -2458,9 +2705,15 @@ function NodeForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper">
-                  <SelectItem value="standard">standard</SelectItem>
-                  <SelectItem value="conservative">conservative</SelectItem>
-                  <SelectItem value="aggressive">aggressive</SelectItem>
+                  <SelectItem value="standard">
+                    <T k="nodes.bbrProfile.standard" />
+                  </SelectItem>
+                  <SelectItem value="conservative">
+                    <T k="nodes.bbrProfile.conservative" />
+                  </SelectItem>
+                  <SelectItem value="aggressive">
+                    <T k="nodes.bbrProfile.aggressive" />
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -2469,84 +2722,100 @@ function NodeForm({
 
         <div className="space-y-3 rounded-lg border p-3">
           <div>
-            <p className="text-sm font-medium">QUIC 参数</p>
+            <p className="text-sm font-medium">
+              <T k="nodes.form.group.quic" />
+            </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              未配置时使用默认参数。请根据实际网络环境调整窗口大小。
+              <T k="nodes.form.help.quic" />
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1">
-              <Label>initStreamReceiveWindow</Label>
+              <Label>
+                <T k="nodes.form.label.initStreamReceiveWindow" />
+              </Label>
               <Input
                 type="number"
                 min="1"
                 step="1"
                 value={quicInitStreamReceiveWindow}
                 onChange={(e) => setQuicInitStreamReceiveWindow(e.target.value)}
-                placeholder="默认 8388608"
+                placeholder={t("nodes.form.placeholder.default8388608")}
               />
             </div>
             <div className="space-y-1">
-              <Label>maxStreamReceiveWindow</Label>
+              <Label>
+                <T k="nodes.form.label.maxStreamReceiveWindow" />
+              </Label>
               <Input
                 type="number"
                 min="1"
                 step="1"
                 value={quicMaxStreamReceiveWindow}
                 onChange={(e) => setQuicMaxStreamReceiveWindow(e.target.value)}
-                placeholder="默认 8388608"
+                placeholder={t("nodes.form.placeholder.default8388608")}
               />
             </div>
             <div className="space-y-1">
-              <Label>initConnReceiveWindow</Label>
+              <Label>
+                <T k="nodes.form.label.initConnReceiveWindow" />
+              </Label>
               <Input
                 type="number"
                 min="1"
                 step="1"
                 value={quicInitConnReceiveWindow}
                 onChange={(e) => setQuicInitConnReceiveWindow(e.target.value)}
-                placeholder="默认 20971520"
+                placeholder={t("nodes.form.placeholder.default20971520")}
               />
             </div>
             <div className="space-y-1">
-              <Label>maxConnReceiveWindow</Label>
+              <Label>
+                <T k="nodes.form.label.maxConnReceiveWindow" />
+              </Label>
               <Input
                 type="number"
                 min="1"
                 step="1"
                 value={quicMaxConnReceiveWindow}
                 onChange={(e) => setQuicMaxConnReceiveWindow(e.target.value)}
-                placeholder="默认 20971520"
+                placeholder={t("nodes.form.placeholder.default20971520")}
               />
             </div>
             <div className="space-y-1">
-              <Label>maxIdleTimeout（秒）</Label>
+              <Label>
+                <T k="nodes.form.label.maxIdleTimeout" />
+              </Label>
               <Input
                 type="number"
                 min="1"
                 step="1"
                 value={quicMaxIdleTimeoutSeconds}
                 onChange={(e) => setQuicMaxIdleTimeoutSeconds(e.target.value)}
-                placeholder="默认 30"
+                placeholder={t("nodes.form.placeholder.default30")}
               />
             </div>
             <div className="space-y-1">
-              <Label>maxIncomingStreams</Label>
+              <Label>
+                <T k="nodes.form.label.maxIncomingStreams" />
+              </Label>
               <Input
                 type="number"
                 min="1"
                 step="1"
                 value={quicMaxIncomingStreams}
                 onChange={(e) => setQuicMaxIncomingStreams(e.target.value)}
-                placeholder="默认 1024"
+                placeholder={t("nodes.form.placeholder.default1024")}
               />
             </div>
           </div>
           <div className="flex items-center justify-between gap-3 rounded-md bg-muted/40 p-2">
             <div>
-              <Label>禁用 Path MTU Discovery</Label>
+              <Label>
+                <T k="nodes.form.label.disablePmtud" />
+              </Label>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                开启后将关闭路径 MTU 探测，适用于特定网络兼容场景。
+                <T k="nodes.form.help.disablePmtud" />
               </p>
             </div>
             <Switch
@@ -2558,13 +2827,17 @@ function NodeForm({
       </NodeFormSection>
 
       {/* === 宿主机流量 === */}
-      <NodeFormSection title="宿主机流量" defaultOpen={false}>
+      <NodeFormSection
+        title={t("nodes.form.section.hostTraffic")}
+        defaultOpen={false}
+      >
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label>显示剩余流量</Label>
+            <Label>
+              <T k="nodes.form.label.showRemainingTraffic" />
+            </Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              基于 Agent
-              上报的节点实际流量统计额度与剩余量，套餐用量仍按订阅计费口径计算。
+              <T k="nodes.form.help.hostTraffic" />
             </p>
           </div>
           <Switch
@@ -2576,29 +2849,35 @@ function NodeForm({
           <>
             <div className="grid grid-cols-[1fr_1fr_96px] gap-3">
               <div className="space-y-1">
-                <Label>总流量</Label>
+                <Label>
+                  <T k="nodes.form.label.totalTraffic" />
+                </Label>
                 <Input
                   type="number"
                   min="0"
                   step="0.01"
                   value={hostTrafficLimit}
                   onChange={(e) => setHostTrafficLimit(e.target.value)}
-                  placeholder="如 1"
+                  placeholder={t("nodes.form.placeholder.example1")}
                 />
               </div>
               <div className="space-y-1">
-                <Label>已用流量</Label>
+                <Label>
+                  <T k="nodes.form.label.usedTraffic" />
+                </Label>
                 <Input
                   type="number"
                   min="0"
                   step="0.01"
                   value={hostTrafficUsed}
                   onChange={(e) => setHostTrafficUsed(e.target.value)}
-                  placeholder="如 0.2"
+                  placeholder={t("nodes.form.placeholder.example02")}
                 />
               </div>
               <div className="space-y-1">
-                <Label>单位</Label>
+                <Label>
+                  <T k="nodes.form.label.unit" />
+                </Label>
                 <Select
                   value={hostTrafficUnit}
                   onValueChange={(v) =>
@@ -2609,14 +2888,20 @@ function NodeForm({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper">
-                    <SelectItem value="GB">GB</SelectItem>
-                    <SelectItem value="TB">TB</SelectItem>
+                    <SelectItem value="GB">
+                      <T k="nodes.trafficUnit.gb" />
+                    </SelectItem>
+                    <SelectItem value="TB">
+                      <T k="nodes.trafficUnit.tb" />
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="space-y-1">
-              <Label>统计口径</Label>
+              <Label>
+                <T k="nodes.form.label.billingMode" />
+              </Label>
               <Select
                 value={hostTrafficBillingMode}
                 onValueChange={(v) =>
@@ -2628,24 +2913,25 @@ function NodeForm({
                 </SelectTrigger>
                 <SelectContent position="popper">
                   <SelectItem value="tx_rx">
-                    {HOST_TRAFFIC_BILLING_LABEL.tx_rx}
+                    {t(HOST_TRAFFIC_BILLING_LABEL_KEYS.tx_rx)}
                   </SelectItem>
                   <SelectItem value="tx">
-                    {HOST_TRAFFIC_BILLING_LABEL.tx}
+                    {t(HOST_TRAFFIC_BILLING_LABEL_KEYS.tx)}
                   </SelectItem>
                   <SelectItem value="rx">
-                    {HOST_TRAFFIC_BILLING_LABEL.rx}
+                    {t(HOST_TRAFFIC_BILLING_LABEL_KEYS.rx)}
                   </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-[11px] text-muted-foreground">
-                仅用于节点宿主机额度统计，不参与用户套餐流量计算；VPS
-                厂商面板通常还会包含系统、更新、回源等非 Hy2 流量。
+                <T k="nodes.form.help.billingMode" />
               </p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <Label>自动重置</Label>
+                <Label>
+                  <T k="nodes.form.label.autoReset" />
+                </Label>
                 <Select
                   value={hostTrafficResetCycle}
                   onValueChange={(v) =>
@@ -2656,17 +2942,29 @@ function NodeForm({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent position="popper">
-                    <SelectItem value="monthly">每月</SelectItem>
-                    <SelectItem value="weekly">每周</SelectItem>
-                    <SelectItem value="daily">每天</SelectItem>
-                    <SelectItem value="custom_days">每 N 天</SelectItem>
-                    <SelectItem value="none">不自动重置</SelectItem>
+                    <SelectItem value="monthly">
+                      <T k="nodes.hostTraffic.reset.monthly" />
+                    </SelectItem>
+                    <SelectItem value="weekly">
+                      <T k="nodes.hostTraffic.reset.weekly" />
+                    </SelectItem>
+                    <SelectItem value="daily">
+                      <T k="nodes.hostTraffic.reset.daily" />
+                    </SelectItem>
+                    <SelectItem value="custom_days">
+                      <T k="nodes.hostTraffic.reset.customDays" />
+                    </SelectItem>
+                    <SelectItem value="none">
+                      <T k="nodes.hostTraffic.reset.none" />
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               {hostTrafficResetCycle === "custom_days" ? (
                 <div className="space-y-1">
-                  <Label>周期天数</Label>
+                  <Label>
+                    <T k="nodes.form.label.cycleDays" />
+                  </Label>
                   <Input
                     type="number"
                     min="1"
@@ -2675,14 +2973,18 @@ function NodeForm({
                     onChange={(e) =>
                       setHostTrafficResetIntervalDays(e.target.value)
                     }
-                    placeholder="如 30"
+                    placeholder={t("nodes.form.placeholder.example30")}
                   />
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <Label>周期</Label>
+                  <Label>
+                    <T k="nodes.form.label.cycle" />
+                  </Label>
                   <Input
-                    value={HOST_TRAFFIC_RESET_LABEL[hostTrafficResetCycle]}
+                    value={t(
+                      HOST_TRAFFIC_RESET_LABEL_KEYS[hostTrafficResetCycle]
+                    )}
                     disabled
                   />
                 </div>
@@ -2690,7 +2992,9 @@ function NodeForm({
             </div>
             {hostTrafficResetCycle !== "none" && (
               <div className="space-y-1">
-                <Label>周期起始时间</Label>
+                <Label>
+                  <T k="nodes.form.label.cycleAnchor" />
+                </Label>
                 <Input
                   type="datetime-local"
                   step="1"
@@ -2698,7 +3002,7 @@ function NodeForm({
                   onChange={(e) => setHostTrafficResetAnchor(e.target.value)}
                 />
                 <p className="text-[11px] text-muted-foreground">
-                  系统将以该时间为周期锚点，在进入下一计费周期后重置宿主机已用流量。
+                  <T k="nodes.form.help.cycleAnchor" />
                 </p>
               </div>
             )}
@@ -2707,25 +3011,31 @@ function NodeForm({
       </NodeFormSection>
 
       {/* === Agent 配置 === */}
-      <NodeFormSection title="Agent 配置" defaultOpen={false}>
+      <NodeFormSection
+        title={t("nodes.form.section.agent")}
+        defaultOpen={false}
+      >
         <div className="space-y-1">
-          <Label>上报间隔（秒）</Label>
+          <Label>
+            <T k="nodes.form.label.reportInterval" />
+          </Label>
           <Input
             type="number"
             value={agentInterval}
             onChange={(e) => setAgentInterval(e.target.value)}
-            placeholder="留空默认 120"
+            placeholder={t("nodes.form.placeholder.default120")}
           />
           <p className="text-[11px] text-muted-foreground">
-            Agent 执行流量上报、在线状态同步与控制面轮询的间隔时间。
+            <T k="nodes.form.help.reportInterval" />
           </p>
         </div>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label>控制面同步</Label>
+            <Label>
+              <T k="nodes.form.label.controlSync" />
+            </Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              启用后，Agent 可从面板拉取目标配置并执行受支持的 Hysteria2
-              管理操作。
+              <T k="nodes.form.help.controlSync" />
             </p>
           </div>
           <Switch
@@ -2735,9 +3045,11 @@ function NodeForm({
         </div>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label>Agent 每日自动更新</Label>
+            <Label>
+              <T k="nodes.form.label.agentAutoUpdate" />
+            </Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              启用后，Agent 将按计划检查发布版本并更新当前系统架构对应的程序包。
+              <T k="nodes.form.help.agentAutoUpdate" />
             </p>
           </div>
           <Switch
@@ -2747,9 +3059,11 @@ function NodeForm({
         </div>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <Label>Hysteria2 每日自动更新</Label>
+            <Label>
+              <T k="nodes.form.label.hy2AutoUpdate" />
+            </Label>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              启用后，Agent 将每日检查 Hysteria2 新版本；更新成功后会重启服务。
+              <T k="nodes.form.help.hy2AutoUpdate" />
             </p>
           </div>
           <Switch
@@ -2765,7 +3079,7 @@ function NodeForm({
         </Button>
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel}>
-            取消
+            <T k="nodes.common.cancel" />
           </Button>
         )}
       </div>
@@ -2775,6 +3089,7 @@ function NodeForm({
 
 export default function AdminNodesPage() {
   const { confirm, alert } = useConfirm()
+  const { t } = useI18n()
   const [rows, setRows] = useState<NodeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -2974,8 +3289,11 @@ export default function AdminNodesPage() {
       const code = normalizeCountryFilter(row.geo_country_code)
       if (!code) continue
 
-      const option = getCountryOption(code)
-      const name = option?.name || row.geo_country_name?.trim() || code
+      const name = getCountryDisplayName(
+        code,
+        t,
+        row.geo_country_name?.trim() || code
+      )
       const existing = filters.get(code)
       if (existing) {
         existing.count += 1
@@ -2986,9 +3304,9 @@ export default function AdminNodesPage() {
     }
 
     return Array.from(filters.values()).sort(
-      (a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN")
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name)
     )
-  }, [rows])
+  }, [rows, t])
   const effectiveCountryFilter = countryFilter
     ? countryFilters.find((item) => item.code === countryFilter)
     : null
@@ -3254,8 +3572,8 @@ export default function AdminNodesPage() {
       const refreshPromise = refreshNodes()
       if (!res.ok || !json.ok) {
         await alert({
-          title: "DNS 解析失败",
-          description: json?.error?.message ?? "请稍后重试",
+          title: t("nodes.toast.dnsFailed"),
+          description: getApiErrorDescription(json, t),
           variant: "destructive",
         })
         await refreshPromise.catch(() => undefined)
@@ -3264,9 +3582,9 @@ export default function AdminNodesPage() {
       const d = json.data
       const records = Array.isArray(d?.records) ? d.records : []
       const actionLabel: Record<string, string> = {
-        created: "已创建",
-        updated: "已更新",
-        unchanged: "已是最新",
+        created: t("nodes.dns.action.created"),
+        updated: t("nodes.dns.action.updated"),
+        unchanged: t("nodes.dns.action.unchanged"),
       }
       const description = records.length
         ? records
@@ -3277,13 +3595,21 @@ export default function AdminNodesPage() {
                 action?: string
                 zone?: string
               }) =>
-                `${d.domain} ${record.dnsType ?? "DNS"} → ${record.ip ?? "-"}（${actionLabel[record.action ?? ""] ?? "已处理"}，Zone: ${record.zone ?? "-"}）`
+                t("nodes.dns.recordLine", {
+                  domain: d.domain,
+                  dnsType: record.dnsType ?? "DNS",
+                  ip: record.ip ?? "-",
+                  action:
+                    actionLabel[record.action ?? ""] ??
+                    t("nodes.dns.action.processed"),
+                  zone: record.zone ?? "-",
+                })
             )
             .join("\n")
-        : "DNS 记录已处理"
+        : t("nodes.dns.recordsProcessed")
       if (showSuccessAlert) {
         await alert({
-          title: "DNS 解析成功",
+          title: t("nodes.toast.dnsSucceeded"),
           description,
         })
       }
@@ -3291,8 +3617,8 @@ export default function AdminNodesPage() {
       return true
     } catch {
       await alert({
-        title: "DNS 解析失败",
-        description: "网络错误，请稍后重试",
+        title: t("nodes.toast.dnsFailed"),
+        description: t("nodes.common.networkError"),
         variant: "destructive",
       })
       await refreshNodes().catch(() => undefined)
@@ -3303,15 +3629,15 @@ export default function AdminNodesPage() {
   function toggleSortingMode() {
     if (sortingMode) {
       setSortingMode(false)
-      toast.success("已退出排序模式", {
-        description: "节点顺序已保存",
+      toast.success(t("nodes.toast.sortModeExited"), {
+        description: t("nodes.toast.nodeOrderSaved"),
       })
       void refreshNodes()
       return
     }
     setSortingMode(true)
-    toast.info("排序模式已开启", {
-      description: "拖动卡片调整节点顺序，完成后再次点击排序图标。",
+    toast.info(t("nodes.toast.sortModeEnabled"), {
+      description: t("nodes.toast.sortModeHelp"),
     })
   }
 
@@ -3350,8 +3676,8 @@ export default function AdminNodesPage() {
       if (!response.ok || !json?.ok) {
         setNodeRows(previousRows)
         await alert({
-          title: "排序保存失败",
-          description: json?.error?.message ?? "请稍后重试",
+          title: t("nodes.toast.orderSaveFailed"),
+          description: getApiErrorDescription(json, t),
           variant: "destructive",
         })
         return
@@ -3359,8 +3685,8 @@ export default function AdminNodesPage() {
     } catch {
       setNodeRows(previousRows)
       await alert({
-        title: "排序保存失败",
-        description: "网络错误，请稍后重试",
+        title: t("nodes.toast.orderSaveFailed"),
+        description: t("nodes.common.networkError"),
         variant: "destructive",
       })
     } finally {
@@ -3375,8 +3701,8 @@ export default function AdminNodesPage() {
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (obfsRequiresPassword(obfs) && !obfsPassword.trim()) {
-      toast.error("无法创建节点", {
-        description: "启用 obfs 时必须填写 Obfs 密码",
+      toast.error(t("nodes.toast.createNodeFailed"), {
+        description: t("nodes.validation.obfsPasswordRequired"),
       })
       return
     }
@@ -3469,8 +3795,8 @@ export default function AdminNodesPage() {
 
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      toast.error("无法创建节点", {
-        description: json?.error?.message ?? "请稍后重试",
+      toast.error(t("nodes.toast.createNodeFailed"), {
+        description: getApiErrorDescription(json, t),
       })
       return
     }
@@ -3545,8 +3871,8 @@ export default function AdminNodesPage() {
 
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      toast.error("无法保存节点", {
-        description: json?.error?.message ?? "请稍后重试",
+      toast.error(t("nodes.toast.saveNodeFailed"), {
+        description: getApiErrorDescription(json, t),
       })
       return false
     }
@@ -3556,9 +3882,9 @@ export default function AdminNodesPage() {
 
   async function removeNode(row: NodeRow) {
     const ok = await confirm({
-      title: `删除节点 ${row.name}？`,
-      description: "关联套餐将自动解绑；已有订阅的历史流量不会重置。",
-      confirmText: "删除",
+      title: t("nodes.confirm.deleteTitle", { name: row.name }),
+      description: t("nodes.confirm.deleteDescription"),
+      confirmText: t("nodes.common.delete"),
       variant: "destructive",
     })
     if (!ok) return
@@ -3569,8 +3895,8 @@ export default function AdminNodesPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) {
       await alert({
-        title: "删除失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("nodes.toast.deleteFailed"),
+        description: getApiErrorDescription(json, t),
         variant: "destructive",
       })
       return
@@ -3755,8 +4081,8 @@ export default function AdminNodesPage() {
     event.preventDefault()
     if (!editingRow) return
     if (obfsRequiresPassword(editObfs) && !editObfsPassword.trim()) {
-      toast.error("无法保存节点", {
-        description: "启用 obfs 时必须填写 Obfs 密码",
+      toast.error(t("nodes.toast.saveNodeFailed"), {
+        description: t("nodes.validation.obfsPasswordRequired"),
       })
       return
     }
@@ -3859,8 +4185,8 @@ export default function AdminNodesPage() {
       typeof json.data?.config_json !== "string"
     ) {
       await alert({
-        title: "获取 Agent 配置失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("nodes.toast.agentConfigFailed"),
+        description: getApiErrorDescription(json, t),
         variant: "destructive",
       })
       return
@@ -3877,7 +4203,10 @@ export default function AdminNodesPage() {
     }
 
     await alert({
-      title: `${row.name} 的 Agent 配置${copied ? "（已复制）" : ""}`,
+      title: t(
+        copied ? "nodes.agentConfig.titleCopied" : "nodes.agentConfig.title",
+        { name: row.name }
+      ),
       description: (
         <pre className="max-h-100 min-w-0 overflow-auto rounded bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
           {config}
@@ -3890,18 +4219,17 @@ export default function AdminNodesPage() {
     const payload =
       type === "HY2_LOGS" || type === "AGENT_LOGS" ? { lines: 160 } : null
     const confirmDescriptions: Partial<Record<AgentTaskType, string>> = {
-      HY2_STOP: "停止 Hysteria2 会中断当前节点连接，确认继续？",
-      AGENT_RESTART: "重启 Agent 会短暂中断控制面同步和流量上报，确认继续？",
-      AGENT_SELF_UPDATE: "更新 Agent 成功后会自动重启服务，确认继续？",
-      HY2_SELF_UPDATE:
-        "更新 Hysteria2 会重启服务并短暂中断节点连接，确认继续？",
+      HY2_STOP: t("nodes.confirm.hy2Stop"),
+      AGENT_RESTART: t("nodes.confirm.agentRestart"),
+      AGENT_SELF_UPDATE: t("nodes.confirm.agentSelfUpdate"),
+      HY2_SELF_UPDATE: t("nodes.confirm.hy2SelfUpdate"),
     }
     const confirmDescription = confirmDescriptions[type]
     if (confirmDescription) {
       const ok = await confirm({
-        title: `${TASK_LABEL[type]}？`,
+        title: t("nodes.confirm.taskTitle", { task: getTaskLabel(type, t) }),
         description: confirmDescription,
-        confirmText: "继续",
+        confirmText: t("nodes.common.continue"),
       })
       if (!ok) return
     }
@@ -3914,16 +4242,16 @@ export default function AdminNodesPage() {
     const json = await response.json()
     if (!response.ok || !json?.ok) {
       await alert({
-        title: "创建任务失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("nodes.toast.createTaskFailed"),
+        description: getApiErrorDescription(json, t),
         variant: "destructive",
       })
       return
     }
 
     await alert({
-      title: "任务已创建",
-      description: `${TASK_LABEL[type]} 已进入队列，Agent 下次同步时会执行。`,
+      title: t("nodes.toast.taskCreated"),
+      description: t("nodes.toast.taskQueued", { task: getTaskLabel(type, t) }),
     })
     await load()
     if (agentDetailRow?.id === row.id) {
@@ -3944,8 +4272,8 @@ export default function AdminNodesPage() {
         if (!response.ok || !json?.ok) {
           if (!opts?.silent) {
             await alert({
-              title: "获取 Agent 状态失败",
-              description: json?.error?.message ?? "请稍后重试",
+              title: t("nodes.toast.agentStatusFailed"),
+              description: getApiErrorDescription(json, t),
               variant: "destructive",
             })
           }
@@ -3956,7 +4284,7 @@ export default function AdminNodesPage() {
         if (!opts?.silent) setAgentDetailLoading(false)
       }
     },
-    [alert]
+    [alert, t]
   )
 
   useEffect(() => {
@@ -3976,12 +4304,12 @@ export default function AdminNodesPage() {
     if (isAcmeMode && row.dns_status !== "skip" && row.dns_status !== "match") {
       const statusText =
         row.dns_status === "mismatch"
-          ? "DNS 指向的 IP 与节点公网地址不一致"
+          ? t("nodes.deploy.dnsStatusMismatch")
           : row.dns_status === "partial"
-            ? "DNS 解析未完全生效"
-            : "域名无法解析"
+            ? t("nodes.deploy.dnsStatusPartial")
+            : t("nodes.deploy.dnsStatusUnresolved")
       const decision = await promptDnsDeployDecision(
-        `当前节点使用 ACME 证书模式，但${statusText}。建议先更新 DNS 解析再部署，否则 ACME 证书签发可能失败。`
+        t("nodes.deploy.dnsWarningDescription", { status: statusText })
       )
       if (decision === "exit") return
       if (decision === "resolve") {
@@ -3995,8 +4323,8 @@ export default function AdminNodesPage() {
 
     if (!response.ok || !json?.ok) {
       await alert({
-        title: "获取一键部署命令失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("nodes.toast.deployCommandFailed"),
+        description: getApiErrorDescription(json, t),
         variant: "destructive",
       })
       return
@@ -4006,8 +4334,8 @@ export default function AdminNodesPage() {
       typeof json.data?.command === "string" ? json.data.command : ""
     if (!command) {
       await alert({
-        title: "获取一键部署命令失败",
-        description: "未获取到部署命令，请稍后重试或联系管理员。",
+        title: t("nodes.toast.deployCommandFailed"),
+        description: t("nodes.deploy.noCommand"),
         variant: "destructive",
       })
       return
@@ -4064,7 +4392,7 @@ export default function AdminNodesPage() {
       meta?.cert_mode === "acme"
     const expireText = tokenExpiresAt
       ? formatLocalDateTime(tokenExpiresAt)
-      : "30 分钟内有效"
+      : t("nodes.deploy.validWithin30Minutes")
     const portText = meta?.deploy_port_hopping
       ? `${meta?.deploy_port ?? 443} / ${meta.deploy_port_hopping}`
       : String(meta?.deploy_port ?? 443)
@@ -4087,29 +4415,30 @@ export default function AdminNodesPage() {
       : null
 
     await alert({
-      title: `${row.name} 的一键部署命令`,
-      confirmText: "我知道了",
+      title: t("nodes.deploy.title", { name: row.name }),
+      confirmText: t("nodes.common.gotIt"),
       contentClassName: "sm:max-w-2xl",
       description: (
         <div className="space-y-4 text-left">
           <div className="rounded-xl border bg-muted/35 p-4">
             <div className="flex flex-wrap items-center gap-2">
               <Badge className="bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
-                {copied ? "已自动复制" : "请手动复制"}
+                {copied
+                  ? t("nodes.deploy.autoCopied")
+                  : t("nodes.deploy.manualCopy")}
               </Badge>
               <Badge className="bg-blue-500/15 text-blue-700 dark:text-blue-400">
-                Token 部署
+                <T k="nodes.deploy.tokenDeploy" />
               </Badge>
               <Badge className="bg-yellow-500/15 text-yellow-700 dark:text-yellow-300">
-                {expireText} 过期
+                <T k="nodes.deploy.expiresAt" params={{ time: expireText }} />
               </Badge>
             </div>
             <p className="mt-3 text-sm text-foreground">
-              在节点服务器以 <span className="font-mono">root</span>{" "}
-              执行下面命令，将自动安装并配置 Hysteria2 与 H2O Agent。
+              <T k="nodes.deploy.runAsRoot" />
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
-              该命令仅包含短期部署凭证，节点密钥与配置将在执行时安全获取。
+              <T k="nodes.deploy.tokenDescription" />
             </p>
           </div>
 
@@ -4117,10 +4446,10 @@ export default function AdminNodesPage() {
             <div className="flex items-center justify-between gap-3 border-b bg-muted/50 px-3 py-2">
               <div>
                 <div className="text-xs font-medium text-foreground">
-                  一键部署命令
+                  <T k="nodes.deploy.commandTitle" />
                 </div>
                 <div className="text-[11px] text-muted-foreground">
-                  粘贴到目标节点终端执行
+                  <T k="nodes.deploy.commandSubtitle" />
                 </div>
               </div>
               <Button
@@ -4129,13 +4458,13 @@ export default function AdminNodesPage() {
                 size="sm"
                 onClick={() => {
                   void navigator.clipboard.writeText(command).then(
-                    () => toast.success("部署命令已复制"),
-                    () => toast.error("复制失败，请手动复制")
+                    () => toast.success(t("nodes.toast.deployCommandCopied")),
+                    () => toast.error(t("nodes.toast.copyFailed"))
                   )
                 }}
               >
                 <Copy className="h-3.5 w-3.5" />
-                复制
+                <T k="nodes.actions.copy" />
               </Button>
             </div>
             <pre className="max-h-55 min-w-0 overflow-auto bg-background p-4 font-mono text-xs leading-relaxed break-all whitespace-pre-wrap text-foreground">
@@ -4144,70 +4473,93 @@ export default function AdminNodesPage() {
           </div>
 
           <div className="space-y-2">
-            <div className="text-xs font-medium text-foreground">部署摘要</div>
+            <div className="text-xs font-medium text-foreground">
+              <T k="nodes.deploy.summaryTitle" />
+            </div>
             <div className="grid gap-2 sm:grid-cols-2">
-              <DeployInfoItem label="节点" value={`#${row.id} ${row.name}`} />
-              <DeployInfoItem label="部署端口" value={portText} mono />
               <DeployInfoItem
-                label="证书模式"
-                value={certModeLabel(meta?.cert_mode)}
+                label={t("nodes.deploy.summary.node")}
+                value={`#${row.id} ${row.name}`}
               />
               <DeployInfoItem
-                label="上报间隔"
-                value={`${meta?.interval_seconds ?? 120} 秒`}
+                label={t("nodes.deploy.summary.deployPort")}
+                value={portText}
+                mono
+              />
+              <DeployInfoItem
+                label={t("nodes.deploy.summary.certMode")}
+                value={certModeLabel(meta?.cert_mode, t)}
+              />
+              <DeployInfoItem
+                label={t("nodes.deploy.summary.reportInterval")}
+                value={t("nodes.deploy.secondsValue", {
+                  value: meta?.interval_seconds ?? 120,
+                })}
               />
               {hasServerBandwidth && (
                 <DeployInfoItem
-                  label="服务端限速"
-                  value={`↑ ${meta?.server_bandwidth_up_mbps || "不限"} / ↓ ${meta?.server_bandwidth_down_mbps || "不限"} Mbps`}
+                  label={t("nodes.deploy.summary.serverBandwidth")}
+                  value={`↑ ${meta?.server_bandwidth_up_mbps || t("nodes.common.unlimited")} / ↓ ${meta?.server_bandwidth_down_mbps || t("nodes.common.unlimited")} Mbps`}
                 />
               )}
               {meta?.ignore_client_bandwidth && (
-                <DeployInfoItem label="忽略客户端限速" value="已启用" />
+                <DeployInfoItem
+                  label={t("nodes.deploy.summary.ignoreClientBandwidth")}
+                  value={t("nodes.common.enabled")}
+                />
               )}
               {congestionText && (
-                <DeployInfoItem label="拥塞控制" value={congestionText} />
+                <DeployInfoItem
+                  label={t("nodes.deploy.summary.congestion")}
+                  value={congestionText}
+                />
               )}
               {hasQuicConfig && (
-                <DeployInfoItem label="QUIC 参数" value="已配置" />
+                <DeployInfoItem
+                  label={t("nodes.deploy.summary.quic")}
+                  value={t("nodes.common.configured")}
+                />
               )}
               {meta?.obfs === "salamander" && (
-                <DeployInfoItem label="混淆" value="Salamander" />
+                <DeployInfoItem
+                  label={t("nodes.deploy.summary.obfs")}
+                  value="Salamander"
+                />
               )}
               {isAcme ? (
                 <>
                   <DeployInfoItem
-                    label="ACME 域名"
+                    label={t("nodes.deploy.summary.acmeDomains")}
                     value={
                       meta?.acme_domains?.length
                         ? meta.acme_domains.join("，")
-                        : "未设置"
+                        : t("nodes.common.notSet")
                     }
                   />
                   <DeployInfoItem
-                    label="ACME 邮箱"
-                    value={meta?.acme_email ?? "未设置"}
+                    label={t("nodes.deploy.summary.acmeEmail")}
+                    value={meta?.acme_email ?? t("nodes.common.notSet")}
                   />
                   <DeployInfoItem
-                    label="ACME CA"
-                    value={acmeCaLabel(meta?.acme_ca)}
+                    label={t("nodes.deploy.summary.acmeCa")}
+                    value={acmeCaLabel(meta?.acme_ca, t)}
                   />
                   {meta?.cert_mode === "acme-dns" && (
                     <DeployInfoItem
-                      label="DNS 服务商"
-                      value={acmeDnsProviderLabel(meta?.acme_dns_provider)}
+                      label={t("nodes.deploy.summary.dnsProvider")}
+                      value={acmeDnsProviderLabel(meta?.acme_dns_provider, t)}
                     />
                   )}
                 </>
               ) : (
                 <>
                   <DeployInfoItem
-                    label="证书路径"
+                    label={t("nodes.deploy.summary.certPath")}
                     value={meta?.cert_path ?? "/etc/hysteria/server.crt"}
                     mono
                   />
                   <DeployInfoItem
-                    label="私钥路径"
+                    label={t("nodes.deploy.summary.keyPath")}
                     value={meta?.key_path ?? "/etc/hysteria/server.key"}
                     mono
                   />
@@ -4217,7 +4569,7 @@ export default function AdminNodesPage() {
           </div>
 
           <div className="rounded-lg border border-yellow-500/25 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-800 dark:text-yellow-200">
-            如部署命令过期或可能泄露，请重新生成；新命令将使旧部署凭证失效。
+            <T k="nodes.deploy.warning" />
           </div>
         </div>
       ),
@@ -4234,7 +4586,9 @@ export default function AdminNodesPage() {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>DNS 解析状态异常</DialogTitle>
+            <DialogTitle>
+              <T k="nodes.deploy.dnsDialogTitle" />
+            </DialogTitle>
             <DialogDescription>
               {dnsDeployDialog?.description}
             </DialogDescription>
@@ -4244,10 +4598,10 @@ export default function AdminNodesPage() {
               variant="outline"
               onClick={() => closeDnsDeployDialog("skip")}
             >
-              先不更新
+              <T k="nodes.deploy.skipDnsUpdate" />
             </Button>
             <Button onClick={() => closeDnsDeployDialog("resolve")}>
-              更新 DNS
+              <T k="nodes.deploy.updateDns" />
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -4257,18 +4611,32 @@ export default function AdminNodesPage() {
         {/* 页面标题 */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">节点管理</h1>
+            <h1 className="text-2xl font-bold">
+              <T k="nodes.page.title" />
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {effectiveCountryFilter ? (
                 <>
-                  {countryFilterLabel} · 该地区有 {visibleRows.length} 个节点
+                  <T
+                    k="nodes.page.summary.filtered"
+                    params={{
+                      country: countryFilterLabel,
+                      count: visibleRows.length,
+                    }}
+                  />
                 </>
               ) : (
-                <>共 {rows.length} 个节点</>
+                <T
+                  k="nodes.page.summary.total"
+                  params={{ count: rows.length }}
+                />
               )}
               {visibleOnlineCount > 0 && (
                 <span className="ml-2 text-emerald-600 dark:text-emerald-400">
-                  · {visibleOnlineCount} 个在线
+                  <T
+                    k="nodes.page.summary.online"
+                    params={{ count: visibleOnlineCount }}
+                  />
                 </span>
               )}
             </p>
@@ -4289,8 +4657,18 @@ export default function AdminNodesPage() {
                         setCountryFilter(active ? null : country.code)
                       }
                       disabled={savingOrder || sortingMode}
-                      title={`${active ? "取消筛选" : "筛选"}${country.name}节点（${country.count} 个）`}
-                      aria-label={`${active ? "取消筛选" : "筛选"}${country.name}节点`}
+                      title={t(
+                        active
+                          ? "nodes.countryFilter.clearTitle"
+                          : "nodes.countryFilter.filterTitle",
+                        { country: country.name, count: country.count }
+                      )}
+                      aria-label={t(
+                        active
+                          ? "nodes.countryFilter.clearAria"
+                          : "nodes.countryFilter.filterAria",
+                        { country: country.name }
+                      )}
                     >
                       {flagUrl ? (
                         <span
@@ -4313,7 +4691,9 @@ export default function AdminNodesPage() {
                 variant="outline"
                 size="icon"
                 onClick={() => setHideIp((v) => !v)}
-                title={hideIp ? "显示 IP" : "隐藏 IP"}
+                title={t(
+                  hideIp ? "nodes.actions.showIp" : "nodes.actions.hideIp"
+                )}
               >
                 {hideIp ? (
                   <EyeOff className="h-4 w-4" />
@@ -4333,10 +4713,10 @@ export default function AdminNodesPage() {
                 }
                 title={
                   effectiveCountryFilter
-                    ? "国家筛选下暂不支持排序"
+                    ? t("nodes.sort.disabledByCountryFilter")
                     : activeSortingMode
-                      ? "完成排序"
-                      : "进入排序模式"
+                      ? t("nodes.sort.finish")
+                      : t("nodes.sort.enter")
                 }
               >
                 <ArrowUpDown className="h-4 w-4" />
@@ -4348,10 +4728,10 @@ export default function AdminNodesPage() {
                 disabled={refreshing || savingOrder || activeSortingMode}
                 title={
                   activeSortingMode
-                    ? "排序模式下暂不刷新"
+                    ? t("nodes.refresh.disabledInSortMode")
                     : savingOrder
-                      ? "正在保存排序"
-                      : "刷新节点数据"
+                      ? t("nodes.refresh.savingOrder")
+                      : t("nodes.refresh.title")
                 }
               >
                 <RefreshCw
@@ -4367,7 +4747,7 @@ export default function AdminNodesPage() {
               disabled={activeSortingMode || savingOrder}
             >
               <Plus className="mr-1.5 h-4 w-4" />
-              添加节点
+              <T k="nodes.actions.addNode" />
             </Button>
           </div>
         </div>
@@ -4400,12 +4780,19 @@ export default function AdminNodesPage() {
           <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Server className="mb-3 h-10 w-10 opacity-40" />
             <p className="text-sm">
-              {rows.length === 0 ? "暂无节点" : "暂无匹配节点"}
+              {rows.length === 0 ? (
+                <T k="nodes.empty.noNodes" />
+              ) : (
+                <T k="nodes.empty.noMatches" />
+              )}
             </p>
             <p className="mt-1 text-xs">
               {rows.length === 0
-                ? "点击右上角「添加节点」创建第一个节点"
-                : `当前没有 ${countryFilterLabel ?? "该国家/地区"} 节点`}
+                ? t("nodes.empty.createFirst")
+                : t("nodes.empty.noCountryNodes", {
+                    country:
+                      countryFilterLabel ?? t("nodes.countryFilter.thisRegion"),
+                  })}
             </p>
           </Card>
         ) : activeSortingMode ? (
@@ -4494,9 +4881,11 @@ export default function AdminNodesPage() {
         <Sheet open={createOpen} onOpenChange={setCreateOpen}>
           <SheetContent className="data-[side=right]:sm:max-w-lg">
             <SheetHeader>
-              <SheetTitle>添加节点</SheetTitle>
+              <SheetTitle>
+                <T k="nodes.sheet.createTitle" />
+              </SheetTitle>
               <SheetDescription>
-                创建新的 Hysteria2 节点，创建后可部署 Agent 上报流量。
+                <T k="nodes.sheet.createDescription" />
               </SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -4618,7 +5007,7 @@ export default function AdminNodesPage() {
                 agentControlEnabled={agentControlEnabled}
                 setAgentControlEnabled={setAgentControlEnabled}
                 onSubmit={create}
-                submitLabel="创建节点"
+                submitLabel={t("nodes.form.submit.create")}
               />
             </div>
           </SheetContent>
@@ -4636,9 +5025,13 @@ export default function AdminNodesPage() {
         >
           <SheetContent className="data-[side=right]:sm:max-w-xl">
             <SheetHeader>
-              <SheetTitle>Agent 状态 {agentDetailRow?.name}</SheetTitle>
+              <SheetTitle>
+                {t("nodes.agentDetail.title", {
+                  name: agentDetailRow?.name ?? "",
+                })}
+              </SheetTitle>
               <SheetDescription>
-                查看控制面状态、配置同步进度和最近任务结果。
+                <T k="nodes.agentDetail.description" />
               </SheetDescription>
             </SheetHeader>
             <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-4">
@@ -4652,21 +5045,23 @@ export default function AdminNodesPage() {
                   <Card>
                     <CardHeader className="p-4 pb-1">
                       <CardTitle className="text-base leading-none font-semibold">
-                        当前状态
+                        <T k="nodes.agentDetail.currentStatus" />
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-sm">
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div>
-                          <span className="text-muted-foreground">控制面</span>
+                          <span className="text-muted-foreground">
+                            <T k="nodes.agentDetail.controlPlane" />
+                          </span>
                           <p className="font-medium">
                             {isAgentFresh(
                               (agentDetail.state?.last_seen_at as
                                 | string
                                 | null) ?? null
                             )
-                              ? "在线"
-                              : "离线"}
+                              ? t("nodes.status.online")
+                              : t("nodes.status.offline")}
                           </p>
                         </div>
                         <div>
@@ -4677,19 +5072,24 @@ export default function AdminNodesPage() {
                             {getHy2StatusLabel(
                               (agentDetail.state?.hy2_status as
                                 | string
-                                | null) ?? null
+                                | null) ?? null,
+                              t
                             )}
                           </p>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">主机</span>
+                          <span className="text-muted-foreground">
+                            <T k="nodes.agentDetail.hostname" />
+                          </span>
                           <p className="font-mono break-all">
                             {(agentDetail.state?.hostname as string | null) ??
                               "-"}
                           </p>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">系统</span>
+                          <span className="text-muted-foreground">
+                            <T k="nodes.agentDetail.system" />
+                          </span>
                           <p className="font-mono">
                             {[
                               agentDetail.state?.os as string | null,
@@ -4700,7 +5100,9 @@ export default function AdminNodesPage() {
                           </p>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Agent</span>
+                          <span className="text-muted-foreground">
+                            <T k="nodes.agentDetail.agent" />
+                          </span>
                           <p className="font-mono">
                             {(agentDetail.state?.agent_version as
                               | string
@@ -4709,7 +5111,7 @@ export default function AdminNodesPage() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">
-                            Hy2 版本
+                            <T k="nodes.agentDetail.hy2Version" />
                           </span>
                           <p className="font-mono">
                             {formatHy2Version(
@@ -4721,7 +5123,7 @@ export default function AdminNodesPage() {
                         </div>
                         <div>
                           <span className="text-muted-foreground">
-                            最后同步
+                            <T k="nodes.agentDetail.lastSync" />
                           </span>
                           <p className="font-mono text-[11px]">
                             {(agentDetail.state?.last_seen_at as
@@ -4742,29 +5144,50 @@ export default function AdminNodesPage() {
                   <Card>
                     <CardHeader className="p-4 pb-1">
                       <CardTitle className="text-base leading-none font-semibold">
-                        配置同步
+                        <T k="nodes.agentDetail.configSync" />
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 text-xs">
                       <div className="flex flex-wrap gap-2">
                         <Badge>
-                          目标 r{agentDetail.desired_config?.revision ?? "-"}
+                          <T
+                            k="nodes.agentDetail.targetRevision"
+                            params={{
+                              revision:
+                                agentDetail.desired_config?.revision ?? "-",
+                            }}
+                          />
                         </Badge>
                         <Badge>
-                          已应用 r
-                          {(agentDetail.state?.applied_config_revision as
-                            | number
-                            | null) ?? "-"}
+                          <T
+                            k="nodes.agentDetail.appliedRevision"
+                            params={{
+                              revision:
+                                (agentDetail.state?.applied_config_revision as
+                                  | number
+                                  | null) ?? "-",
+                            }}
+                          />
                         </Badge>
                       </div>
                       <p className="font-mono text-[11px] break-all text-muted-foreground">
-                        目标 Hash：{agentDetail.desired_config?.hash ?? "-"}
+                        <T
+                          k="nodes.agentDetail.targetHash"
+                          params={{
+                            hash: agentDetail.desired_config?.hash ?? "-",
+                          }}
+                        />
                       </p>
                       <p className="font-mono text-[11px] break-all text-muted-foreground">
-                        当前 Hash：
-                        {(agentDetail.state?.hysteria_config_hash as
-                          | string
-                          | null) ?? "-"}
+                        <T
+                          k="nodes.agentDetail.currentHash"
+                          params={{
+                            hash:
+                              (agentDetail.state?.hysteria_config_hash as
+                                | string
+                                | null) ?? "-",
+                          }}
+                        />
                       </p>
                     </CardContent>
                   </Card>
@@ -4772,19 +5195,20 @@ export default function AdminNodesPage() {
                   <Card>
                     <CardHeader className="p-4 pb-1">
                       <CardTitle className="text-base leading-none font-semibold">
-                        最近任务
+                        <T k="nodes.agentDetail.recentTasks" />
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
                       {agentDetail.recent_tasks.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
-                          暂无任务
+                          <T k="nodes.agentDetail.noTasks" />
                         </p>
                       ) : (
                         agentDetail.recent_tasks.map((task) => {
                           const taskOutput = parseAgentTaskOutput(
                             task.result,
-                            task.error
+                            task.error,
+                            t
                           )
                           const output = taskOutput?.value ?? ""
                           return (
@@ -4794,8 +5218,7 @@ export default function AdminNodesPage() {
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-medium">
-                                  #{task.id}{" "}
-                                  {TASK_LABEL[task.type] ?? task.type}
+                                  #{task.id} {getTaskLabel(task.type, t)}
                                 </span>
                                 <Badge
                                   className={cn(
@@ -4803,7 +5226,7 @@ export default function AdminNodesPage() {
                                     getTaskStatusClass(task)
                                   )}
                                 >
-                                  {getTaskStatusLabel(task)}
+                                  {getTaskStatusLabel(task, t)}
                                 </Badge>
                               </div>
                               <p className="mt-1 font-mono text-[11px] text-muted-foreground">
@@ -4826,7 +5249,9 @@ export default function AdminNodesPage() {
                   </Card>
                 </>
               ) : (
-                <p className="text-sm text-muted-foreground">暂无 Agent 状态</p>
+                <p className="text-sm text-muted-foreground">
+                  <T k="nodes.agentDetail.noStatus" />
+                </p>
               )}
             </div>
           </SheetContent>
@@ -4841,9 +5266,11 @@ export default function AdminNodesPage() {
         >
           <SheetContent className="data-[side=right]:sm:max-w-lg">
             <SheetHeader>
-              <SheetTitle>编辑节点 {editingRow?.name}</SheetTitle>
+              <SheetTitle>
+                {t("nodes.sheet.editTitle", { name: editingRow?.name ?? "" })}
+              </SheetTitle>
               <SheetDescription>
-                修改节点配置，保存后立即生效。
+                <T k="nodes.sheet.editDescription" />
               </SheetDescription>
             </SheetHeader>
             <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -4971,7 +5398,7 @@ export default function AdminNodesPage() {
                 agentControlEnabled={editAgentControlEnabled}
                 setAgentControlEnabled={setEditAgentControlEnabled}
                 onSubmit={submitEdit}
-                submitLabel="保存修改"
+                submitLabel={t("nodes.form.submit.save")}
                 onCancel={() => setEditingRow(null)}
               />
             </div>

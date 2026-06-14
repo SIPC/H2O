@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -126,7 +126,7 @@ export async function GET(request: Request) {
       ? Math.max(0, Math.floor(yesterdaySum.rx))
       : 0
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       date: localDate,

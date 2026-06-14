@@ -12,6 +12,7 @@ import {
 
 import { Minus, Plus, RotateCcw } from "lucide-react"
 
+import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
@@ -158,7 +159,7 @@ export type NodeTrafficMapData = {
 
 export const EMPTY_NODE_TRAFFIC_MAP: NodeTrafficMapData = {
   window: "rolling24h",
-  windowLabel: "滚动 24 小时",
+  windowLabel: "",
   windowHours: 24,
   geoipEnabled: true,
   totalTxBytes: 0,
@@ -269,7 +270,7 @@ function normalizeMapCountry(input: unknown): NodeTrafficMapCountry | null {
   const countryName =
     typeof row.countryName === "string" && row.countryName.trim()
       ? row.countryName
-      : "未知地区"
+      : ""
   const latitude = normalizeNumber(row.latitude)
   const longitude = normalizeNumber(row.longitude)
   if (
@@ -540,7 +541,7 @@ export function normalizeNodeTrafficMapData(
     windowLabel:
       typeof row.windowLabel === "string" && row.windowLabel.trim()
         ? row.windowLabel
-        : "滚动 24 小时",
+        : "",
     windowHours:
       typeof row.windowHours === "number" && Number.isFinite(row.windowHours)
         ? Math.max(0, Math.floor(row.windowHours))
@@ -595,7 +596,7 @@ function CountryFlagImage({
 
   return (
     <span
-      aria-label={countryName ?? countryCode ?? "国家地区"}
+      aria-label={countryName ?? countryCode ?? undefined}
       title={countryName ?? countryCode ?? undefined}
       className="inline-block h-3.5 w-5 shrink-0 rounded-xs bg-cover bg-center shadow-sm"
       style={{ backgroundImage: `url(${flagUrl})` }}
@@ -619,16 +620,25 @@ function CountryFlagBadge({
 }
 
 function FlowFlagBadge({ flow }: { flow: NodeTrafficMapFlow | null }) {
+  const { t } = useI18n()
   return (
     <Badge className="gap-1.5 bg-muted text-foreground">
       <CountryFlagImage
         countryCode={flow?.sourceCountryCode ?? null}
-        countryName={flow?.sourceCountryName}
+        countryName={getCountryDisplayName(
+          flow?.sourceCountryCode,
+          flow?.sourceCountryName,
+          t
+        )}
       />
       <span className="text-muted-foreground">→</span>
       <CountryFlagImage
         countryCode={flow?.targetCountryCode ?? null}
-        countryName={flow?.targetCountryName}
+        countryName={getCountryDisplayName(
+          flow?.targetCountryCode,
+          flow?.targetCountryName,
+          t
+        )}
       />
     </Badge>
   )
@@ -701,18 +711,62 @@ function getSvgPoint(
   }
 }
 
-function getNodeSummary(country: NodeTrafficMapCountry) {
+type TFunction = (key: string, params?: Record<string, unknown>) => string
+
+function translateKnownKey(t: TFunction, key: string, fallback: string) {
+  const translated = t(key)
+  return translated === key ? fallback : translated
+}
+
+function getCountryDisplayName(
+  countryCode: string | null | undefined,
+  fallback: string | null | undefined,
+  t: TFunction
+) {
+  const code = safeCountryCode(countryCode ?? null)
+  if (code) {
+    return translateKnownKey(
+      t,
+      `nodes.country.${code}`,
+      fallback?.trim() || code
+    )
+  }
+
+  const raw = fallback?.trim()
+  if (!raw || /[\u4e00-\u9fff]/.test(raw)) {
+    return t("routing.trafficMap.unknownRegion")
+  }
+  return raw
+}
+
+function getWindowLabel(
+  window: NodeTrafficMapData["window"],
+  windowLabel: string,
+  t: TFunction
+) {
+  if (window === "today") return t("routing.trafficMap.window.today")
+  if (window === "7d") return t("routing.trafficMap.window.7d")
+  if (window === "rolling24h") return t("routing.trafficMap.window.rolling24h")
+  return windowLabel || t("routing.trafficMap.window.rolling24h")
+}
+
+function getNodeSummary(country: NodeTrafficMapCountry, t: TFunction) {
   const nodes = country.topNodes.slice(0, 3)
-  if (nodes.length === 0) return "暂无节点明细"
+  if (nodes.length === 0) return t("routing.trafficMap.noNodeDetails")
   return nodes
     .map((node) => `${node.nodeName} ${formatBytes(node.totalBytes)}`)
     .join(" / ")
 }
 
-function getNodeGeoLabel(node: NodeTrafficMapNode) {
-  const source = node.geoSource === "manual" ? "手动覆盖" : "GeoIP"
+function getNodeGeoLabel(node: NodeTrafficMapNode, t: TFunction) {
+  const source =
+    node.geoSource === "manual"
+      ? t("routing.trafficMap.geoSource.manual")
+      : t("routing.trafficMap.geoSource.geoip")
   const coordinate =
-    node.coordinateSource === "country_centroid" ? "国家中心点" : "精确坐标"
+    node.coordinateSource === "country_centroid"
+      ? t("routing.trafficMap.coordinate.countryCentroid")
+      : t("routing.trafficMap.coordinate.exact")
   return `${source} · ${coordinate}`
 }
 
@@ -742,23 +796,28 @@ function ReportMetric({
   )
 }
 
-function getFlowTitle(flow: NodeTrafficMapFlow) {
-  return `${flow.sourceCountryName} → ${flow.targetCountryName}`
+function getFlowTitle(flow: NodeTrafficMapFlow, t: TFunction) {
+  return `${getCountryDisplayName(flow.sourceCountryCode, flow.sourceCountryName, t)} → ${getCountryDisplayName(flow.targetCountryCode, flow.targetCountryName, t)}`
 }
 
-function formatOptionalBytes(value: number | null) {
-  return value === null ? "暂无" : formatBytes(value)
+function formatOptionalBytes(value: number | null, t: TFunction) {
+  return value === null
+    ? t("routing.trafficMap.notAvailable")
+    : formatBytes(value)
 }
 
-function formatAuthTime(value: string | null) {
-  if (!value) return "暂无"
+function formatAuthTime(value: string | null, t: TFunction) {
+  if (!value) return t("routing.trafficMap.notAvailable")
   return value.replace("T", " ").slice(0, 19)
 }
 
 function getTrafficBasisLabel(
-  basis: NodeTrafficMapFlowConnection["trafficBasis"]
+  basis: NodeTrafficMapFlowConnection["trafficBasis"],
+  t: TFunction
 ) {
-  return basis === "account_traffic" ? "账号真实流量分摊" : "节点认证比例估算"
+  return basis === "account_traffic"
+    ? t("routing.trafficMap.trafficBasis.account")
+    : t("routing.trafficMap.trafficBasis.nodeShare")
 }
 
 function SourceAddressBadge({
@@ -766,9 +825,12 @@ function SourceAddressBadge({
 }: {
   connection: NodeTrafficMapFlowConnection
 }) {
+  const { t } = useI18n()
   const badge = (
     <Badge className="cursor-help bg-muted text-foreground hover:bg-muted">
-      来源 {connection.sourceIpCount} 个地址
+      {t("routing.trafficMap.sourceAddressCount", {
+        count: connection.sourceIpCount,
+      })}
     </Badge>
   )
 
@@ -789,7 +851,9 @@ function SourceAddressBadge({
                 {address.ip}
               </span>
               <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {address.authCount} 次
+                {t("routing.common.authCount", {
+                  count: address.authCount,
+                })}
               </span>
             </div>
           ))}
@@ -800,13 +864,17 @@ function SourceAddressBadge({
 }
 
 function FlowConnectionList({ flow }: { flow: NodeTrafficMapFlow }) {
+  const { t } = useI18n()
+
   return (
     <div className="mt-5">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold">连接明细</h3>
+          <h3 className="text-sm font-semibold">
+            {t("routing.trafficMap.connectionsTitle")}
+          </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            来源地区、账号和目标节点串联展示
+            {t("routing.trafficMap.connectionsDescription")}
           </p>
         </div>
         <span className="shrink-0 text-xs text-muted-foreground">
@@ -833,74 +901,99 @@ function FlowConnectionList({ flow }: { flow: NodeTrafficMapFlow }) {
                       {connection.username} → {connection.nodeName}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {connection.sourceCountryName} ·{" "}
-                      {connection.sourceCountryCode} →{" "}
-                      {connection.targetCountryName} ·{" "}
-                      {connection.targetCountryCode}
+                      {getCountryDisplayName(
+                        connection.sourceCountryCode,
+                        connection.sourceCountryName,
+                        t
+                      )}{" "}
+                      · {connection.sourceCountryCode} →{" "}
+                      {getCountryDisplayName(
+                        connection.targetCountryCode,
+                        connection.targetCountryName,
+                        t
+                      )}{" "}
+                      · {connection.targetCountryCode}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-sm font-semibold tabular-nums">
                       {formatBytes(connection.estimatedBytes)}
                     </p>
-                    <p className="mt-1 text-xs text-muted-foreground">估算</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("routing.common.estimated")}
+                    </p>
                   </div>
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
                   <SourceAddressBadge connection={connection} />
                   <Badge className="bg-muted text-foreground hover:bg-muted">
-                    认证 {connection.authCount} 次
+                    {t("routing.common.authCount", {
+                      count: connection.authCount,
+                    })}
                   </Badge>
                   <Badge className="bg-muted text-foreground hover:bg-muted">
-                    账号 #{connection.userId ?? "-"}
+                    {t("routing.trafficMap.accountAndNode").split(" + ")[0]} #
+                    {connection.userId ?? "-"}
                   </Badge>
                   <Badge className="bg-muted text-foreground hover:bg-muted">
-                    节点 #{connection.nodeId}
+                    {t("routing.trafficAnalysis.node")} #{connection.nodeId}
                   </Badge>
                 </div>
 
                 <div className="mt-3 rounded-md bg-muted/30 px-2 py-1.5 text-xs">
-                  <span className="text-muted-foreground">认证时间 </span>
+                  <span className="text-muted-foreground">
+                    {t("routing.trafficMap.authTime")}{" "}
+                  </span>
                   <span className="font-medium tabular-nums">
-                    {formatAuthTime(connection.firstAuthAt)} →{" "}
-                    {formatAuthTime(connection.lastAuthAt)}
+                    {formatAuthTime(connection.firstAuthAt, t)} →{" "}
+                    {formatAuthTime(connection.lastAuthAt, t)}
                   </span>
                 </div>
 
                 <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2">
                   <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                    <span className="text-muted-foreground">估算 TX/RX </span>
+                    <span className="text-muted-foreground">
+                      {t("routing.trafficMap.estimatedTxRx")}{" "}
+                    </span>
                     <span className="font-medium tabular-nums">
                       {formatBytes(connection.estimatedTxBytes)} /{" "}
                       {formatBytes(connection.estimatedRxBytes)}
                     </span>
                   </div>
                   <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                    <span className="text-muted-foreground">账号节点流量 </span>
+                    <span className="text-muted-foreground">
+                      {t("routing.trafficMap.accountNodeTraffic")}{" "}
+                    </span>
                     <span className="font-medium tabular-nums">
-                      {formatOptionalBytes(connection.accountNodeBytes)}
+                      {formatOptionalBytes(connection.accountNodeBytes, t)}
                     </span>
                   </div>
                   <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                    <span className="text-muted-foreground">账号来源占比 </span>
+                    <span className="text-muted-foreground">
+                      {t("routing.trafficMap.accountSourceShare")}{" "}
+                    </span>
                     <span className="font-medium tabular-nums">
                       {accountAuthShare.toFixed(1)}%
                     </span>
                   </div>
                   <div className="rounded-md bg-muted/40 px-2 py-1.5">
-                    <span className="text-muted-foreground">节点来源占比 </span>
+                    <span className="text-muted-foreground">
+                      {t("routing.trafficMap.nodeSourceShare")}{" "}
+                    </span>
                     <span className="font-medium tabular-nums">
                       {nodeAuthShare.toFixed(1)}%
                     </span>
                   </div>
                   <div className="rounded-md bg-muted/40 px-2 py-1.5 sm:col-span-2">
-                    <span className="text-muted-foreground">节点窗口流量 </span>
+                    <span className="text-muted-foreground">
+                      {t("routing.trafficMap.nodeWindowTraffic")}{" "}
+                    </span>
                     <span className="font-medium tabular-nums">
                       {formatBytes(connection.nodeBytes)}
                     </span>
                     <span className="ml-2 text-muted-foreground">
-                      · {getTrafficBasisLabel(connection.trafficBasis)}
+                      · {getTrafficBasisLabel(connection.trafficBasis, t)}
                     </span>
                   </div>
                 </div>
@@ -909,7 +1002,7 @@ function FlowConnectionList({ flow }: { flow: NodeTrafficMapFlow }) {
           })
         ) : (
           <div className="p-4 text-sm text-muted-foreground">
-            暂无连接明细。
+            {t("routing.trafficMap.noConnectionDetails")}
           </div>
         )}
       </div>
@@ -926,11 +1019,15 @@ function FlowMiniList({
   empty: string
   flows: NodeTrafficMapFlow[]
 }) {
+  const { t } = useI18n()
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs text-muted-foreground">认证来源估算</span>
+        <span className="text-xs text-muted-foreground">
+          {t("routing.trafficMap.authSourceEstimate")}
+        </span>
       </div>
       <div className="mt-3 divide-y rounded-lg border bg-background/60">
         {flows.length > 0 ? (
@@ -939,18 +1036,29 @@ function FlowMiniList({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
-                    {getFlowTitle(flow)}
+                    {getFlowTitle(flow, t)}
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {flow.authCount} 次认证 · {flow.nodeCount} 个节点 ·{" "}
-                    {flow.accountCount} 个账号
+                    {t("routing.common.authCount", {
+                      count: flow.authCount,
+                    })}{" "}
+                    ·{" "}
+                    {t("routing.common.nodesCount", {
+                      count: flow.nodeCount,
+                    })}{" "}
+                    ·{" "}
+                    {t("routing.common.accountsCount", {
+                      count: flow.accountCount,
+                    })}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
                   <p className="text-sm font-semibold tabular-nums">
                     {formatBytes(flow.estimatedBytes)}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">估算</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("routing.common.estimated")}
+                  </p>
                 </div>
               </div>
             </div>
@@ -972,11 +1080,15 @@ function FlowConnectionMiniList({
   empty: string
   connections: NodeTrafficMapFlowConnection[]
 }) {
+  const { t } = useI18n()
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold">{title}</h3>
-        <span className="text-xs text-muted-foreground">账号 + 节点</span>
+        <span className="text-xs text-muted-foreground">
+          {t("routing.trafficMap.accountAndNode")}
+        </span>
       </div>
       <div className="mt-3 divide-y rounded-lg border bg-background/60">
         {connections.length > 0 ? (
@@ -988,13 +1100,24 @@ function FlowConnectionMiniList({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
-                    {connection.sourceCountryName} → {connection.username} →{" "}
-                    {connection.nodeName}
+                    {getCountryDisplayName(
+                      connection.sourceCountryCode,
+                      connection.sourceCountryName,
+                      t
+                    )}{" "}
+                    → {connection.username} → {connection.nodeName}
                   </p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                     <span>
-                      {connection.targetCountryName} · {connection.authCount}{" "}
-                      次认证
+                      {getCountryDisplayName(
+                        connection.targetCountryCode,
+                        connection.targetCountryName,
+                        t
+                      )}{" "}
+                      ·{" "}
+                      {t("routing.common.authCount", {
+                        count: connection.authCount,
+                      })}
                     </span>
                     <SourceAddressBadge connection={connection} />
                   </div>
@@ -1003,7 +1126,9 @@ function FlowConnectionMiniList({
                   <p className="text-sm font-semibold tabular-nums">
                     {formatBytes(connection.estimatedBytes)}
                   </p>
-                  <p className="mt-1 text-xs text-muted-foreground">估算</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {t("routing.common.estimated")}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1025,16 +1150,22 @@ function FlowTrafficReportSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { t } = useI18n()
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-[min(98vw,860px)] gap-0 overflow-hidden p-0 sm:max-w-4xl">
         <SheetHeader className="border-b pr-12">
           <div className="flex items-center gap-2">
             <FlowFlagBadge flow={flow} />
-            <SheetTitle>{flow ? getFlowTitle(flow) : "流向报告"}</SheetTitle>
+            <SheetTitle>
+              {flow
+                ? getFlowTitle(flow, t)
+                : t("routing.trafficMap.flowReportTitle")}
+            </SheetTitle>
           </div>
           <SheetDescription>
-            展示连接来源、目标节点及对应的估算流量。
+            {t("routing.trafficMap.flowReportDescription")}
           </SheetDescription>
         </SheetHeader>
 
@@ -1042,39 +1173,51 @@ function FlowTrafficReportSheet({
           <div className="min-h-0 flex-1 overflow-auto p-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <ReportMetric
-                label="估算流量"
+                label={t("routing.trafficMap.estimatedTraffic")}
                 value={formatBytes(flow.estimatedBytes)}
-                hint="根据认证次数估算流量分布"
+                hint={t("routing.trafficMap.estimatedTrafficHint")}
               />
               <ReportMetric
-                label="账号数量"
+                label={t("routing.trafficMap.accountCount")}
                 value={`${flow.accountCount}`}
-                hint={`${flow.authCount} 次成功认证`}
+                hint={t("routing.trafficMap.successAuthHint", {
+                  count: flow.authCount,
+                })}
               />
               <ReportMetric
-                label="估算 TX"
+                label={t("routing.trafficMap.estimatedTx")}
                 value={formatBytes(flow.estimatedTxBytes)}
-                hint="Hysteria2 节点侧累计出站分摊"
+                hint={t("routing.trafficMap.nodeTxShareHint")}
               />
               <ReportMetric
-                label="估算 RX"
+                label={t("routing.trafficMap.estimatedRx")}
                 value={formatBytes(flow.estimatedRxBytes)}
-                hint="Hysteria2 节点侧累计入站分摊"
+                hint={t("routing.trafficMap.nodeRxShareHint")}
               />
             </div>
 
             <div className="mt-4 rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div>
-                  <p>来源地区</p>
+                  <p>{t("routing.trafficMap.sourceRegion")}</p>
                   <p className="mt-1 font-medium text-foreground">
-                    {flow.sourceCountryName} · {flow.sourceCountryCode}
+                    {getCountryDisplayName(
+                      flow.sourceCountryCode,
+                      flow.sourceCountryName,
+                      t
+                    )}{" "}
+                    · {flow.sourceCountryCode}
                   </p>
                 </div>
                 <div>
-                  <p>目标地区</p>
+                  <p>{t("routing.trafficMap.targetRegion")}</p>
                   <p className="mt-1 font-medium text-foreground">
-                    {flow.targetCountryName} · {flow.targetCountryCode}
+                    {getCountryDisplayName(
+                      flow.targetCountryCode,
+                      flow.targetCountryName,
+                      t
+                    )}{" "}
+                    · {flow.targetCountryCode}
                   </p>
                 </div>
               </div>
@@ -1084,9 +1227,11 @@ function FlowTrafficReportSheet({
 
             <div className="mt-5">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold">账号汇总</h3>
+                <h3 className="text-sm font-semibold">
+                  {t("routing.trafficMap.accountSummary")}
+                </h3>
                 <span className="text-xs text-muted-foreground">
-                  按估算流量排序
+                  {t("routing.trafficMap.sortByEstimatedTraffic")}
                 </span>
               </div>
               <div className="mt-3 divide-y rounded-lg border bg-background/60">
@@ -1105,7 +1250,9 @@ function FlowTrafficReportSheet({
                             {account.userId !== null
                               ? `#${account.userId} · `
                               : ""}
-                            {account.authCount} 次认证
+                            {t("routing.common.authCount", {
+                              count: account.authCount,
+                            })}
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
@@ -1113,7 +1260,7 @@ function FlowTrafficReportSheet({
                             {formatBytes(account.estimatedBytes)}
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            估算
+                            {t("routing.common.estimated")}
                           </p>
                         </div>
                       </div>
@@ -1135,7 +1282,7 @@ function FlowTrafficReportSheet({
                   ))
                 ) : (
                   <div className="p-4 text-sm text-muted-foreground">
-                    暂无账号明细。
+                    {t("routing.trafficMap.noAccountDetails")}
                   </div>
                 )}
               </div>
@@ -1143,9 +1290,11 @@ function FlowTrafficReportSheet({
 
             <div className="mt-5">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold">节点汇总</h3>
+                <h3 className="text-sm font-semibold">
+                  {t("routing.trafficMap.nodeSummary")}
+                </h3>
                 <span className="text-xs text-muted-foreground">
-                  按估算流量排序
+                  {t("routing.trafficMap.sortByEstimatedTraffic")}
                 </span>
               </div>
               <div className="mt-3 divide-y rounded-lg border bg-background/60">
@@ -1158,7 +1307,10 @@ function FlowTrafficReportSheet({
                             {node.nodeName}
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            #{node.nodeId} · {node.authCount} 次认证
+                            #{node.nodeId} ·{" "}
+                            {t("routing.common.authCount", {
+                              count: node.authCount,
+                            })}
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
@@ -1166,7 +1318,7 @@ function FlowTrafficReportSheet({
                             {formatBytes(node.estimatedBytes)}
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            估算
+                            {t("routing.common.estimated")}
                           </p>
                         </div>
                       </div>
@@ -1188,7 +1340,7 @@ function FlowTrafficReportSheet({
                   ))
                 ) : (
                   <div className="p-4 text-sm text-muted-foreground">
-                    暂无节点明细。
+                    {t("routing.trafficMap.noNodeDetailsSentence")}
                   </div>
                 )}
               </div>
@@ -1211,6 +1363,7 @@ function CountryTrafficReportSheet({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { t } = useI18n()
   const totalShare = country
     ? getPercent(country.totalBytes, data.totalBytes)
     : 0
@@ -1220,6 +1373,7 @@ function CountryTrafficReportSheet({
   const nodes = country?.nodes.length
     ? country.nodes
     : (country?.topNodes ?? [])
+  const windowLabel = getWindowLabel(data.window, data.windowLabel, t)
   const countryCode = safeCountryCode(country?.countryCode ?? null)
   const incomingFlows = countryCode
     ? data.flows
@@ -1263,12 +1417,26 @@ function CountryTrafficReportSheet({
           <div className="flex items-center gap-2">
             <CountryFlagBadge
               countryCode={country?.countryCode ?? null}
-              countryName={country?.countryName}
+              countryName={getCountryDisplayName(
+                country?.countryCode,
+                country?.countryName,
+                t
+              )}
             />
-            <SheetTitle>{country?.countryName ?? "地区报告"}</SheetTitle>
+            <SheetTitle>
+              {country
+                ? getCountryDisplayName(
+                    country.countryCode,
+                    country.countryName,
+                    t
+                  )
+                : t("routing.trafficMap.regionReportTitle")}
+            </SheetTitle>
           </div>
           <SheetDescription>
-            {data.windowLabel || "滚动 24 小时"} 节点流量报告
+            {t("routing.trafficMap.regionTrafficReport", {
+              window: windowLabel,
+            })}
           </SheetDescription>
         </SheetHeader>
 
@@ -1276,43 +1444,47 @@ function CountryTrafficReportSheet({
           <div className="min-h-0 flex-1 overflow-auto p-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <ReportMetric
-                label="地区总流量"
+                label={t("routing.trafficMap.regionTotalTraffic")}
                 value={formatBytes(country.totalBytes)}
-                hint={`占全局 ${totalShare.toFixed(1)}%`}
+                hint={t("routing.trafficMap.globalShareHint", {
+                  share: `${totalShare.toFixed(1)}%`,
+                })}
               />
               <ReportMetric
-                label="地图内占比"
+                label={t("routing.trafficMap.mapShare")}
                 value={`${locatedShare.toFixed(1)}%`}
-                hint={`${country.nodeCount} 个节点已归属该地区`}
+                hint={t("routing.trafficMap.regionNodeCountHint", {
+                  count: country.nodeCount,
+                })}
               />
               <ReportMetric
-                label="上行 TX"
+                label={t("routing.trafficMap.uploadTx")}
                 value={formatBytes(country.txBytes)}
-                hint="Hysteria2 节点侧累计出站"
+                hint={t("routing.trafficMap.nodeTxHint")}
               />
               <ReportMetric
-                label="下行 RX"
+                label={t("routing.trafficMap.downloadRx")}
                 value={formatBytes(country.rxBytes)}
-                hint="Hysteria2 节点侧累计入站"
+                hint={t("routing.trafficMap.nodeRxHint")}
               />
             </div>
 
             <div className="mt-4 rounded-lg border bg-muted/20 p-3 text-xs text-muted-foreground">
               <div className="grid gap-2 sm:grid-cols-3">
                 <div>
-                  <p>节点数量</p>
+                  <p>{t("routing.trafficMap.nodeCount")}</p>
                   <p className="mt-1 font-medium text-foreground tabular-nums">
                     {country.nodeCount}
                   </p>
                 </div>
                 <div>
-                  <p>手动覆盖</p>
+                  <p>{t("routing.trafficMap.manualOverride")}</p>
                   <p className="mt-1 font-medium text-foreground tabular-nums">
                     {country.manualNodeCount}
                   </p>
                 </div>
                 <div>
-                  <p>中心点定位</p>
+                  <p>{t("routing.trafficMap.centroidLocation")}</p>
                   <p className="mt-1 font-medium text-foreground tabular-nums">
                     {country.centroidNodeCount}
                   </p>
@@ -1322,32 +1494,34 @@ function CountryTrafficReportSheet({
 
             <div className="mt-5 grid gap-5">
               <FlowConnectionMiniList
-                title="流入连接明细"
-                empty="暂无可估算的流入连接。"
+                title={t("routing.trafficMap.incomingConnections")}
+                empty={t("routing.trafficMap.noIncomingConnections")}
                 connections={incomingConnections}
               />
               <FlowConnectionMiniList
-                title="作为来源连接"
-                empty="暂无该地区作为来源的连接。"
+                title={t("routing.trafficMap.asSourceConnections")}
+                empty={t("routing.trafficMap.noSourceConnections")}
                 connections={outgoingConnections}
               />
               <FlowMiniList
-                title="流入来源汇总"
-                empty="暂无可估算的来源流向。"
+                title={t("routing.trafficMap.incomingSourceSummary")}
+                empty={t("routing.trafficMap.noIncomingFlows")}
                 flows={incomingFlows}
               />
               <FlowMiniList
-                title="连接目标汇总"
-                empty="暂无可估算的目标流向。"
+                title={t("routing.trafficMap.connectionTargetSummary")}
+                empty={t("routing.trafficMap.noTargetFlows")}
                 flows={outgoingFlows}
               />
             </div>
 
             <div className="mt-5">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold">节点明细</h3>
+                <h3 className="text-sm font-semibold">
+                  {t("routing.trafficMap.nodeDetails")}
+                </h3>
                 <span className="text-xs text-muted-foreground">
-                  按流量从高到低排序
+                  {t("routing.trafficMap.sortByTrafficDesc")}
                 </span>
               </div>
               <div className="mt-3 divide-y rounded-lg border bg-background/60">
@@ -1373,11 +1547,13 @@ function CountryTrafficReportSheet({
                                     : "bg-muted text-muted-foreground"
                                 )}
                               >
-                                {node.status === "enabled" ? "启用" : "禁用"}
+                                {node.status === "enabled"
+                                  ? t("routing.common.enabled")
+                                  : t("routing.common.disabled")}
                               </Badge>
                             </div>
                             <p className="mt-1 text-xs text-muted-foreground">
-                              #{node.nodeId} · {getNodeGeoLabel(node)}
+                              #{node.nodeId} · {getNodeGeoLabel(node, t)}
                             </p>
                           </div>
                           <div className="shrink-0 text-right">
@@ -1408,7 +1584,7 @@ function CountryTrafficReportSheet({
                   })
                 ) : (
                   <div className="p-4 text-sm text-muted-foreground">
-                    暂无节点明细。
+                    {t("routing.trafficMap.noNodeDetailsSentence")}
                   </div>
                 )}
               </div>
@@ -1421,14 +1597,18 @@ function CountryTrafficReportSheet({
 }
 
 function EmptyHint({ geoipEnabled }: { geoipEnabled: boolean }) {
+  const { t } = useI18n()
+
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
       <div className="max-w-sm rounded-lg border bg-background/90 px-4 py-3 text-center shadow-sm backdrop-blur">
-        <p className="text-sm font-medium">暂无可定位的节点流量</p>
+        <p className="text-sm font-medium">
+          {t("routing.trafficMap.emptyTitle")}
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">
           {geoipEnabled
-            ? "等待 Agent 上报公网 IP 并完成 GeoIP 解析，或手动设置国家覆盖。"
-            : "GeoIP 已关闭，仅显示手动设置国家覆盖的节点。"}
+            ? t("routing.trafficMap.emptyGeoipEnabled")
+            : t("routing.trafficMap.emptyGeoipDisabled")}
         </p>
       </div>
     </div>
@@ -1444,6 +1624,7 @@ function HoverPanel({
   totalBytes: number
   positionClassName?: string
 }) {
+  const { t } = useI18n()
   if (!country) return null
 
   const share = getPercent(country.totalBytes, totalBytes)
@@ -1462,11 +1643,18 @@ function HoverPanel({
               {safeCountryCode(country.countryCode) ?? "--"}
             </span>
             <p className="truncate text-sm font-semibold">
-              {country.countryName}
+              {getCountryDisplayName(
+                country.countryCode,
+                country.countryName,
+                t
+              )}
             </p>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            {country.nodeCount} 个节点 · 占比 {share.toFixed(1)}%
+            {t("routing.trafficMap.countryNodeShare", {
+              count: country.nodeCount,
+              share: `${share.toFixed(1)}%`,
+            })}
           </p>
         </div>
         <Badge className="shrink-0 font-mono">
@@ -1476,13 +1664,17 @@ function HoverPanel({
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-md bg-muted/50 p-2">
-          <p className="text-muted-foreground">总出</p>
+          <p className="text-muted-foreground">
+            {t("routing.trafficMap.totalTxShort")}
+          </p>
           <p className="mt-1 font-semibold tabular-nums">
             {formatBytes(country.txBytes)}
           </p>
         </div>
         <div className="rounded-md bg-muted/50 p-2">
-          <p className="text-muted-foreground">总入</p>
+          <p className="text-muted-foreground">
+            {t("routing.trafficMap.totalRxShort")}
+          </p>
           <p className="mt-1 font-semibold tabular-nums">
             {formatBytes(country.rxBytes)}
           </p>
@@ -1490,10 +1682,10 @@ function HoverPanel({
       </div>
 
       <p className="mt-2 truncate text-xs text-muted-foreground">
-        {getNodeSummary(country)}
+        {getNodeSummary(country, t)}
       </p>
       <p className="mt-2 text-xs font-medium text-foreground">
-        点击地块查看详细报告
+        {t("routing.trafficMap.clickCountryHint")}
       </p>
     </div>
   )
@@ -1506,6 +1698,7 @@ function FlowHoverPanel({
   flow: NodeTrafficMapFlow | null
   positionClassName?: string
 }) {
+  const { t } = useI18n()
   if (!flow) return null
 
   return (
@@ -1523,11 +1716,20 @@ function FlowHoverPanel({
             </span>
           </div>
           <p className="mt-2 truncate text-sm font-semibold">
-            {getFlowTitle(flow)}
+            {getFlowTitle(flow, t)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {flow.authCount} 次认证 · {flow.nodeCount} 个节点 ·{" "}
-            {flow.accountCount} 个账号
+            {t("routing.common.authCount", {
+              count: flow.authCount,
+            })}{" "}
+            ·{" "}
+            {t("routing.common.nodesCount", {
+              count: flow.nodeCount,
+            })}{" "}
+            ·{" "}
+            {t("routing.common.accountsCount", {
+              count: flow.accountCount,
+            })}
           </p>
         </div>
         <Badge className="shrink-0 font-mono">
@@ -1537,13 +1739,17 @@ function FlowHoverPanel({
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-md bg-muted/50 p-2">
-          <p className="text-muted-foreground">估算 TX</p>
+          <p className="text-muted-foreground">
+            {t("routing.trafficMap.estimatedTx")}
+          </p>
           <p className="mt-1 font-semibold tabular-nums">
             {formatBytes(flow.estimatedTxBytes)}
           </p>
         </div>
         <div className="rounded-md bg-muted/50 p-2">
-          <p className="text-muted-foreground">估算 RX</p>
+          <p className="text-muted-foreground">
+            {t("routing.trafficMap.estimatedRx")}
+          </p>
           <p className="mt-1 font-semibold tabular-nums">
             {formatBytes(flow.estimatedRxBytes)}
           </p>
@@ -1551,7 +1757,7 @@ function FlowHoverPanel({
       </div>
 
       <p className="mt-2 text-xs font-medium text-foreground">
-        点击弧线查看流向报告
+        {t("routing.trafficMap.clickFlowHint")}
       </p>
     </div>
   )
@@ -2772,6 +2978,7 @@ function getInitialGlobeFocus(data: NodeTrafficMapData) {
 }
 
 function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
+  const { t } = useI18n()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<GlobeWebGlRenderer | null>(null)
@@ -2787,6 +2994,7 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
     useState<NodeTrafficMapCountry | null>(null)
   const [flowReportOpen, setFlowReportOpen] = useState(false)
   const [reportFlow, setReportFlow] = useState<NodeTrafficMapFlow | null>(null)
+  const windowLabel = getWindowLabel(data.window, data.windowLabel, t)
   const countryByCode = useMemo(() => {
     const map = new Map<string, NodeTrafficMapCountry>()
     for (const country of data.countries) {
@@ -3295,14 +3503,14 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label="3D 全球节点流量地图"
+        aria-label={t("routing.trafficMap.webglAria")}
         className="absolute inset-0 h-full w-full"
       />
 
       {webGlError ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="max-w-sm rounded-lg border bg-background/95 px-4 py-3 text-center text-sm shadow-sm">
-            当前浏览器或环境不支持 WebGL，无法渲染 3D 流量地图。
+            {t("routing.trafficMap.webglUnsupported")}
           </div>
         </div>
       ) : null}
@@ -3314,17 +3522,32 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
         <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-5xl">
           {formatBytes(data.totalBytes)}
         </h1>
-        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-sm">
-          <span>{data.windowLabel || "滚动 24 小时"}</span>
-          <span>出 {formatBytes(data.totalTxBytes)}</span>
-          <span>入 {formatBytes(data.totalRxBytes)}</span>
-          <span>已定位 {locatedPercent.toFixed(1)}%</span>
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground sm:text-sm">
+          <span>{windowLabel}</span>
+          <span>
+            {t("routing.common.tx")} {formatBytes(data.totalTxBytes)}
+          </span>
+          <span>
+            {t("routing.common.rx")} {formatBytes(data.totalRxBytes)}
+          </span>
+          <span>
+            {t("routing.trafficMap.locatedBadge", {
+              percent: locatedPercent.toFixed(1),
+            })}
+          </span>
           {data.unknownNodeCount > 0 ? (
-            <span>未定位 {data.unknownNodeCount} 个节点</span>
+            <span>
+              {t("routing.trafficMap.unknownNodeCount", {
+                count: data.unknownNodeCount,
+              })}
+            </span>
           ) : null}
           {data.flows.length > 0 ? (
             <span>
-              流向 {visibleFlowCount}/{data.flows.length} 条
+              {t("routing.trafficMap.flowCount", {
+                visible: visibleFlowCount,
+                total: data.flows.length,
+              })}
             </span>
           ) : null}
         </div>
@@ -3342,10 +3565,16 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
             className="rounded-full bg-background/72 px-3 text-xs text-foreground shadow-sm backdrop-blur hover:bg-background"
             onClick={() => setShowFlows((value) => !value)}
           >
-            流向弧线 {showFlows ? "开" : "关"}
+            {t("routing.trafficMap.flowArcToggle", {
+              state: showFlows
+                ? t("routing.trafficMap.flowArcOn")
+                : t("routing.trafficMap.flowArcOff"),
+            })}
           </Button>
           <Badge className="bg-background/72 text-foreground shadow-sm backdrop-blur">
-            估算 {formatBytes(data.flowTotalEstimatedBytes)}
+            {t("routing.trafficMap.estimatedBadge", {
+              traffic: formatBytes(data.flowTotalEstimatedBytes),
+            })}
           </Badge>
         </div>
       ) : null}
@@ -3371,7 +3600,11 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
               className="h-8 rounded-full bg-background/72 px-3 text-xs shadow-sm backdrop-blur hover:bg-background"
               onClick={() => focusCountry(country)}
             >
-              {country.countryName}
+              {getCountryDisplayName(
+                country.countryCode,
+                country.countryName,
+                t
+              )}
               <span className="ml-1 font-mono text-muted-foreground">
                 {formatBytes(country.totalBytes)}
               </span>
@@ -3381,15 +3614,15 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
       ) : null}
 
       <ButtonGroup
-        aria-label="地球缩放控制"
+        aria-label={t("routing.trafficMap.globeZoomAria")}
         className="absolute bottom-4 left-4 z-20 shadow-sm"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <Button
           size="icon-sm"
           variant="outline"
-          aria-label="缩小地球"
-          title="缩小"
+          aria-label={t("routing.trafficMap.zoomOutGlobe")}
+          title={t("routing.subscriptionRules.zoomOut")}
           onClick={() => applyZoomDelta(-0.1)}
         >
           <Minus />
@@ -3397,8 +3630,8 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
         <Button
           size="icon-sm"
           variant="outline"
-          aria-label="重置地球"
-          title="重置"
+          aria-label={t("routing.trafficMap.resetGlobe")}
+          title={t("routing.subscriptionRules.zoomReset")}
           onClick={resetGlobe}
         >
           <RotateCcw />
@@ -3406,8 +3639,8 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
         <Button
           size="icon-sm"
           variant="outline"
-          aria-label="放大地球"
-          title="放大"
+          aria-label={t("routing.trafficMap.zoomInGlobe")}
+          title={t("routing.subscriptionRules.zoomIn")}
           onClick={() => applyZoomDelta(0.1)}
         >
           <Plus />
@@ -3426,6 +3659,7 @@ function FlatWorldTrafficMap({
   large: boolean
   canvas: boolean
 }) {
+  const { t } = useI18n()
   const [hoveredCode, setHoveredCode] = useState<string | null>(null)
   const [viewBox, setViewBox] = useState<CanvasViewBox>(DEFAULT_CANVAS_VIEWBOX)
   const [dragging, setDragging] = useState(false)
@@ -3641,7 +3875,7 @@ function FlatWorldTrafficMap({
       }
       preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label="全球节点流量热力地图"
+      aria-label={t("routing.trafficMap.heatMapAria")}
       className={cn(
         "block w-full",
         canvas
@@ -3667,6 +3901,9 @@ function FlatWorldTrafficMap({
           const opacity = country
             ? getHeatOpacity(country.totalBytes, maxCountryBytes)
             : 0.1
+          const countryName = country
+            ? getCountryDisplayName(country.countryCode, country.countryName, t)
+            : path.name
 
           return (
             <path
@@ -3677,8 +3914,11 @@ function FlatWorldTrafficMap({
               tabIndex={active ? 0 : undefined}
               aria-label={
                 country
-                  ? `${country.countryName}，${formatBytes(country.totalBytes)}，点击查看节点`
-                  : path.name
+                  ? t("routing.trafficMap.countryPathAria", {
+                      country: countryName,
+                      traffic: formatBytes(country.totalBytes),
+                    })
+                  : countryName
               }
               vectorEffect="non-scaling-stroke"
               className={cn(
@@ -3713,8 +3953,12 @@ function FlatWorldTrafficMap({
             >
               <title>
                 {country
-                  ? `${country.countryName} · ${formatBytes(country.totalBytes)} · ${country.nodeCount} 个节点`
-                  : path.name}
+                  ? t("routing.trafficMap.countryPathTitle", {
+                      country: countryName,
+                      traffic: formatBytes(country.totalBytes),
+                      count: country.nodeCount,
+                    })
+                  : countryName}
               </title>
             </path>
           )
@@ -3723,6 +3967,11 @@ function FlatWorldTrafficMap({
           const code = safeCountryCode(country.countryCode)
           const hovered = Boolean(code && code === hoveredCode)
           const opacity = getHeatOpacity(country.totalBytes, maxCountryBytes)
+          const countryName = getCountryDisplayName(
+            country.countryCode,
+            country.countryName,
+            t
+          )
 
           return (
             <path
@@ -3731,7 +3980,10 @@ function FlatWorldTrafficMap({
               data-country-code={code ?? undefined}
               role="button"
               tabIndex={0}
-              aria-label={`${country.countryName}，${formatBytes(country.totalBytes)}，点击查看节点`}
+              aria-label={t("routing.trafficMap.countryPathAria", {
+                country: countryName,
+                traffic: formatBytes(country.totalBytes),
+              })}
               vectorEffect="non-scaling-stroke"
               className={cn(
                 "cursor-pointer fill-primary stroke-primary transition-all duration-150 outline-none hover:stroke-primary focus-visible:stroke-primary",
@@ -3760,8 +4012,11 @@ function FlatWorldTrafficMap({
               }}
             >
               <title>
-                {country.countryName} · {formatBytes(country.totalBytes)} ·{" "}
-                {country.nodeCount} 个节点
+                {t("routing.trafficMap.countryPathTitle", {
+                  country: countryName,
+                  traffic: formatBytes(country.totalBytes),
+                  count: country.nodeCount,
+                })}
               </title>
             </path>
           )
@@ -3801,15 +4056,15 @@ function FlatWorldTrafficMap({
             <EmptyHint geoipEnabled={data.geoipEnabled} />
           ) : null}
           <ButtonGroup
-            aria-label="地图缩放控制"
+            aria-label={t("routing.trafficMap.mapZoomAria")}
             className="absolute bottom-3 left-3 z-20 shadow-sm"
             onPointerDown={(event) => event.stopPropagation()}
           >
             <Button
               size="icon-sm"
               variant="outline"
-              aria-label="缩小地图"
-              title="缩小"
+              aria-label={t("routing.trafficMap.zoomOutMap")}
+              title={t("routing.subscriptionRules.zoomOut")}
               onClick={() => applyZoomDelta(-0.16)}
             >
               <Minus />
@@ -3817,8 +4072,8 @@ function FlatWorldTrafficMap({
             <Button
               size="icon-sm"
               variant="outline"
-              aria-label="重置地图"
-              title="重置"
+              aria-label={t("routing.trafficMap.resetMap")}
+              title={t("routing.subscriptionRules.zoomReset")}
               onClick={resetViewport}
             >
               <RotateCcw />
@@ -3826,8 +4081,8 @@ function FlatWorldTrafficMap({
             <Button
               size="icon-sm"
               variant="outline"
-              aria-label="放大地图"
-              title="放大"
+              aria-label={t("routing.trafficMap.zoomInMap")}
+              title={t("routing.subscriptionRules.zoomIn")}
               onClick={() => applyZoomDelta(0.16)}
             >
               <Plus />
@@ -3867,70 +4122,103 @@ export function NodeTrafficWorldMap({
   data: NodeTrafficMapData
   variant?: "compact" | "large" | "canvas"
 }) {
+  const { t } = useI18n()
   const locatedPercent = getPercent(data.locatedBytes, data.totalBytes)
   const topCountries = data.countries.slice(0, TRAFFIC_COUNTRY_LIMIT)
   const large = variant === "large" || variant === "canvas"
   const canvas = variant === "canvas"
+  const windowLabel = getWindowLabel(data.window, data.windowLabel, t)
 
   const header = (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <h2 className="text-base font-semibold">全球节点流量地图</h2>
+        <h2 className="text-base font-semibold">
+          {t("routing.trafficMap.title")}
+        </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {data.windowLabel || "滚动 24 小时"} · 有流量地区按地块颜色深浅显示
+          {t("routing.trafficMap.description", { window: windowLabel })}
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Badge>总量 {formatBytes(data.totalBytes)}</Badge>
-        <Badge>已定位 {locatedPercent.toFixed(1)}%</Badge>
+        <Badge>
+          {t("routing.trafficMap.totalBadge", {
+            traffic: formatBytes(data.totalBytes),
+          })}
+        </Badge>
+        <Badge>
+          {t("routing.trafficMap.locatedBadge", {
+            percent: locatedPercent.toFixed(1),
+          })}
+        </Badge>
         {data.unknownNodeCount > 0 ? (
-          <Badge>未定位 {data.unknownNodeCount}</Badge>
+          <Badge>
+            {t("routing.trafficMap.unlocatedBadge", {
+              count: data.unknownNodeCount,
+            })}
+          </Badge>
         ) : null}
       </div>
     </div>
   )
   const geoWarning = !data.geoipEnabled ? (
     <div className="rounded-lg border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-      GeoIP 当前已关闭：地图只展示手动设置了国家覆盖的节点。
+      {t("routing.trafficMap.geoipWarning")}
     </div>
   ) : null
   const stats = large ? (
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <div className="rounded-lg bg-background/80 p-4 shadow-sm backdrop-blur">
-        <p className="text-xs text-muted-foreground">窗口总流量</p>
+        <p className="text-xs text-muted-foreground">
+          {t("routing.trafficMap.windowTotalTraffic")}
+        </p>
         <p className="mt-1 text-3xl font-semibold tabular-nums">
           {formatBytes(data.totalBytes)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          出 {formatBytes(data.totalTxBytes)} / 入{" "}
-          {formatBytes(data.totalRxBytes)}
+          {t("routing.trafficMap.txRxSummary", {
+            tx: formatBytes(data.totalTxBytes),
+            rx: formatBytes(data.totalRxBytes),
+          })}
         </p>
       </div>
       <div className="rounded-lg bg-background/80 p-4 shadow-sm backdrop-blur">
-        <p className="text-xs text-muted-foreground">已定位流量</p>
+        <p className="text-xs text-muted-foreground">
+          {t("routing.trafficMap.locatedTraffic")}
+        </p>
         <p className="mt-1 text-3xl font-semibold tabular-nums">
           {formatBytes(data.locatedBytes)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {locatedPercent.toFixed(1)}% 可在地图展示
+          {t("routing.trafficMap.locatedTrafficHint", {
+            percent: locatedPercent.toFixed(1),
+          })}
         </p>
       </div>
       <div className="rounded-lg bg-background/80 p-4 shadow-sm backdrop-blur">
-        <p className="text-xs text-muted-foreground">未定位流量</p>
+        <p className="text-xs text-muted-foreground">
+          {t("routing.trafficMap.unlocatedTraffic")}
+        </p>
         <p className="mt-1 text-3xl font-semibold tabular-nums">
           {formatBytes(data.unknownBytes)}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {data.unknownNodeCount} 个节点未定位
+          {t("routing.trafficMap.unlocatedTrafficHint", {
+            count: data.unknownNodeCount,
+          })}
         </p>
       </div>
       <div className="rounded-lg bg-background/80 p-4 shadow-sm backdrop-blur">
-        <p className="text-xs text-muted-foreground">地区与节点</p>
+        <p className="text-xs text-muted-foreground">
+          {t("routing.trafficMap.regionsAndNodes")}
+        </p>
         <p className="mt-1 text-3xl font-semibold tabular-nums">
           {data.countries.length}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          已定位 {data.locatedNodeCount}/{data.nodeCount} 个节点
+          {t("routing.trafficMap.locatedNodesHint", {
+            located: data.locatedNodeCount,
+            total: data.nodeCount,
+          })}
         </p>
       </div>
     </div>
@@ -3938,14 +4226,14 @@ export function NodeTrafficWorldMap({
   const map = <WorldTrafficMap data={data} large={large} canvas={canvas} />
   const footer = (
     <div className="flex flex-col gap-2 text-xs text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
-      <p>悬停查看地区流量，点击有颜色的地块查看对应国家/地区报告。</p>
+      <p>{t("routing.trafficMap.footerHint")}</p>
       {topCountries.length > 0 ? (
         <p className="truncate">
-          Top：
+          {t("routing.trafficMap.topPrefix")}
           {topCountries
             .map(
               (country) =>
-                `${country.countryName} ${formatBytes(country.totalBytes)}`
+                `${getCountryDisplayName(country.countryCode, country.countryName, t)} ${formatBytes(country.totalBytes)}`
             )
             .join(" · ")}
         </p>

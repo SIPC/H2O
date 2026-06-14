@@ -3,6 +3,7 @@
 import type { Table as TableType } from "@tanstack/react-table"
 import { Settings2 } from "lucide-react"
 
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -20,6 +21,8 @@ interface DataTableViewOptionsProps<TData> {
 export function DataTableViewOptions<TData>({
   table,
 }: DataTableViewOptionsProps<TData>) {
+  const { t } = useI18n()
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -29,11 +32,11 @@ export function DataTableViewOptions<TData>({
           className="ml-auto hidden h-8 lg:flex"
         >
           <Settings2 />
-          显示列
+          {t("dataTable.viewColumns")}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[150px]">
-        <DropdownMenuLabel>切换列显示</DropdownMenuLabel>
+        <DropdownMenuLabel>{t("dataTable.toggleColumns")}</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {table
           .getAllColumns()

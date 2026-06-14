@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireUser } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -27,5 +27,5 @@ export async function POST(request: Request) {
     reason: "OK",
   })
 
-  return NextResponse.json({ ok: true })
+  return localizedJson(request, { ok: true })
 }

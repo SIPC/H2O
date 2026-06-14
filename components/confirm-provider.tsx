@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react"
 
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -51,6 +52,7 @@ type DialogState =
   | null
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
+  const { t } = useI18n()
   const [state, setState] = useState<DialogState>(null)
 
   const confirm = useCallback(
@@ -106,14 +108,16 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           <DialogFooter>
             {isConfirm ? (
               <Button variant="outline" onClick={() => close(false)}>
-                {(opts as ConfirmOptions | undefined)?.cancelText ?? "取消"}
+                {(opts as ConfirmOptions | undefined)?.cancelText ??
+                  t("common.cancel")}
               </Button>
             ) : null}
             <Button
               variant={variant === "destructive" ? "destructive" : "default"}
               onClick={() => close(true)}
             >
-              {opts?.confirmText ?? (isConfirm ? "确认" : "好")}
+              {opts?.confirmText ??
+                (isConfirm ? t("common.confirm") : t("common.ok"))}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -124,6 +128,6 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
 
 export function useConfirm(): ConfirmContextValue {
   const ctx = useContext(ConfirmContext)
-  if (!ctx) throw new Error("useConfirm 必须在 ConfirmProvider 内使用")
+  if (!ctx) throw new Error("useConfirm must be used within ConfirmProvider")
   return ctx
 }

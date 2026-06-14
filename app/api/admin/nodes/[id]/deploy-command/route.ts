@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto"
 
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import {
   normalizeAcmeDnsConfig,
@@ -62,8 +62,17 @@ type NodeRow = {
 const DEFAULT_AGENT_BUNDLE_URL =
   "https://github.com/SIPC/H2O/releases/latest/download/h2o-agent-bundle.tar.gz"
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function hasShellUnsafeUrlChars(value: string) {
@@ -209,7 +218,7 @@ export async function GET(
   const { id } = await params
   const nodeId = Number(id)
   if (!Number.isInteger(nodeId) || nodeId <= 0) {
-    return jsonError("INVALID_ID", "节点ID不合法", 400)
+    return jsonError(request, "INVALID_ID", "节点ID不合法", 400)
   }
 
   const db = getDb()
@@ -235,7 +244,7 @@ export async function GET(
     .get(nodeId) as NodeRow | undefined
 
   if (!node) {
-    return jsonError("NOT_FOUND", "节点不存在", 404)
+    return jsonError(request, "NOT_FOUND", "节点不存在", 404)
   }
 
   const reqUrl = new URL(request.url)
@@ -243,7 +252,7 @@ export async function GET(
     reqUrl.searchParams.get("panel_url")?.trim() || detectOrigin(request)
   )
   if (!panelUrl) {
-    return jsonError("INVALID_PANEL_URL", "panel_url 不合法", 400)
+    return jsonError(request, "INVALID_PANEL_URL", "panel_url 不合法", 400)
   }
 
   // 证书路径：从 DB 读取，回退默认值
@@ -270,7 +279,12 @@ export async function GET(
   const agentBundleUrl = normalizeAgentBundleUrl(rawAgentBundleUrl)
 
   if (!agentBundleUrl || !isHttpUrl(agentBundleUrl)) {
-    return jsonError("INVALID_AGENT_BUNDLE_URL", "agent_bundle_url 不合法", 400)
+    return jsonError(
+      request,
+      "INVALID_AGENT_BUNDLE_URL",
+      "agent_bundle_url 不合法",
+      400
+    )
   }
 
   const rawAgentBundleSha256Url =
@@ -280,6 +294,7 @@ export async function GET(
     : deriveOfficialAgentBundleSha256Url(agentBundleUrl)
   if (rawAgentBundleSha256Url && !agentBundleSha256Url) {
     return jsonError(
+      request,
       "INVALID_AGENT_BUNDLE_URL",
       "agent_bundle_sha256_url 不合法",
       400
@@ -295,6 +310,7 @@ export async function GET(
 
   if (node.obfs && !isSupportedHysteriaObfs(node.obfs)) {
     return jsonError(
+      request,
       "UNSUPPORTED_OBFS",
       "当前一键部署仅支持 obfs 为空、salamander 或 gecko",
       400
@@ -303,6 +319,7 @@ export async function GET(
 
   if (node.obfs && !node.obfs_password) {
     return jsonError(
+      request,
       "INVALID_NODE_CONFIG",
       `节点 obfs=${node.obfs} 但 obfs_password 为空，请先补全节点配置`,
       400
@@ -533,7 +550,7 @@ export async function GET(
 
   const command = `curl -A "Mozilla/5.0" -fsSL ${shellSingleQuote(scriptUrl.toString())} | bash`
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       node: {

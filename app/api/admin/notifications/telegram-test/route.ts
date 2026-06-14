@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { writeNotificationLogSafely } from "@/lib/logs-db"
@@ -21,8 +21,17 @@ type TelegramTestBody = {
   messageThreadId?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 export async function POST(request: Request) {
@@ -62,6 +71,7 @@ export async function POST(request: Request) {
       detail: { actor: auth.user.username, ip },
     })
     return jsonError(
+      request,
       "INVALID_PAYLOAD",
       "Telegram 配置不合法或不完整，请检查 Bot Token、Chat ID 和 Topic ID",
       400
@@ -98,10 +108,10 @@ export async function POST(request: Request) {
   })
 
   if (!result.ok) {
-    return jsonError(result.code, result.message, 400)
+    return jsonError(request, result.code, result.message, 400)
   }
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: { messageId: result.messageId ?? null },
   })

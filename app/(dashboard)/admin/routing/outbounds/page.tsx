@@ -6,6 +6,7 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { DataTable, DataTableColumnHeader } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -57,12 +58,12 @@ type OutboundProfileRow = {
 
 type OutboundDraft = HysteriaOutboundItem
 
-const DIRECT_MODE_LABEL: Record<DirectOutboundMode, string> = {
-  auto: "自动双栈",
-  "64": "优先 IPv6",
-  "46": "优先 IPv4",
-  "6": "仅 IPv6",
-  "4": "仅 IPv4",
+const DIRECT_MODE_LABEL_KEYS: Record<DirectOutboundMode, string> = {
+  auto: "routing.outbounds.directMode.auto",
+  "64": "routing.outbounds.directMode.64",
+  "46": "routing.outbounds.directMode.46",
+  "6": "routing.outbounds.directMode.6",
+  "4": "routing.outbounds.directMode.4",
 }
 
 function newOutboundDraft(index: number): OutboundDraft {
@@ -91,8 +92,13 @@ function formatDate(value: string | null | undefined) {
   return value.replace("T", " ").slice(0, 19)
 }
 
-function formatDefaultOutbound(config: HysteriaOutboundProfileConfig) {
-  return config.outbounds[0]?.name ?? "内置 direct"
+function formatDefaultOutbound(
+  config: HysteriaOutboundProfileConfig,
+  t: (key: string, params?: Record<string, unknown>) => string
+) {
+  return (
+    config.outbounds[0]?.name ?? t("routing.outbounds.defaultOutboundFallback")
+  )
 }
 
 function OutboundForm({
@@ -116,6 +122,8 @@ function OutboundForm({
   submitLabel: string
   onCancel?: () => void
 }) {
+  const { t } = useI18n()
+
   function updateOutbound(index: number, next: OutboundDraft) {
     setOutbounds(outbounds.map((item, i) => (i === index ? next : item)))
   }
@@ -170,12 +178,12 @@ function OutboundForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            基础信息
+            {t("routing.common.basicInfo")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>配置组名称</Label>
+            <Label>{t("routing.common.name")}</Label>
             <Input
               value={profileName}
               onChange={(e) => setProfileName(e.target.value)}
@@ -183,12 +191,12 @@ function OutboundForm({
             />
           </div>
           <div className="space-y-1">
-            <Label>备注</Label>
+            <Label>{t("routing.common.remark")}</Label>
             <Textarea
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
               rows={2}
-              placeholder="可选，仅管理员可见"
+              placeholder={t("routing.common.optionalAdminOnly")}
             />
           </div>
         </CardContent>
@@ -198,7 +206,7 @@ function OutboundForm({
         <CardHeader className="p-4 pb-1">
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-base leading-none font-semibold">
-              出站列表
+              {t("routing.outbounds.listTitle")}
             </CardTitle>
             <Button
               type="button"
@@ -212,14 +220,14 @@ function OutboundForm({
               }
             >
               <Plus className="h-4 w-4" />
-              添加出站
+              {t("routing.outbounds.addOutbound")}
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {outbounds.length === 0 ? (
             <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-              暂无自定义出站。未绑定 ACL 时将使用默认直连出口。
+              {t("routing.outbounds.emptyOutbounds")}
             </div>
           ) : null}
           {outbounds.map((outbound, index) => (
@@ -228,10 +236,16 @@ function OutboundForm({
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <CardTitle className="text-sm">
-                      #{index + 1} {index === 0 ? "默认出口" : "出站"}
+                      {t("routing.outbounds.cardTitle", {
+                        index: index + 1,
+                        type:
+                          index === 0
+                            ? t("routing.outbounds.defaultOutbound")
+                            : t("routing.outbounds.outbound"),
+                      })}
                     </CardTitle>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      ACL 规则按 ID 引用该出站；名称仅用于展示。
+                      {t("routing.outbounds.cardHelp")}
                     </p>
                   </div>
                   <div className="flex gap-1">
@@ -242,7 +256,7 @@ function OutboundForm({
                       disabled={index === 0}
                       onClick={() => moveOutbound(index, -1)}
                     >
-                      上移
+                      {t("routing.common.moveUp")}
                     </Button>
                     <Button
                       type="button"
@@ -251,7 +265,7 @@ function OutboundForm({
                       disabled={index === outbounds.length - 1}
                       onClick={() => moveOutbound(index, 1)}
                     >
-                      下移
+                      {t("routing.common.moveDown")}
                     </Button>
                     <Button
                       type="button"
@@ -259,7 +273,7 @@ function OutboundForm({
                       size="sm"
                       onClick={() => duplicateOutbound(index)}
                     >
-                      复制
+                      {t("routing.common.copy")}
                     </Button>
                     <Button
                       type="button"
@@ -269,7 +283,7 @@ function OutboundForm({
                         setOutbounds(outbounds.filter((_, i) => i !== index))
                       }
                     >
-                      删除
+                      {t("routing.common.delete")}
                     </Button>
                   </div>
                 </div>
@@ -277,7 +291,7 @@ function OutboundForm({
               <CardContent className="space-y-3 p-3">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="space-y-1">
-                    <Label>出口 ID</Label>
+                    <Label>{t("routing.outbounds.outboundId")}</Label>
                     <Input
                       value={outbound.id}
                       onChange={(e) =>
@@ -289,7 +303,7 @@ function OutboundForm({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>出站名称</Label>
+                    <Label>{t("routing.outbounds.outboundName")}</Label>
                     <Input
                       value={outbound.name}
                       onChange={(e) =>
@@ -301,7 +315,7 @@ function OutboundForm({
                     />
                   </div>
                   <div className="space-y-1">
-                    <Label>类型</Label>
+                    <Label>{t("routing.common.type")}</Label>
                     <Select
                       value={outbound.type}
                       onValueChange={(value) =>
@@ -323,10 +337,10 @@ function OutboundForm({
                 {outbound.type === "direct" && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
-                      <Label>出站模式</Label>
+                      <Label>{t("routing.outbounds.mode")}</Label>
                       <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
-                        {Object.entries(DIRECT_MODE_LABEL).map(
-                          ([value, label]) => {
+                        {Object.entries(DIRECT_MODE_LABEL_KEYS).map(
+                          ([value, labelKey]) => {
                             const checked =
                               (outbound.direct?.mode ?? "auto") === value
                             return (
@@ -346,7 +360,7 @@ function OutboundForm({
                                   })
                                 }
                               >
-                                {label}
+                                {t(labelKey)}
                               </Button>
                             )
                           }
@@ -357,8 +371,14 @@ function OutboundForm({
                       <Label>TCP Fast Open</Label>
                       <div className="grid grid-cols-2 gap-1.5">
                         {[
-                          { label: "关闭", value: false },
-                          { label: "开启", value: true },
+                          {
+                            label: t("routing.outbounds.fastOpenOff"),
+                            value: false,
+                          },
+                          {
+                            label: t("routing.outbounds.fastOpenOn"),
+                            value: true,
+                          },
                         ].map((option) => {
                           const checked =
                             (outbound.direct?.fastOpen === true) ===
@@ -387,7 +407,7 @@ function OutboundForm({
                       </div>
                     </div>
                     <div className="space-y-1">
-                      <Label>绑定 IPv4</Label>
+                      <Label>{t("routing.outbounds.bindIpv4")}</Label>
                       <Input
                         value={outbound.direct?.bindIPv4 ?? ""}
                         onChange={(e) =>
@@ -399,11 +419,11 @@ function OutboundForm({
                             },
                           })
                         }
-                        placeholder="可选，如 192.0.2.10"
+                        placeholder={t("routing.outbounds.bindIpv4Placeholder")}
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>绑定 IPv6</Label>
+                      <Label>{t("routing.outbounds.bindIpv6")}</Label>
                       <Input
                         value={outbound.direct?.bindIPv6 ?? ""}
                         onChange={(e) =>
@@ -415,11 +435,11 @@ function OutboundForm({
                             },
                           })
                         }
-                        placeholder="可选"
+                        placeholder={t("routing.outbounds.optionalPlaceholder")}
                       />
                     </div>
                     <div className="space-y-1 sm:col-span-2">
-                      <Label>绑定网卡</Label>
+                      <Label>{t("routing.outbounds.bindDevice")}</Label>
                       <Input
                         value={outbound.direct?.bindDevice ?? ""}
                         onChange={(e) =>
@@ -431,7 +451,9 @@ function OutboundForm({
                             },
                           })
                         }
-                        placeholder="可选，与绑定 IP 互斥，如 eth0"
+                        placeholder={t(
+                          "routing.outbounds.bindDevicePlaceholder"
+                        )}
                       />
                     </div>
                   </div>
@@ -440,7 +462,7 @@ function OutboundForm({
                 {outbound.type === "socks5" && (
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1 sm:col-span-2">
-                      <Label>代理地址</Label>
+                      <Label>{t("routing.outbounds.proxyAddress")}</Label>
                       <Input
                         value={outbound.socks5?.addr ?? ""}
                         onChange={(e) =>
@@ -456,7 +478,7 @@ function OutboundForm({
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>用户名</Label>
+                      <Label>{t("routing.common.username")}</Label>
                       <Input
                         value={outbound.socks5?.username ?? ""}
                         onChange={(e) =>
@@ -471,7 +493,7 @@ function OutboundForm({
                       />
                     </div>
                     <div className="space-y-1">
-                      <Label>密码</Label>
+                      <Label>{t("routing.common.password")}</Label>
                       <Input
                         type="password"
                         value={outbound.socks5?.password ?? ""}
@@ -492,7 +514,7 @@ function OutboundForm({
                 {outbound.type === "http" && (
                   <div className="space-y-3">
                     <div className="space-y-1">
-                      <Label>HTTP/HTTPS 代理 URL</Label>
+                      <Label>{t("routing.outbounds.httpProxyUrl")}</Label>
                       <Input
                         value={outbound.http?.url ?? ""}
                         onChange={(e) =>
@@ -509,9 +531,9 @@ function OutboundForm({
                     </div>
                     <div className="flex items-center justify-between rounded-md border p-3">
                       <div>
-                        <Label>跳过 TLS 校验</Label>
+                        <Label>{t("routing.outbounds.skipTlsVerify")}</Label>
                         <p className="text-[11px] text-muted-foreground">
-                          仅 HTTPS 代理需要时开启
+                          {t("routing.outbounds.skipTlsVerifyHint")}
                         </p>
                       </div>
                       <Switch
@@ -539,7 +561,7 @@ function OutboundForm({
         <Button type="submit">{submitLabel}</Button>
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel}>
-            取消
+            {t("routing.common.cancel")}
           </Button>
         )}
       </div>
@@ -549,6 +571,7 @@ function OutboundForm({
 
 export default function AdminRoutingOutboundsPage() {
   const { confirm, alert } = useConfirm()
+  const { t } = useI18n()
   const [rows, setRows] = useState<OutboundProfileRow[]>([])
   const [loading, setLoading] = useState(true)
   const [createOpen, setCreateOpen] = useState(false)
@@ -606,14 +629,14 @@ export default function AdminRoutingOutboundsPage() {
     })
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      toast.error("创建失败", {
-        description: json?.error?.message ?? "请稍后重试",
+      toast.error(t("routing.common.createFailed"), {
+        description: json?.error?.message ?? t("routing.common.retryLater"),
       })
       return
     }
     setCreateOpen(false)
     resetCreateForm()
-    toast.success("已创建出站配置")
+    toast.success(t("routing.outbounds.createSuccess"))
     await load()
   }
 
@@ -642,21 +665,24 @@ export default function AdminRoutingOutboundsPage() {
     )
     const json = await response.json()
     if (!response.ok || !json.ok) {
-      toast.error("保存失败", {
-        description: json?.error?.message ?? "请稍后重试",
+      toast.error(t("routing.common.saveFailed"), {
+        description: json?.error?.message ?? t("routing.common.retryLater"),
       })
       return
     }
     setEditingRow(null)
-    toast.success("已保存出站配置")
+    toast.success(t("routing.outbounds.saveSuccess"))
     await load()
   }
 
   async function remove(row: OutboundProfileRow) {
     const ok = await confirm({
-      title: `删除出站配置 #${row.id} (${row.name})？`,
-      description: "仍有 ACL 策略引用该配置时无法删除。",
-      confirmText: "删除",
+      title: t("routing.outbounds.deleteConfirmTitle", {
+        id: row.id,
+        name: row.name,
+      }),
+      description: t("routing.outbounds.deleteConfirmDescription"),
+      confirmText: t("routing.common.delete"),
       variant: "destructive",
     })
     if (!ok) return
@@ -666,13 +692,13 @@ export default function AdminRoutingOutboundsPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) {
       await alert({
-        title: "删除失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("routing.common.deleteFailed"),
+        description: json?.error?.message ?? t("routing.common.retryLater"),
         variant: "destructive",
       })
       return
     }
-    toast.success("已删除出站配置")
+    toast.success(t("routing.outbounds.deleteSuccess"))
     await load()
   }
 
@@ -688,23 +714,28 @@ export default function AdminRoutingOutboundsPage() {
       {
         accessorKey: "name",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="名称" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("routing.common.name")}
+          />
         ),
         cell: ({ row }) => (
           <span className="font-medium">{row.original.name}</span>
         ),
-        meta: { label: "名称" },
+        meta: { label: t("routing.common.name") },
       },
       {
         id: "summary",
-        header: "出站摘要",
+        header: t("routing.outbounds.summaryHeader"),
         cell: ({ row }) => {
           const config = parseConfig(row.original.config)
           return (
             <div className="space-y-1 text-xs">
               <div>
-                共 {config.outbounds.length} 个，默认：
-                {formatDefaultOutbound(config)}
+                {t("routing.outbounds.summaryCountDefault", {
+                  count: config.outbounds.length,
+                  defaultName: formatDefaultOutbound(config, t),
+                })}
               </div>
               <div className="flex flex-wrap gap-1">
                 {config.outbounds.slice(0, 4).map((item) => (
@@ -726,26 +757,35 @@ export default function AdminRoutingOutboundsPage() {
       {
         accessorKey: "acl_count",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="引用 ACL" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("routing.outbounds.aclReferences")}
+          />
         ),
         cell: ({ row }) => row.original.acl_count,
-        meta: { label: "引用 ACL" },
+        meta: { label: t("routing.outbounds.aclReferences") },
       },
       {
         accessorKey: "bound_node_count",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="影响节点" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("routing.outbounds.affectedNodes")}
+          />
         ),
         cell: ({ row }) => row.original.bound_node_count,
-        meta: { label: "影响节点" },
+        meta: { label: t("routing.outbounds.affectedNodes") },
       },
       {
         accessorKey: "updated_at",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="更新时间" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("routing.common.updatedAt")}
+          />
         ),
         cell: ({ row }) => formatDate(row.original.updated_at),
-        meta: { label: "更新时间" },
+        meta: { label: t("routing.common.updatedAt") },
       },
       {
         id: "actions",
@@ -762,7 +802,7 @@ export default function AdminRoutingOutboundsPage() {
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => startEdit(row.original)}>
                 <Pencil className="mr-2 h-4 w-4" />
-                编辑
+                {t("routing.common.edit")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -770,7 +810,7 @@ export default function AdminRoutingOutboundsPage() {
                 onClick={() => void remove(row.original)}
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                删除
+                {t("routing.common.delete")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -778,16 +818,16 @@ export default function AdminRoutingOutboundsPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [t]
   )
 
   return (
     <div className="mx-auto flex w-full max-w-450 flex-col gap-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">出站配置</h1>
+          <h1 className="text-2xl font-bold">{t("routing.outbounds.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            定义可复用的 Hysteria2 出站配置，供 ACL 策略引用。
+            {t("routing.outbounds.description")}
           </p>
         </div>
         <Button
@@ -797,14 +837,16 @@ export default function AdminRoutingOutboundsPage() {
           }}
         >
           <Plus className="mr-1.5 h-4 w-4" />
-          添加出站配置
+          {t("routing.outbounds.add")}
         </Button>
       </div>
 
       {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p className="text-sm">暂无出站配置</p>
-          <p className="mt-1 text-xs">点击右上角创建第一个出站配置组</p>
+          <p className="text-sm">{t("routing.outbounds.emptyTitle")}</p>
+          <p className="mt-1 text-xs">
+            {t("routing.outbounds.emptyDescription")}
+          </p>
         </Card>
       ) : (
         <DataTable
@@ -819,9 +861,9 @@ export default function AdminRoutingOutboundsPage() {
       <Sheet open={createOpen} onOpenChange={setCreateOpen}>
         <SheetContent className="data-[side=right]:sm:max-w-3xl">
           <SheetHeader>
-            <SheetTitle>添加出站配置</SheetTitle>
+            <SheetTitle>{t("routing.outbounds.createTitle")}</SheetTitle>
             <SheetDescription>
-              支持 direct、SOCKS5、HTTP 出站配置，列表首项为默认出口。
+              {t("routing.outbounds.createDescription")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -833,7 +875,7 @@ export default function AdminRoutingOutboundsPage() {
               outbounds={outbounds}
               setOutbounds={setOutbounds}
               onSubmit={create}
-              submitLabel="创建配置"
+              submitLabel={t("routing.outbounds.createSubmit")}
             />
           </div>
         </SheetContent>
@@ -847,11 +889,14 @@ export default function AdminRoutingOutboundsPage() {
           <SheetHeader>
             <SheetTitle>
               {editingRow
-                ? `编辑出站配置 #${editingRow.id} (${editingRow.name})`
-                : "编辑出站配置"}
+                ? t("routing.outbounds.editTitle", {
+                    id: editingRow.id,
+                    name: editingRow.name,
+                  })
+                : t("routing.outbounds.editTitleFallback")}
             </SheetTitle>
             <SheetDescription>
-              保存后将自动更新关联节点的 Agent 配置版本。
+              {t("routing.outbounds.editDescription")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -863,7 +908,7 @@ export default function AdminRoutingOutboundsPage() {
               outbounds={editOutbounds}
               setOutbounds={setEditOutbounds}
               onSubmit={submitEdit}
-              submitLabel="保存修改"
+              submitLabel={t("routing.common.saveChanges")}
               onCancel={() => setEditingRow(null)}
             />
           </div>

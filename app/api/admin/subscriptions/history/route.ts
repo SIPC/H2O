@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -72,7 +72,8 @@ export async function GET(request: Request) {
   const ids = parseIds(url.searchParams.get("ids"))
 
   if (!ids) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -187,7 +188,7 @@ export async function GET(request: Request) {
     }
   })
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       date: localDate,

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import {
   buildNodeDesiredConfig,
@@ -10,8 +10,17 @@ import { getDb } from "@/lib/db"
 import { writeAdminEvent } from "@/lib/logs-db"
 import { getClientIp } from "@/lib/turnstile"
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 export async function GET(
@@ -25,21 +34,22 @@ export async function GET(
   const { id } = await params
   const nodeId = Number(id)
   if (!Number.isInteger(nodeId) || nodeId <= 0) {
-    return jsonError("INVALID_ID", "节点ID不合法", 400)
+    return jsonError(request, "INVALID_ID", "节点ID不合法", 400)
   }
 
   const reqUrl = new URL(request.url)
   const panelUrl = normalizeOrigin(
     reqUrl.searchParams.get("panel_url")?.trim() || detectOrigin(request)
   )
-  if (!panelUrl) return jsonError("INVALID_PANEL_URL", "panel_url 不合法", 400)
+  if (!panelUrl)
+    return jsonError(request, "INVALID_PANEL_URL", "panel_url 不合法", 400)
 
   const desired = buildNodeDesiredConfig({
     nodeId,
     panelUrl,
     database: getDb(),
   })
-  if (!desired) return jsonError("NOT_FOUND", "节点不存在", 404)
+  if (!desired) return jsonError(request, "NOT_FOUND", "节点不存在", 404)
 
   writeAdminEvent({
     event: "AGENT_CONFIG_VIEW",
@@ -65,7 +75,7 @@ export async function GET(
     agent_config_path: "/etc/h2o-agent/config.json",
   }
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       config,

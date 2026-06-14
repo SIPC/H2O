@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { getDb } from "@/lib/db"
 import { maskAuthPath, writeAuthLogSafely } from "@/lib/logs-db"
@@ -28,7 +28,7 @@ export async function POST(
       success: false,
       reason: "BAD_PAYLOAD",
     })
-    return NextResponse.json({ ok: false, id: "" }, { status: 400 })
+    return localizedJson(request, { ok: false, id: "" }, { status: 400 })
   }
   const ip = typeof body.addr === "string" ? body.addr : null
 
@@ -48,7 +48,7 @@ export async function POST(
       success: false,
       reason: "BAD_PAYLOAD",
     })
-    return NextResponse.json({ ok: false, id: "" }, { status: 400 })
+    return localizedJson(request, { ok: false, id: "" }, { status: 400 })
   }
 
   // tx 是 Hy2 传来的下行速率（字节/秒），仅握手时触发一次，不用于计费
@@ -73,7 +73,7 @@ export async function POST(
       success: false,
       reason: "NO_NODE",
     })
-    return NextResponse.json({ ok: false, id: "" })
+    return localizedJson(request, { ok: false, id: "" })
   }
 
   // 2) 用用户 token 匹配用户，同时校验账号状态
@@ -95,7 +95,7 @@ export async function POST(
       success: false,
       reason: "NO_USER",
     })
-    return NextResponse.json({ ok: false, id: "" })
+    return localizedJson(request, { ok: false, id: "" })
   }
 
   if (user.status !== "active") {
@@ -108,7 +108,7 @@ export async function POST(
       success: false,
       reason: "USER_DISABLED",
     })
-    return NextResponse.json({ ok: false, id: "" })
+    return localizedJson(request, { ok: false, id: "" })
   }
 
   // 3) 校验订阅状态、到期时间和节点权限（仅认证，不计费）
@@ -137,7 +137,7 @@ export async function POST(
       success: false,
       reason: "NO_SUB",
     })
-    return NextResponse.json({ ok: false, id: "" })
+    return localizedJson(request, { ok: false, id: "" })
   }
 
   writeAuthLogSafely({
@@ -149,5 +149,5 @@ export async function POST(
     success: true,
     reason: "OK",
   })
-  return NextResponse.json({ ok: true, id: user.username })
+  return localizedJson(request, { ok: true, id: user.username })
 }

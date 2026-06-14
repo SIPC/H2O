@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -18,8 +18,17 @@ type AclProfileBody = {
   config?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function parseId(id: string) {
@@ -78,7 +87,8 @@ export async function PATCH(
   const ip = getClientIp(request)
   const { id } = await params
   const profileId = parseId(id)
-  if (!profileId) return jsonError("INVALID_ID", "ACL 策略 ID 不合法", 400)
+  if (!profileId)
+    return jsonError(request, "INVALID_ID", "ACL 策略 ID 不合法", 400)
 
   const body = (await request.json()) as AclProfileBody
   const updates: string[] = []
@@ -87,7 +97,9 @@ export async function PATCH(
   const db = getDb()
 
   const current = db
-    .prepare(`SELECT outbound_profile_id, config FROM acl_profiles WHERE id = ? LIMIT 1`)
+    .prepare(
+      `SELECT outbound_profile_id, config FROM acl_profiles WHERE id = ? LIMIT 1`
+    )
     .get(profileId) as
     | { outbound_profile_id: number | null; config: string }
     | undefined
@@ -101,7 +113,7 @@ export async function PATCH(
       reason: "NOT_FOUND",
       detail: { profileId },
     })
-    return jsonError("NOT_FOUND", "ACL 策略不存在", 404)
+    return jsonError(request, "NOT_FOUND", "ACL 策略不存在", 404)
   }
 
   if (typeof body.name === "string" && body.name.trim()) {
@@ -139,11 +151,19 @@ export async function PATCH(
         reason: outboundResult.code,
         detail: { profileId, outboundProfileId: nextOutboundProfileId },
       })
-      return jsonError(outboundResult.code, outboundResult.error, outboundResult.status)
+      return jsonError(
+        request,
+        outboundResult.code,
+        outboundResult.error,
+        outboundResult.status
+      )
     }
 
     const configInput = body.config !== undefined ? body.config : current.config
-    const validation = validateAclProfileConfig(configInput, outboundResult.config)
+    const validation = validateAclProfileConfig(
+      configInput,
+      outboundResult.config
+    )
     if (!validation.ok) {
       writeAdminEvent({
         event: "ACL_PROFILE_UPDATE",
@@ -153,7 +173,7 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { profileId, error: validation.error },
       })
-      return jsonError("INVALID_PAYLOAD", validation.error, 400)
+      return jsonError(request, "INVALID_PAYLOAD", validation.error, 400)
     }
 
     updates.push("config = ?", "config_hash = ?")
@@ -171,7 +191,7 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { profileId },
     })
-    return jsonError("INVALID_PAYLOAD", "没有可更新字段", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "没有可更新字段", 400)
   }
 
   updates.push("revision = revision + 1", "updated_at = datetime('now')")
@@ -192,7 +212,7 @@ export async function PATCH(
         reason: "NOT_FOUND",
         detail: { profileId },
       })
-      return jsonError("NOT_FOUND", "ACL 策略不存在", 404)
+      return jsonError(request, "NOT_FOUND", "ACL 策略不存在", 404)
     }
 
     const affectedNodeIds = bumpNodesForRoutingChange({
@@ -222,7 +242,7 @@ export async function PATCH(
       },
     })
 
-    return NextResponse.json({ ok: true, data: { id: profileId } })
+    return localizedJson(request, { ok: true, data: { id: profileId } })
   } catch {
     try {
       db.exec("ROLLBACK")
@@ -237,7 +257,7 @@ export async function PATCH(
       reason: "UPDATE_FAILED",
       detail: { profileId },
     })
-    return jsonError("UPDATE_FAILED", "ACL 策略更新失败", 400)
+    return jsonError(request, "UPDATE_FAILED", "ACL 策略更新失败", 400)
   }
 }
 
@@ -251,7 +271,8 @@ export async function DELETE(
   const ip = getClientIp(request)
   const { id } = await params
   const profileId = parseId(id)
-  if (!profileId) return jsonError("INVALID_ID", "ACL 策略 ID 不合法", 400)
+  if (!profileId)
+    return jsonError(request, "INVALID_ID", "ACL 策略 ID 不合法", 400)
 
   const db = getDb()
   const target = db
@@ -264,8 +285,12 @@ export async function DELETE(
       .prepare(`SELECT node_id FROM node_acl_bindings WHERE acl_profile_id = ?`)
       .all(profileId) as Array<{ node_id: number }>
     const affectedNodeIds = boundRows.map((row) => row.node_id)
-    db.prepare(`DELETE FROM node_acl_bindings WHERE acl_profile_id = ?`).run(profileId)
-    const result = db.prepare(`DELETE FROM acl_profiles WHERE id = ?`).run(profileId)
+    db.prepare(`DELETE FROM node_acl_bindings WHERE acl_profile_id = ?`).run(
+      profileId
+    )
+    const result = db
+      .prepare(`DELETE FROM acl_profiles WHERE id = ?`)
+      .run(profileId)
 
     if (result.changes === 0) {
       db.exec("ROLLBACK")
@@ -277,7 +302,7 @@ export async function DELETE(
         reason: "NOT_FOUND",
         detail: { profileId },
       })
-      return jsonError("NOT_FOUND", "ACL 策略不存在", 404)
+      return jsonError(request, "NOT_FOUND", "ACL 策略不存在", 404)
     }
 
     bumpNodesForRoutingChange({ database: db, nodeIds: affectedNodeIds })
@@ -291,7 +316,7 @@ export async function DELETE(
       reason: "OK",
       detail: { profileId, name: target?.name ?? null, affectedNodeIds },
     })
-    return NextResponse.json({ ok: true, data: { id: profileId } })
+    return localizedJson(request, { ok: true, data: { id: profileId } })
   } catch {
     try {
       db.exec("ROLLBACK")
@@ -306,6 +331,6 @@ export async function DELETE(
       reason: "DELETE_FAILED",
       detail: { profileId },
     })
-    return jsonError("DELETE_FAILED", "ACL 策略删除失败", 400)
+    return jsonError(request, "DELETE_FAILED", "ACL 策略删除失败", 400)
   }
 }

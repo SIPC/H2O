@@ -1,7 +1,8 @@
 import type { Metadata } from "next"
+import { createLocalizedMetadata } from "@/lib/i18n/metadata"
 
-export const metadata: Metadata = {
-  title: "上报日志",
+export function generateMetadata(): Promise<Metadata> {
+  return createLocalizedMetadata("metadata.admin.reportLogs")
 }
 
 export default function AdminReportLogsLayout({

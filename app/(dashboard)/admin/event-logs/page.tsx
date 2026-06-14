@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { ChevronsUpDown, X } from "lucide-react"
 
+import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -82,129 +83,138 @@ type EventFilter = "all" | EventName
 
 type UserRow = { id: number; username: string }
 
-const eventLabel: Record<EventName, string> = {
-  LOGIN: "登录",
-  REGISTER: "注册",
-  LOGOUT: "登出",
-  RESET_TOKEN_SELF: "自助重置Key",
-  RESET_TOKEN_ADMIN: "管理员重置Key",
-  BOOTSTRAP_ADMIN: "初始化管理员",
-  USER_CREATE: "创建用户",
-  USER_UPDATE: "更新用户",
-  USER_DELETE: "删除用户",
-  NODE_CREATE: "创建节点",
-  NODE_UPDATE: "更新节点",
-  NODE_DELETE: "删除节点",
-  AGENT_TASK_CREATE: "创建 Agent 任务",
-  AGENT_SECRET_ROTATE: "轮换 Agent 密钥",
-  AGENT_CONFIG_VIEW: "查看 Agent 配置",
-  PLAN_CREATE: "创建套餐",
-  PLAN_UPDATE: "更新套餐",
-  PLAN_DELETE: "删除套餐",
-  SUBSCRIPTION_CREATE: "创建订阅",
-  SUBSCRIPTION_UPDATE: "更新订阅",
-  SUBSCRIPTION_DELETE: "删除订阅",
-  SUBSCRIPTION_FETCH: "拉取订阅",
-  SETTINGS_UPDATE: "修改设置",
-  OUTBOUND_PROFILE_CREATE: "创建出站配置",
-  OUTBOUND_PROFILE_UPDATE: "更新出站配置",
-  OUTBOUND_PROFILE_DELETE: "删除出站配置",
-  ACL_PROFILE_CREATE: "创建 ACL 策略",
-  ACL_PROFILE_UPDATE: "更新 ACL 策略",
-  ACL_PROFILE_DELETE: "删除 ACL 策略",
-  ACL_NODE_BINDING_UPDATE: "更新 ACL 节点绑定",
+type TFunction = ReturnType<typeof useI18n>["t"]
+
+const eventLabelKey: Record<EventName, string> = {
+  LOGIN: "logs.event.event.LOGIN",
+  REGISTER: "logs.event.event.REGISTER",
+  LOGOUT: "logs.event.event.LOGOUT",
+  RESET_TOKEN_SELF: "logs.event.event.RESET_TOKEN_SELF",
+  RESET_TOKEN_ADMIN: "logs.event.event.RESET_TOKEN_ADMIN",
+  BOOTSTRAP_ADMIN: "logs.event.event.BOOTSTRAP_ADMIN",
+  USER_CREATE: "logs.event.event.USER_CREATE",
+  USER_UPDATE: "logs.event.event.USER_UPDATE",
+  USER_DELETE: "logs.event.event.USER_DELETE",
+  NODE_CREATE: "logs.event.event.NODE_CREATE",
+  NODE_UPDATE: "logs.event.event.NODE_UPDATE",
+  NODE_DELETE: "logs.event.event.NODE_DELETE",
+  AGENT_TASK_CREATE: "logs.event.event.AGENT_TASK_CREATE",
+  AGENT_SECRET_ROTATE: "logs.event.event.AGENT_SECRET_ROTATE",
+  AGENT_CONFIG_VIEW: "logs.event.event.AGENT_CONFIG_VIEW",
+  PLAN_CREATE: "logs.event.event.PLAN_CREATE",
+  PLAN_UPDATE: "logs.event.event.PLAN_UPDATE",
+  PLAN_DELETE: "logs.event.event.PLAN_DELETE",
+  SUBSCRIPTION_CREATE: "logs.event.event.SUBSCRIPTION_CREATE",
+  SUBSCRIPTION_UPDATE: "logs.event.event.SUBSCRIPTION_UPDATE",
+  SUBSCRIPTION_DELETE: "logs.event.event.SUBSCRIPTION_DELETE",
+  SUBSCRIPTION_FETCH: "logs.event.event.SUBSCRIPTION_FETCH",
+  SETTINGS_UPDATE: "logs.event.event.SETTINGS_UPDATE",
+  OUTBOUND_PROFILE_CREATE: "logs.event.event.OUTBOUND_PROFILE_CREATE",
+  OUTBOUND_PROFILE_UPDATE: "logs.event.event.OUTBOUND_PROFILE_UPDATE",
+  OUTBOUND_PROFILE_DELETE: "logs.event.event.OUTBOUND_PROFILE_DELETE",
+  ACL_PROFILE_CREATE: "logs.event.event.ACL_PROFILE_CREATE",
+  ACL_PROFILE_UPDATE: "logs.event.event.ACL_PROFILE_UPDATE",
+  ACL_PROFILE_DELETE: "logs.event.event.ACL_PROFILE_DELETE",
+  ACL_NODE_BINDING_UPDATE: "logs.event.event.ACL_NODE_BINDING_UPDATE",
 }
 
-const reasonLabel: Record<string, string> = {
-  OK: "成功",
-  BAD_PAYLOAD: "请求体非法",
-  BAD_PASSWORD: "密码错误",
-  INTERNAL: "内部错误",
-  INVALID_PAYLOAD: "参数非法",
-  INVALID_ID: "ID 非法",
-  INVALID_CREDENTIALS: "账号或密码错误",
-  INVALID_PASSWORD: "密码非法",
-  INVALID_STATUS: "状态非法",
-  INVALID_EXPIRE: "到期时间非法",
-  INVALID_TRAFFIC: "流量值非法",
-  INVALID_DURATION: "时长非法",
-  INVALID_SPEED: "限速值非法",
-  INVALID_PORT: "端口非法",
-  INVALID_NODE_PORT: "节点部署端口非法",
-  INVALID_TOKEN: "订阅 Key 非法",
-  INVALID_TIMESTAMP: "时间戳非法",
-  INVALID_NONCE: "Nonce 非法",
-  INVALID_SIGNATURE: "签名格式非法",
-  MISSING_SIGNATURE: "缺少签名",
-  SIGNATURE_MISMATCH: "签名不匹配",
-  TIMESTAMP_EXPIRED: "时间戳过期",
-  NO_USER: "账号不存在",
-  NO_NODE: "节点不存在",
-  NO_SUB: "无可用订阅",
-  NO_NODES: "暂无可用节点",
-  USER_EXISTS: "用户名已占用",
-  USER_DISABLED: "账号已禁用",
-  LOGIN_DISABLED: "登录已关闭",
-  REGISTRATION_DISABLED: "注册已关闭",
-  ADMIN_EXISTS: "管理员已存在",
-  NOT_FOUND: "记录不存在",
-  CREATE_FAILED: "创建失败",
-  UPDATE_FAILED: "更新失败",
-  DELETE_FAILED: "删除失败",
-  ORDER_UPDATE: "更新节点排序",
-  SUBSCRIPTION_RULES_UPDATE: "更新订阅规则",
-  SUBSCRIPTION_RULES_INVALID: "订阅规则非法",
-  PLAN_IN_USE: "套餐仍被引用",
-  PLAN_NOT_FOUND: "套餐不存在",
-  PROFILE_IN_USE: "配置仍被引用",
-  CANNOT_DELETE_SELF: "不能删除自己",
-  SELF_DEMOTE_FORBIDDEN: "不能降级自己",
-  SELF_DISABLE_FORBIDDEN: "不能禁用自己",
-  UNKNOWN_KEY: "未知设置项",
-  TURNSTILE_FAILED: "人机验证失败",
-  TURNSTILE_MISSING: "缺少人机验证",
-  TURNSTILE_MISCONFIGURED: "人机验证未配置",
-  TRAFFIC_EXCEEDED: "流量耗尽",
-  UNSUPPORTED_OBFS: "不支持的混淆类型",
-  CF_ZONE_NOT_FOUND: "Cloudflare Zone 不存在",
-  CF_API_ERROR: "Cloudflare API 错误",
-}
-
-const eventOptions: Array<{ label: string; value: EventFilter }> = [
-  { label: "全部事件", value: "all" },
-  { label: "登录", value: "LOGIN" },
-  { label: "注册", value: "REGISTER" },
-  { label: "登出", value: "LOGOUT" },
-  { label: "自助重置Key", value: "RESET_TOKEN_SELF" },
-  { label: "管理员重置Key", value: "RESET_TOKEN_ADMIN" },
-  { label: "初始化管理员", value: "BOOTSTRAP_ADMIN" },
-  { label: "创建用户", value: "USER_CREATE" },
-  { label: "更新用户", value: "USER_UPDATE" },
-  { label: "删除用户", value: "USER_DELETE" },
-  { label: "创建节点", value: "NODE_CREATE" },
-  { label: "更新节点", value: "NODE_UPDATE" },
-  { label: "删除节点", value: "NODE_DELETE" },
-  { label: "创建 Agent 任务", value: "AGENT_TASK_CREATE" },
-  { label: "轮换 Agent 密钥", value: "AGENT_SECRET_ROTATE" },
-  { label: "查看 Agent 配置", value: "AGENT_CONFIG_VIEW" },
-  { label: "创建套餐", value: "PLAN_CREATE" },
-  { label: "更新套餐", value: "PLAN_UPDATE" },
-  { label: "删除套餐", value: "PLAN_DELETE" },
-  { label: "创建订阅", value: "SUBSCRIPTION_CREATE" },
-  { label: "更新订阅", value: "SUBSCRIPTION_UPDATE" },
-  { label: "删除订阅", value: "SUBSCRIPTION_DELETE" },
-  { label: "拉取订阅", value: "SUBSCRIPTION_FETCH" },
-  { label: "修改设置", value: "SETTINGS_UPDATE" },
-  { label: "创建出站配置", value: "OUTBOUND_PROFILE_CREATE" },
-  { label: "更新出站配置", value: "OUTBOUND_PROFILE_UPDATE" },
-  { label: "删除出站配置", value: "OUTBOUND_PROFILE_DELETE" },
-  { label: "创建 ACL 策略", value: "ACL_PROFILE_CREATE" },
-  { label: "更新 ACL 策略", value: "ACL_PROFILE_UPDATE" },
-  { label: "删除 ACL 策略", value: "ACL_PROFILE_DELETE" },
-  { label: "更新 ACL 节点绑定", value: "ACL_NODE_BINDING_UPDATE" },
+const eventOptions: Array<{ labelKey: string; value: EventFilter }> = [
+  { labelKey: "logs.common.allEvents", value: "all" },
+  { labelKey: "logs.event.event.LOGIN", value: "LOGIN" },
+  { labelKey: "logs.event.event.REGISTER", value: "REGISTER" },
+  { labelKey: "logs.event.event.LOGOUT", value: "LOGOUT" },
+  { labelKey: "logs.event.event.RESET_TOKEN_SELF", value: "RESET_TOKEN_SELF" },
+  {
+    labelKey: "logs.event.event.RESET_TOKEN_ADMIN",
+    value: "RESET_TOKEN_ADMIN",
+  },
+  { labelKey: "logs.event.event.BOOTSTRAP_ADMIN", value: "BOOTSTRAP_ADMIN" },
+  { labelKey: "logs.event.event.USER_CREATE", value: "USER_CREATE" },
+  { labelKey: "logs.event.event.USER_UPDATE", value: "USER_UPDATE" },
+  { labelKey: "logs.event.event.USER_DELETE", value: "USER_DELETE" },
+  { labelKey: "logs.event.event.NODE_CREATE", value: "NODE_CREATE" },
+  { labelKey: "logs.event.event.NODE_UPDATE", value: "NODE_UPDATE" },
+  { labelKey: "logs.event.event.NODE_DELETE", value: "NODE_DELETE" },
+  {
+    labelKey: "logs.event.event.AGENT_TASK_CREATE",
+    value: "AGENT_TASK_CREATE",
+  },
+  {
+    labelKey: "logs.event.event.AGENT_SECRET_ROTATE",
+    value: "AGENT_SECRET_ROTATE",
+  },
+  {
+    labelKey: "logs.event.event.AGENT_CONFIG_VIEW",
+    value: "AGENT_CONFIG_VIEW",
+  },
+  { labelKey: "logs.event.event.PLAN_CREATE", value: "PLAN_CREATE" },
+  { labelKey: "logs.event.event.PLAN_UPDATE", value: "PLAN_UPDATE" },
+  { labelKey: "logs.event.event.PLAN_DELETE", value: "PLAN_DELETE" },
+  {
+    labelKey: "logs.event.event.SUBSCRIPTION_CREATE",
+    value: "SUBSCRIPTION_CREATE",
+  },
+  {
+    labelKey: "logs.event.event.SUBSCRIPTION_UPDATE",
+    value: "SUBSCRIPTION_UPDATE",
+  },
+  {
+    labelKey: "logs.event.event.SUBSCRIPTION_DELETE",
+    value: "SUBSCRIPTION_DELETE",
+  },
+  {
+    labelKey: "logs.event.event.SUBSCRIPTION_FETCH",
+    value: "SUBSCRIPTION_FETCH",
+  },
+  { labelKey: "logs.event.event.SETTINGS_UPDATE", value: "SETTINGS_UPDATE" },
+  {
+    labelKey: "logs.event.event.OUTBOUND_PROFILE_CREATE",
+    value: "OUTBOUND_PROFILE_CREATE",
+  },
+  {
+    labelKey: "logs.event.event.OUTBOUND_PROFILE_UPDATE",
+    value: "OUTBOUND_PROFILE_UPDATE",
+  },
+  {
+    labelKey: "logs.event.event.OUTBOUND_PROFILE_DELETE",
+    value: "OUTBOUND_PROFILE_DELETE",
+  },
+  {
+    labelKey: "logs.event.event.ACL_PROFILE_CREATE",
+    value: "ACL_PROFILE_CREATE",
+  },
+  {
+    labelKey: "logs.event.event.ACL_PROFILE_UPDATE",
+    value: "ACL_PROFILE_UPDATE",
+  },
+  {
+    labelKey: "logs.event.event.ACL_PROFILE_DELETE",
+    value: "ACL_PROFILE_DELETE",
+  },
+  {
+    labelKey: "logs.event.event.ACL_NODE_BINDING_UPDATE",
+    value: "ACL_NODE_BINDING_UPDATE",
+  },
 ]
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
+
+function getEventLabel(t: TFunction, event: EventName) {
+  return t(eventLabelKey[event] ?? event)
+}
+
+function getReasonLabel(t: TFunction, reason: string | null | undefined) {
+  if (!reason) return "-"
+  const key = `logs.reason.${reason}`
+  const label = t(key)
+  return label === key ? reason : label
+}
+
+function getDetailLabel(t: TFunction, key: string) {
+  const labelKey = `logs.event.detail.${key}`
+  const label = t(labelKey)
+  return label === labelKey ? key : label
+}
 
 function EventCombobox({
   value,
@@ -215,6 +225,7 @@ function EventCombobox({
   onChange: (value: EventFilter) => void
   className?: string
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const current = eventOptions.find((o) => o.value === value)
 
@@ -226,14 +237,14 @@ function EventCombobox({
           role="combobox"
           className={cn("justify-between", className)}
         >
-          {current?.label ?? "全部事件"}
+          {current ? t(current.labelKey) : t("logs.common.allEvents")}
           <ChevronsUpDown className="size-4 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[200px] p-0">
         <Command>
           <CommandList>
-            <CommandEmpty>无匹配项</CommandEmpty>
+            <CommandEmpty>{t("logs.common.noMatches")}</CommandEmpty>
             <CommandGroup>
               {eventOptions.map((option) => (
                 <CommandItem
@@ -245,7 +256,7 @@ function EventCombobox({
                     setOpen(false)
                   }}
                 >
-                  {option.label}
+                  {t(option.labelKey)}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -268,6 +279,7 @@ function UserFilterCombobox({
   onChange: (value: string) => void
   className?: string
 }) {
+  const { t } = useI18n()
   const [open, setOpen] = useState(false)
   const selected = users.find((u) => u.username === value)
 
@@ -280,16 +292,18 @@ function UserFilterCombobox({
           className={cn("justify-between font-normal", className)}
         >
           <span className={selected ? "" : "text-muted-foreground"}>
-            {selected ? `#${selected.id} ${selected.username}` : "全部账号"}
+            {selected
+              ? `#${selected.id} ${selected.username}`
+              : t("logs.common.allAccounts")}
           </span>
           <ChevronsUpDown className="size-4 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[260px] p-0">
         <Command>
-          <CommandInput placeholder="搜索用户名" />
+          <CommandInput placeholder={t("logs.common.searchUsername")} />
           <CommandList>
-            <CommandEmpty>无匹配账号</CommandEmpty>
+            <CommandEmpty>{t("logs.common.noMatchingAccounts")}</CommandEmpty>
             <CommandGroup>
               <CommandItem
                 value="__clear__"
@@ -299,7 +313,7 @@ function UserFilterCombobox({
                 }}
               >
                 <X className="size-4 opacity-60" />
-                全部账号
+                {t("logs.common.allAccounts")}
               </CommandItem>
               {users.map((u) => (
                 <CommandItem
@@ -322,18 +336,6 @@ function UserFilterCombobox({
   )
 }
 
-// detail 里常见字段的中文标签，未命中的直接用原 key
-const detailLabel: Record<string, string> = {
-  method: "请求方法",
-  url: "请求 URL",
-  format: "返回格式",
-  ua: "User-Agent",
-  accept: "Accept",
-  accept_encoding: "Accept-Encoding",
-  referer: "Referer",
-  nodes: "节点数",
-}
-
 function renderDetailValue(value: unknown): string {
   if (value === null || value === undefined) return "-"
   if (typeof value === "object") return JSON.stringify(value, null, 2)
@@ -351,6 +353,7 @@ function parseDetail(detail: string | null): Array<[string, unknown]> | null {
 }
 
 export default function AdminEventLogsPage() {
+  const { t } = useI18n()
   const [rows, setRows] = useState<EventRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -467,7 +470,7 @@ export default function AdminEventLogsPage() {
   const columns: ColumnDef<EventRow>[] = [
     {
       accessorKey: "created_at",
-      header: "时间",
+      header: t("logs.common.time"),
       cell: ({ row }) => {
         const v = row.original.created_at
         return new Date(v.endsWith("Z") ? v : `${v}Z`).toLocaleString()
@@ -476,14 +479,17 @@ export default function AdminEventLogsPage() {
     {
       accessorKey: "event",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="事件" />
+        <DataTableColumnHeader column={column} title={t("logs.common.event")} />
       ),
-      cell: ({ row }) => eventLabel[row.original.event] ?? row.original.event,
+      cell: ({ row }) => getEventLabel(t, row.original.event),
     },
     {
       accessorKey: "username",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="账号" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("logs.common.account")}
+        />
       ),
       cell: ({ row }) => row.original.username ?? "-",
     },
@@ -496,30 +502,30 @@ export default function AdminEventLogsPage() {
     },
     {
       accessorKey: "success",
-      header: "结果",
+      header: t("logs.common.result"),
       cell: ({ row }) =>
         row.original.success === 1 ? (
           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-            成功
+            {t("logs.common.success")}
           </Badge>
         ) : (
-          <Badge className="bg-destructive/15 text-destructive">失败</Badge>
+          <Badge className="bg-destructive/15 text-destructive">
+            {t("logs.common.failure")}
+          </Badge>
         ),
     },
     {
       accessorKey: "reason",
-      header: "原因",
+      header: t("logs.common.reason"),
       cell: ({ row }) => (
         <span className="text-xs">
-          {row.original.reason
-            ? (reasonLabel[row.original.reason] ?? row.original.reason)
-            : "-"}
+          {getReasonLabel(t, row.original.reason)}
         </span>
       ),
     },
     {
-      id: "操作",
-      header: "操作",
+      id: "actions",
+      header: t("logs.common.actions"),
       enableSorting: false,
       enableHiding: false,
       cell: ({ row }) => (
@@ -529,7 +535,7 @@ export default function AdminEventLogsPage() {
           variant="outline"
           onClick={() => setActiveRow(row.original)}
         >
-          详情
+          {t("logs.common.details")}
         </Button>
       ),
     },
@@ -539,16 +545,16 @@ export default function AdminEventLogsPage() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
       {/* 页面标题 */}
       <div>
-        <h1 className="text-2xl font-bold">事件日志</h1>
+        <h1 className="text-2xl font-bold">{t("logs.event.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          登录 / 注册 / 登出 / 轮换 Key 等业务事件。
+          {t("logs.event.description")}
         </p>
       </div>
 
       {/* 筛选条件 */}
       <form className="grid gap-3 md:grid-cols-5" onSubmit={submit}>
         <div className="space-y-1">
-          <Label>账号</Label>
+          <Label>{t("logs.common.account")}</Label>
           <UserFilterCombobox
             users={users}
             value={username}
@@ -557,7 +563,7 @@ export default function AdminEventLogsPage() {
           />
         </div>
         <div className="space-y-1">
-          <Label>事件类型</Label>
+          <Label>{t("logs.common.eventType")}</Label>
           <EventCombobox
             value={eventFilter}
             onChange={(next) => void switchEvent(next)}
@@ -565,15 +571,15 @@ export default function AdminEventLogsPage() {
           />
         </div>
         <div className="space-y-1">
-          <Label>IP</Label>
+          <Label>{t("logs.common.ip")}</Label>
           <Input
             value={ip}
             onChange={(event) => setIp(event.target.value)}
-            placeholder="搜索 IP"
+            placeholder={t("logs.common.ipSearchPlaceholder")}
           />
         </div>
         <div className="space-y-1">
-          <Label>结果</Label>
+          <Label>{t("logs.common.result")}</Label>
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
@@ -581,7 +587,7 @@ export default function AdminEventLogsPage() {
               variant={successFilter === "all" ? "default" : "outline"}
               onClick={() => void switchSuccess("all")}
             >
-              全部
+              {t("logs.common.all")}
             </Button>
             <Button
               type="button"
@@ -589,7 +595,7 @@ export default function AdminEventLogsPage() {
               variant={successFilter === "1" ? "default" : "outline"}
               onClick={() => void switchSuccess("1")}
             >
-              成功
+              {t("logs.common.success")}
             </Button>
             <Button
               type="button"
@@ -597,12 +603,12 @@ export default function AdminEventLogsPage() {
               variant={successFilter === "0" ? "default" : "outline"}
               onClick={() => void switchSuccess("0")}
             >
-              失败
+              {t("logs.common.failure")}
             </Button>
           </div>
         </div>
         <div className="flex items-end justify-end gap-2">
-          <Button type="submit">查询</Button>
+          <Button type="submit">{t("logs.common.query")}</Button>
           <Button
             type="button"
             variant="outline"
@@ -620,7 +626,7 @@ export default function AdminEventLogsPage() {
               })
             }}
           >
-            重置
+            {t("logs.common.reset")}
           </Button>
         </div>
       </form>
@@ -653,6 +659,7 @@ function EventLogDetailSheet({
   row: EventRow | null
   onClose: () => void
 }) {
+  const { t } = useI18n()
   const entries = parseDetail(row?.detail ?? null)
   const createdAt = row
     ? new Date(
@@ -669,35 +676,44 @@ function EventLogDetailSheet({
     >
       <SheetContent className="data-[side=right]:sm:max-w-lg">
         <SheetHeader>
-          <SheetTitle>日志详情</SheetTitle>
+          <SheetTitle>{t("logs.event.detailTitle")}</SheetTitle>
           <SheetDescription>
-            {row ? `#${row.id} · ${eventLabel[row.event] ?? row.event}` : ""}
+            {row ? `#${row.id} · ${getEventLabel(t, row.event)}` : ""}
           </SheetDescription>
         </SheetHeader>
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           {row ? (
             <div className="grid gap-3 text-sm">
-              <DetailField label="时间" value={createdAt} />
+              <DetailField label={t("logs.common.time")} value={createdAt} />
               <DetailField
-                label="事件"
-                value={eventLabel[row.event] ?? row.event}
-              />
-              <DetailField label="账号" value={row.username ?? "-"} />
-              <DetailField label="IP" value={row.ip ?? "-"} mono />
-              <DetailField
-                label="结果"
-                value={row.success === 1 ? "成功" : "失败"}
+                label={t("logs.common.event")}
+                value={getEventLabel(t, row.event)}
               />
               <DetailField
-                label="原因"
+                label={t("logs.common.account")}
+                value={row.username ?? "-"}
+              />
+              <DetailField
+                label={t("logs.common.ip")}
+                value={row.ip ?? "-"}
+                mono
+              />
+              <DetailField
+                label={t("logs.common.result")}
                 value={
-                  row.reason ? (reasonLabel[row.reason] ?? row.reason) : "-"
+                  row.success === 1
+                    ? t("logs.common.success")
+                    : t("logs.common.failure")
                 }
+              />
+              <DetailField
+                label={t("logs.common.reason")}
+                value={getReasonLabel(t, row.reason)}
               />
               {entries && entries.length > 0 ? (
                 <div className="mt-2 rounded-md border">
                   <div className="border-b bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground">
-                    数据
+                    {t("logs.common.data")}
                   </div>
                   <div className="divide-y">
                     {entries.map(([key, value]) => (
@@ -706,7 +722,7 @@ function EventLogDetailSheet({
                         className="grid grid-cols-[120px_1fr] gap-2 px-3 py-2 text-xs"
                       >
                         <div className="text-muted-foreground">
-                          {detailLabel[key] ?? key}
+                          {getDetailLabel(t, key)}
                         </div>
                         <div className="font-mono break-all whitespace-pre-wrap">
                           {renderDetailValue(value)}

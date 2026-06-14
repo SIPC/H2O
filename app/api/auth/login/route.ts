@@ -1,7 +1,12 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { createSession, setSessionCookie } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { normalizeLocale } from "@/lib/i18n/locales"
+import {
+  getResolvedLocaleForPreference,
+  setLocaleCookie,
+} from "@/lib/i18n/server"
 import { writeEventLog } from "@/lib/logs-db"
 import { verifyPassword } from "@/lib/password"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
@@ -26,7 +31,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "INVALID_PAYLOAD",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
       { status: 400 }
     )
@@ -42,7 +48,8 @@ export async function POST(request: Request) {
       success: false,
       reason: turnstile.code,
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: turnstile.code, message: turnstile.message },
@@ -54,7 +61,7 @@ export async function POST(request: Request) {
   const db = getDb()
   const user = db
     .prepare(
-      `SELECT id, username, password_hash, role, status
+      `SELECT id, username, password_hash, role, status, preferred_locale
        FROM users
        WHERE username = ?
        LIMIT 1`
@@ -66,6 +73,7 @@ export async function POST(request: Request) {
         password_hash: string
         role: "user" | "admin"
         status: "active" | "disabled"
+        preferred_locale: string | null
       }
     | undefined
 
@@ -78,7 +86,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "NO_USER",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_CREDENTIALS", message: "用户名或密码错误" },
@@ -96,7 +105,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "USER_DISABLED",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_CREDENTIALS", message: "用户名或密码错误" },
@@ -114,7 +124,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "BAD_PASSWORD",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_CREDENTIALS", message: "用户名或密码错误" },
@@ -136,7 +147,8 @@ export async function POST(request: Request) {
       success: false,
       reason: "LOGIN_DISABLED",
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "LOGIN_DISABLED", message: "登录已关闭" } },
       { status: 403 }
     )
@@ -157,11 +169,23 @@ export async function POST(request: Request) {
     detail: JSON.stringify({ role: user.role }),
   })
 
-  const response = NextResponse.json({
+  const resolvedLocale =
+    normalizeLocale(user.preferred_locale) ??
+    getResolvedLocaleForPreference("inherit")
+  const response = localizedJson(request, {
     ok: true,
-    data: { user: { id: user.id, username: user.username, role: user.role } },
+    data: {
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        preferredLocale: user.preferred_locale ?? "inherit",
+        resolvedLocale,
+      },
+    },
   })
 
   setSessionCookie(response, session.token, session.expiresAt)
+  setLocaleCookie(response, resolvedLocale)
   return response
 }

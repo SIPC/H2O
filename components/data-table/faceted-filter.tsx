@@ -4,6 +4,7 @@ import * as React from "react"
 import type { Column } from "@tanstack/react-table"
 import { Check, PlusCircle } from "lucide-react"
 
+import { useI18n } from "@/components/i18n-provider"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -39,6 +40,8 @@ export function DataTableFacetedFilter<TData, TValue>({
   title,
   options,
 }: DataTableFacetedFilterProps<TData, TValue>) {
+  const { t } = useI18n()
+  const label = title ?? t("dataTable.filter")
   const [open, setOpen] = React.useState(false)
   const facets = column?.getFacetedUniqueValues()
   const selectedValues = new Set(column?.getFilterValue() as string[])
@@ -48,7 +51,7 @@ export function DataTableFacetedFilter<TData, TValue>({
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="h-8 border-dashed">
           <PlusCircle />
-          {title}
+          {label}
           {selectedValues?.size > 0 && (
             <>
               <Separator orientation="vertical" className="mx-1 h-4" />
@@ -58,7 +61,9 @@ export function DataTableFacetedFilter<TData, TValue>({
               <div className="hidden gap-1 lg:flex">
                 {selectedValues.size > 2 ? (
                   <Badge className="rounded-sm px-1 font-normal">
-                    已选 {selectedValues.size} 项
+                    {t("dataTable.selectedOptions", {
+                      count: selectedValues.size,
+                    })}
                   </Badge>
                 ) : (
                   options
@@ -79,9 +84,9 @@ export function DataTableFacetedFilter<TData, TValue>({
       </PopoverTrigger>
       <PopoverContent className="w-[200px] p-0" align="start">
         <Command>
-          <CommandInput placeholder={title} />
+          <CommandInput placeholder={label} />
           <CommandList>
-            <CommandEmpty>无匹配项</CommandEmpty>
+            <CommandEmpty>{t("dataTable.noMatches")}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => {
                 const isSelected = selectedValues.has(option.value)
@@ -137,7 +142,7 @@ export function DataTableFacetedFilter<TData, TValue>({
                     onSelect={() => column?.setFilterValue(undefined)}
                     className="justify-center text-center"
                   >
-                    清除筛选
+                    {t("dataTable.clearFilters")}
                   </CommandItem>
                 </CommandGroup>
               </>

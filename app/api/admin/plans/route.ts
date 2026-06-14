@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     )
     .all()
 
-  return NextResponse.json({ ok: true, data: plans })
+  return localizedJson(request, { ok: true, data: plans })
 }
 
 export async function POST(request: Request) {
@@ -55,7 +55,8 @@ export async function POST(request: Request) {
       reason: "INVALID_TRAFFIC",
       detail: { name: body.name ?? null, trafficBillingMode },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_TRAFFIC", message: "流量计费方式不合法" },
@@ -98,7 +99,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -124,7 +126,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { name: body.name ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
       { status: 400 }
     )
@@ -183,7 +186,7 @@ export async function POST(request: Request) {
       },
     })
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: { id: planId, name: body.name },
     })
@@ -197,7 +200,8 @@ export async function POST(request: Request) {
       reason: "CREATE_FAILED",
       detail: { name: body.name },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "CREATE_FAILED", message: "套餐创建失败" } },
       { status: 400 }
     )

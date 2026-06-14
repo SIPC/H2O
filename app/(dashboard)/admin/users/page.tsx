@@ -6,6 +6,7 @@ import { MoreVertical, Pencil, Plus, Trash2 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -41,6 +42,16 @@ type UserRow = {
   status: "active" | "disabled"
   auth_token: string
   created_at: string
+}
+
+function roleLabelKey(role: Role) {
+  return role === "admin" ? "adminBasic.role.admin" : "adminBasic.role.user"
+}
+
+function userStatusLabelKey(status: UserRow["status"] | undefined) {
+  return status === "active"
+    ? "adminBasic.status.enabled"
+    : "adminBasic.status.disabled"
 }
 
 // 用户表单（创建 / 编辑共用）
@@ -79,6 +90,8 @@ function UserForm({
   submitLabel: string
   onCancel?: () => void
 }) {
+  const { t } = useI18n()
+
   return (
     <form
       className="space-y-4 **:data-[slot=label]:text-xs"
@@ -88,12 +101,12 @@ function UserForm({
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            基础信息
+            {t("adminUsers.form.basicInfo")}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1">
-            <Label>用户名</Label>
+            <Label>{t("adminUsers.form.username")}</Label>
             <Input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -103,7 +116,7 @@ function UserForm({
           </div>
           {!isEdit && (
             <div className="space-y-1">
-              <Label>密码</Label>
+              <Label>{t("adminUsers.form.password")}</Label>
               <Input
                 type="password"
                 value={password}
@@ -113,7 +126,7 @@ function UserForm({
             </div>
           )}
           <div className="space-y-1">
-            <Label>角色</Label>
+            <Label>{t("adminUsers.form.role")}</Label>
             <div className="flex gap-2">
               {(["user", "admin"] as Role[]).map((r) => (
                 <Button
@@ -123,7 +136,7 @@ function UserForm({
                   size="sm"
                   onClick={() => setRole(r)}
                 >
-                  {r}
+                  {t(roleLabelKey(r))}
                 </Button>
               ))}
             </div>
@@ -131,7 +144,7 @@ function UserForm({
           {isEdit && setStatus && (
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <Label>状态</Label>
+                <Label>{t("adminUsers.form.status")}</Label>
                 <label className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground">
                   <Switch
                     checked={status === "active"}
@@ -140,7 +153,7 @@ function UserForm({
                     }
                     size="sm"
                   />
-                  {status === "active" ? "启用" : "禁用"}
+                  {t(userStatusLabelKey(status))}
                 </label>
               </div>
             </div>
@@ -154,28 +167,28 @@ function UserForm({
           <Card>
             <CardHeader className="p-4 pb-1">
               <CardTitle className="text-base leading-none font-semibold">
-                安全设置
+                {t("adminUsers.form.security")}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="space-y-1">
-                <Label>修改密码</Label>
+                <Label>{t("adminUsers.form.changePassword")}</Label>
                 <p className="text-xs text-muted-foreground">
-                  留空则不修改密码
+                  {t("adminUsers.form.changePasswordHelp")}
                 </p>
                 <Input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="输入新密码（至少 6 位）"
+                  placeholder={t("adminUsers.form.newPasswordPlaceholder")}
                 />
               </div>
               {showResetToken && onResetToken && (
                 <div className="space-y-3 rounded-md border border-destructive/30 p-3">
                   <div className="space-y-1">
-                    <Label>重置节点登录 Key</Label>
+                    <Label>{t("adminUsers.form.resetAuthKey")}</Label>
                     <p className="text-xs text-muted-foreground">
-                      会使当前订阅链接立刻失效，已连接的节点需要重新导入
+                      {t("adminUsers.form.resetAuthKeyHelp")}
                     </p>
                   </div>
                   <Button
@@ -184,7 +197,7 @@ function UserForm({
                     size="sm"
                     onClick={onResetToken}
                   >
-                    重置 Key
+                    {t("adminUsers.form.resetAuthKeyButton")}
                   </Button>
                 </div>
               )}
@@ -197,7 +210,7 @@ function UserForm({
         <Button type="submit">{submitLabel}</Button>
         {onCancel && (
           <Button type="button" variant="outline" onClick={onCancel}>
-            取消
+            {t("common.cancel")}
           </Button>
         )}
       </div>
@@ -207,6 +220,7 @@ function UserForm({
 
 export default function AdminUsersPage() {
   const { confirm, alert } = useConfirm()
+  const { locale, t } = useI18n()
   const [rows, setRows] = useState<UserRow[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -216,24 +230,33 @@ export default function AdminUsersPage() {
       {
         accessorKey: "id",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="ID" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminBasic.label.id")}
+          />
         ),
-        meta: { label: "ID" },
+        meta: { label: t("adminBasic.label.id") },
       },
       {
         accessorKey: "username",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="用户名" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminBasic.label.username")}
+          />
         ),
         cell: ({ row }) => (
           <span className="font-medium">{row.getValue("username")}</span>
         ),
-        meta: { label: "用户名" },
+        meta: { label: t("adminBasic.label.username") },
       },
       {
         accessorKey: "role",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="角色" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminUsers.form.role")}
+          />
         ),
         cell: ({ row }) => {
           const role = row.getValue<Role>("role")
@@ -243,17 +266,20 @@ export default function AdminUsersPage() {
                 role === "admin" ? "bg-primary/15 text-primary" : undefined
               }
             >
-              {role}
+              {t(roleLabelKey(role))}
             </Badge>
           )
         },
         filterFn: "arrIncludesSome",
-        meta: { label: "角色" },
+        meta: { label: t("adminUsers.form.role") },
       },
       {
         accessorKey: "status",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="状态" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminUsers.form.status")}
+          />
         ),
         cell: ({ row }) => {
           const status = row.getValue<UserRow["status"]>("status")
@@ -265,17 +291,20 @@ export default function AdminUsersPage() {
                   : "bg-muted text-muted-foreground"
               }
             >
-              {status === "active" ? "启用" : "禁用"}
+              {t(userStatusLabelKey(status))}
             </Badge>
           )
         },
         filterFn: "arrIncludesSome",
-        meta: { label: "状态" },
+        meta: { label: t("adminUsers.form.status") },
       },
       {
         accessorKey: "auth_token",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="节点登录 Key" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminUsers.column.authKey")}
+          />
         ),
         cell: ({ row }) => (
           <span className="max-w-65 truncate font-mono text-xs">
@@ -283,20 +312,23 @@ export default function AdminUsersPage() {
           </span>
         ),
         enableSorting: false,
-        meta: { label: "节点登录 Key" },
+        meta: { label: t("adminUsers.column.authKey") },
       },
       {
         accessorKey: "created_at",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="创建时间" />
+          <DataTableColumnHeader
+            column={column}
+            title={t("adminBasic.label.createdAt")}
+          />
         ),
         cell: ({ row }) =>
-          new Date(row.getValue<string>("created_at")).toLocaleString(),
-        meta: { label: "创建时间" },
+          new Date(row.getValue<string>("created_at")).toLocaleString(locale),
+        meta: { label: t("adminBasic.label.createdAt") },
       },
       {
         id: "actions",
-        header: () => <span className="sr-only">操作</span>,
+        header: () => <span className="sr-only">{t("common.actions")}</span>,
         enableHiding: false,
         enableSorting: false,
         cell: ({ row }) => {
@@ -311,7 +343,7 @@ export default function AdminUsersPage() {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={() => startEdit(r)}>
                   <Pencil className="mr-2 h-4 w-4" />
-                  编辑
+                  {t("adminBasic.action.edit")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -319,7 +351,7 @@ export default function AdminUsersPage() {
                   onClick={() => void remove(r)}
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  删除
+                  {t("adminBasic.action.delete")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -328,7 +360,7 @@ export default function AdminUsersPage() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [locale, t]
   )
 
   // 创建面板
@@ -443,9 +475,12 @@ export default function AdminUsersPage() {
 
   async function remove(row: UserRow) {
     const ok = await confirm({
-      title: `删除用户 #${row.id} (${row.username})？`,
-      description: "其订阅与会话会一并清理，不可恢复。",
-      confirmText: "删除",
+      title: t("adminUsers.delete.confirmTitle", {
+        id: row.id,
+        username: row.username,
+      }),
+      description: t("adminUsers.delete.confirmDescription"),
+      confirmText: t("common.delete"),
       variant: "destructive",
     })
     if (!ok) return
@@ -456,8 +491,8 @@ export default function AdminUsersPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) {
       await alert({
-        title: "删除失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("adminUsers.delete.failedTitle"),
+        description: json?.error?.message ?? t("common.retryLater"),
         variant: "destructive",
       })
       return
@@ -469,9 +504,11 @@ export default function AdminUsersPage() {
     if (!editingRow) return
 
     const ok = await confirm({
-      title: `重置 ${editingRow.username} 的节点登录 Key？`,
-      description: "此操作会使当前订阅链接立刻失效，已连接的节点需要重新导入。",
-      confirmText: "重置",
+      title: t("adminUsers.resetAuthKey.confirmTitle", {
+        username: editingRow.username,
+      }),
+      description: t("adminUsers.resetAuthKey.confirmDescription"),
+      confirmText: t("common.reset"),
       variant: "destructive",
     })
     if (!ok) return
@@ -492,22 +529,22 @@ export default function AdminUsersPage() {
       {/* 页面标题 */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">用户管理</h1>
+          <h1 className="text-2xl font-bold">{t("adminUsers.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            共 {rows.length} 个用户
+            {t("adminUsers.count", { count: rows.length })}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)}>
           <Plus className="mr-1.5 h-4 w-4" />
-          添加用户
+          {t("adminUsers.add")}
         </Button>
       </div>
 
       {/* 用户列表 */}
       {rows.length === 0 && !loading ? (
         <Card className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p className="text-sm">暂无用户</p>
-          <p className="mt-1 text-xs">点击右上角「添加用户」创建第一个用户</p>
+          <p className="text-sm">{t("adminUsers.empty.title")}</p>
+          <p className="mt-1 text-xs">{t("adminUsers.empty.description")}</p>
         </Card>
       ) : (
         <DataTable
@@ -520,7 +557,7 @@ export default function AdminUsersPage() {
           renderToolbar={(table) => (
             <>
               <Input
-                placeholder="搜索用户名…"
+                placeholder={t("adminUsers.searchPlaceholder")}
                 value={
                   (table.getColumn("username")?.getFilterValue() as string) ??
                   ""
@@ -532,18 +569,18 @@ export default function AdminUsersPage() {
               />
               <DataTableFacetedFilter
                 column={table.getColumn("role")}
-                title="角色"
+                title={t("adminUsers.form.role")}
                 options={[
-                  { label: "admin", value: "admin" },
-                  { label: "user", value: "user" },
+                  { label: t("adminBasic.role.admin"), value: "admin" },
+                  { label: t("adminBasic.role.user"), value: "user" },
                 ]}
               />
               <DataTableFacetedFilter
                 column={table.getColumn("status")}
-                title="状态"
+                title={t("adminUsers.form.status")}
                 options={[
-                  { label: "启用", value: "active" },
-                  { label: "禁用", value: "disabled" },
+                  { label: t("adminBasic.status.enabled"), value: "active" },
+                  { label: t("adminBasic.status.disabled"), value: "disabled" },
                 ]}
               />
               <DataTableViewOptions table={table} />
@@ -562,9 +599,9 @@ export default function AdminUsersPage() {
       >
         <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
-            <SheetTitle>添加用户</SheetTitle>
+            <SheetTitle>{t("adminUsers.create.title")}</SheetTitle>
             <SheetDescription>
-              创建新用户，设置用户名、密码和角色。
+              {t("adminUsers.create.description")}
             </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
@@ -579,7 +616,7 @@ export default function AdminUsersPage() {
               newPassword=""
               setNewPassword={() => {}}
               onSubmit={create}
-              submitLabel="创建用户"
+              submitLabel={t("adminUsers.create.submit")}
             />
           </div>
         </SheetContent>
@@ -595,10 +632,12 @@ export default function AdminUsersPage() {
         <SheetContent className="data-[side=right]:sm:max-w-lg">
           <SheetHeader>
             <SheetTitle>
-              编辑用户{" "}
+              {t("adminUsers.edit.title")}{" "}
               {editingRow ? `#${editingRow.id} (${editingRow.username})` : ""}
             </SheetTitle>
-            <SheetDescription>修改用户配置，保存后立即生效。</SheetDescription>
+            <SheetDescription>
+              {t("adminUsers.edit.description")}
+            </SheetDescription>
           </SheetHeader>
           <div className="flex-1 overflow-y-auto px-4 pb-4">
             <UserForm
@@ -616,7 +655,7 @@ export default function AdminUsersPage() {
               showResetToken
               onResetToken={() => void resetAuthToken()}
               onSubmit={submitEdit}
-              submitLabel="保存修改"
+              submitLabel={t("adminUsers.edit.submit")}
               onCancel={() => setEditingRow(null)}
             />
           </div>

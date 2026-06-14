@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { isAgentTaskType, markTimedOutAgentTasks } from "@/lib/agent-control"
 import { AGENT_TASK_TIMEOUT_ERROR } from "@/lib/agent-task-timeout"
@@ -109,5 +109,8 @@ export async function GET(request: Request) {
     )
     .all(...values, pageSize, offset) as AgentTaskRow[]
 
-  return NextResponse.json({ ok: true, data: { rows, total, page, pageSize } })
+  return localizedJson(request, {
+    ok: true,
+    data: { rows, total, page, pageSize },
+  })
 }

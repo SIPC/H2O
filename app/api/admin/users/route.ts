@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
+import { isUserLocalePreference, type Locale } from "@/lib/i18n/locales"
 import { writeAdminEvent } from "@/lib/logs-db"
 import { hashPassword, isPasswordHash } from "@/lib/password"
 import { createUserAuthToken } from "@/lib/tokens"
@@ -13,6 +14,7 @@ type CreateUserBody = {
   passwordHash?: string
   authToken?: string
   role?: "user" | "admin"
+  preferredLocale?: "inherit" | Locale
 }
 
 export async function GET(request: Request) {
@@ -22,13 +24,13 @@ export async function GET(request: Request) {
   const db = getDb()
   const rows = db
     .prepare(
-      `SELECT id, username, role, status, auth_token, created_at, updated_at, last_login_at
+      `SELECT id, username, role, status, preferred_locale, auth_token, created_at, updated_at, last_login_at
        FROM users
        ORDER BY id DESC`
     )
     .all()
 
-  return NextResponse.json({ ok: true, data: rows })
+  return localizedJson(request, { ok: true, data: rows })
 }
 
 export async function POST(request: Request) {
@@ -52,8 +54,34 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { targetUsername: body?.username ?? null },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "参数不完整" } },
+      { status: 400 }
+    )
+  }
+
+  if (
+    body.preferredLocale !== undefined &&
+    !isUserLocalePreference(body.preferredLocale)
+  ) {
+    writeAdminEvent({
+      event: "USER_CREATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: {
+        targetUsername: body.username,
+        preferredLocale: body.preferredLocale,
+      },
+    })
+    return localizedJson(
+      request,
+      {
+        ok: false,
+        error: { code: "INVALID_LOCALE", message: "语言设置不合法" },
+      },
       { status: 400 }
     )
   }
@@ -67,7 +95,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { targetUsername: body.username, role: body.role },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_PAYLOAD", message: "角色不合法" } },
       { status: 400 }
     )
@@ -82,7 +111,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PASSWORD",
       detail: { targetUsername: body.username },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PASSWORD", message: "密码至少 6 位" },
@@ -100,7 +130,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PASSWORD",
       detail: { targetUsername: body.username },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PASSWORD", message: "密码哈希不合法" },
@@ -118,7 +149,8 @@ export async function POST(request: Request) {
       reason: "INVALID_PAYLOAD",
       detail: { targetUsername: body.username },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "认证 Key 不合法" },
@@ -132,14 +164,18 @@ export async function POST(request: Request) {
     body.passwordHash ?? hashPassword(body.password as string)
   const authToken = body.authToken ?? createUserAuthToken()
   const db = getDb()
+  const preferredLocale =
+    body.preferredLocale && body.preferredLocale !== "inherit"
+      ? body.preferredLocale
+      : null
 
   try {
     const result = db
       .prepare(
-        `INSERT INTO users(username, password_hash, auth_token, role, status, updated_at)
-         VALUES (?, ?, ?, ?, 'active', datetime('now'))`
+        `INSERT INTO users(username, password_hash, auth_token, role, status, preferred_locale, updated_at)
+         VALUES (?, ?, ?, ?, 'active', ?, datetime('now'))`
       )
-      .run(body.username, passwordHash, authToken, role)
+      .run(body.username, passwordHash, authToken, role, preferredLocale)
 
     const newUserId = Number(result.lastInsertRowid)
     writeAdminEvent({
@@ -151,12 +187,13 @@ export async function POST(request: Request) {
       detail: { targetUserId: newUserId, targetUsername: body.username, role },
     })
 
-    return NextResponse.json({
+    return localizedJson(request, {
       ok: true,
       data: {
         id: newUserId,
         username: body.username,
         role,
+        preferred_locale: preferredLocale,
       },
     })
   } catch {
@@ -168,7 +205,8 @@ export async function POST(request: Request) {
       reason: "CREATE_FAILED",
       detail: { targetUsername: body.username },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "CREATE_FAILED", message: "用户创建失败" } },
       { status: 400 }
     )

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { ChevronsUpDown, X } from "lucide-react"
 
+import { useI18n } from "@/components/i18n-provider"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -41,18 +42,16 @@ type NodeRow = { id: number; name: string }
 
 type SuccessFilter = "all" | "1" | "0"
 
-const reasonLabel: Record<string, string> = {
-  OK: "成功",
-  BAD_PAYLOAD: "请求体非法",
-  INTERNAL: "内部错误",
-  NO_NODE: "节点不存在",
-  NO_USER: "账号不存在",
-  USER_DISABLED: "账号已禁用",
-  NO_SUB: "无可用订阅",
-  TRAFFIC_EXCEEDED: "流量超限",
-}
+type TFunction = ReturnType<typeof useI18n>["t"]
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 200]
+
+function getReasonLabel(t: TFunction, reason: string | null | undefined) {
+  if (!reason) return "-"
+  const key = `logs.reason.${reason}`
+  const label = t(key)
+  return label === key ? reason : label
+}
 
 // 账号 / 节点筛选下拉：value 为空字符串表示不筛选
 function NamedEntityCombobox({
@@ -129,6 +128,7 @@ function NamedEntityCombobox({
 }
 
 export default function AdminLogsPage() {
+  const { t } = useI18n()
   const [rows, setRows] = useState<LogRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -249,7 +249,7 @@ export default function AdminLogsPage() {
   const columns: ColumnDef<LogRow>[] = [
     {
       accessorKey: "created_at",
-      header: "时间",
+      header: t("logs.common.time"),
       cell: ({ row }) => {
         const v = row.original.created_at
         return new Date(v.endsWith("Z") ? v : `${v}Z`).toLocaleString()
@@ -258,14 +258,17 @@ export default function AdminLogsPage() {
     {
       accessorKey: "node_name",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="节点" />
+        <DataTableColumnHeader column={column} title={t("logs.common.node")} />
       ),
       cell: ({ row }) => row.original.node_name ?? "-",
     },
     {
       accessorKey: "username",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title="账号" />
+        <DataTableColumnHeader
+          column={column}
+          title={t("logs.common.account")}
+        />
       ),
       cell: ({ row }) => row.original.username ?? "-",
     },
@@ -278,24 +281,24 @@ export default function AdminLogsPage() {
     },
     {
       accessorKey: "success",
-      header: "结果",
+      header: t("logs.common.result"),
       cell: ({ row }) =>
         row.original.success === 1 ? (
           <Badge className="bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-            成功
+            {t("logs.common.success")}
           </Badge>
         ) : (
-          <Badge className="bg-destructive/15 text-destructive">失败</Badge>
+          <Badge className="bg-destructive/15 text-destructive">
+            {t("logs.common.failure")}
+          </Badge>
         ),
     },
     {
       accessorKey: "reason",
-      header: "原因",
+      header: t("logs.common.reason"),
       cell: ({ row }) => (
         <span className="text-xs">
-          {row.original.reason
-            ? (reasonLabel[row.original.reason] ?? row.original.reason)
-            : "-"}
+          {getReasonLabel(t, row.original.reason)}
         </span>
       ),
     },
@@ -305,50 +308,50 @@ export default function AdminLogsPage() {
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-6">
       {/* 页面标题 */}
       <div>
-        <h1 className="text-2xl font-bold">认证日志</h1>
+        <h1 className="text-2xl font-bold">{t("logs.auth.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Hysteria2 节点 HTTP 认证回调记录。
+          {t("logs.auth.description")}
         </p>
       </div>
 
       {/* 筛选条件 */}
       <form className="grid gap-3 md:grid-cols-5" onSubmit={submit}>
         <div className="space-y-1">
-          <Label>账号</Label>
+          <Label>{t("logs.common.account")}</Label>
           <NamedEntityCombobox
             items={users.map((u) => ({ id: u.id, name: u.username }))}
             value={username}
             onChange={(v) => void switchUsername(v)}
-            placeholder="全部账号"
-            searchPlaceholder="搜索用户名"
-            clearLabel="全部账号"
-            emptyText="无匹配账号"
+            placeholder={t("logs.common.allAccounts")}
+            searchPlaceholder={t("logs.common.searchUsername")}
+            clearLabel={t("logs.common.allAccounts")}
+            emptyText={t("logs.common.noMatchingAccounts")}
             className="w-full"
           />
         </div>
         <div className="space-y-1">
-          <Label>节点</Label>
+          <Label>{t("logs.common.node")}</Label>
           <NamedEntityCombobox
             items={nodes}
             value={nodeName}
             onChange={(v) => void switchNode(v)}
-            placeholder="全部节点"
-            searchPlaceholder="搜索节点名"
-            clearLabel="全部节点"
-            emptyText="无匹配节点"
+            placeholder={t("logs.common.allNodes")}
+            searchPlaceholder={t("logs.common.searchNodeName")}
+            clearLabel={t("logs.common.allNodes")}
+            emptyText={t("logs.common.noMatchingNodes")}
             className="w-full"
           />
         </div>
         <div className="space-y-1">
-          <Label>IP</Label>
+          <Label>{t("logs.common.ip")}</Label>
           <Input
             value={ip}
             onChange={(event) => setIp(event.target.value)}
-            placeholder="搜索 IP"
+            placeholder={t("logs.common.ipSearchPlaceholder")}
           />
         </div>
         <div className="space-y-1">
-          <Label>结果</Label>
+          <Label>{t("logs.common.result")}</Label>
           <div className="flex gap-2">
             <Button
               type="button"
@@ -356,7 +359,7 @@ export default function AdminLogsPage() {
               variant={successFilter === "all" ? "default" : "outline"}
               onClick={() => void switchFilter("all")}
             >
-              全部
+              {t("logs.common.all")}
             </Button>
             <Button
               type="button"
@@ -364,7 +367,7 @@ export default function AdminLogsPage() {
               variant={successFilter === "1" ? "default" : "outline"}
               onClick={() => void switchFilter("1")}
             >
-              成功
+              {t("logs.common.success")}
             </Button>
             <Button
               type="button"
@@ -372,12 +375,12 @@ export default function AdminLogsPage() {
               variant={successFilter === "0" ? "default" : "outline"}
               onClick={() => void switchFilter("0")}
             >
-              失败
+              {t("logs.common.failure")}
             </Button>
           </div>
         </div>
         <div className="flex items-end justify-end gap-2">
-          <Button type="submit">查询</Button>
+          <Button type="submit">{t("logs.common.query")}</Button>
           <Button
             type="button"
             variant="outline"
@@ -395,7 +398,7 @@ export default function AdminLogsPage() {
               })
             }}
           >
-            重置
+            {t("logs.common.reset")}
           </Button>
         </div>
       </form>

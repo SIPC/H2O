@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import {
@@ -59,7 +59,8 @@ export async function GET(
   const { id } = await params
   const reportId = Number(id)
   if (!Number.isInteger(reportId) || reportId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "上报日志ID不合法" } },
       { status: 400 }
     )
@@ -78,7 +79,8 @@ export async function GET(
     .get(reportId) as AgentTrafficReportRow | undefined
 
   if (!report) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NOT_FOUND", message: "上报日志不存在" } },
       { status: 404 }
     )
@@ -96,7 +98,7 @@ export async function GET(
     )
     .all(reportId) as AgentTrafficUserLogRow[]
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       report: { ...report, auth_path: maskAuthPath(report.auth_path) },

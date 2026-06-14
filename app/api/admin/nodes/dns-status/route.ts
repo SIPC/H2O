@@ -1,7 +1,10 @@
 import { promises as dnsPromises } from "node:dns"
 import { isIPv4, isIPv6 } from "node:net"
 
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
+import { translateText } from "@/lib/i18n/messages"
+import { resolveLocaleFromRequest } from "@/lib/i18n/server"
+import type { Locale } from "@/lib/i18n/locales"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -161,28 +164,53 @@ function summarizeStatus(sources: DnsSourceResult[]): DnsStatus {
   return "unresolved"
 }
 
-function formatSourceStatus(status: DnsSourceResult["status"]) {
-  if (status === "match") return "匹配"
-  if (status === "mismatch") return "不匹配"
-  return "未解析"
+function formatSourceStatus(status: DnsSourceResult["status"], locale: Locale) {
+  const label =
+    status === "match" ? "匹配" : status === "mismatch" ? "不匹配" : "未解析"
+  return translateText(label, locale)
+}
+
+function localizeDnsSourceResult(
+  source: DnsSourceResult,
+  locale: Locale
+): DnsSourceResult {
+  return {
+    ...source,
+    name: translateText(source.name, locale),
+    error: source.error ? translateText(source.error, locale) : undefined,
+  }
+}
+
+function formatSkipDetail(reason: string, locale: Locale) {
+  if (locale === "zh-CN") return `${reason}，跳过 DNS 检查`
+  return `${translateText(reason, locale)}. DNS check skipped.`
 }
 
 function buildDetail(
   domain: string,
   targets: DnsTarget[],
-  sources: DnsSourceResult[]
+  sources: DnsSourceResult[],
+  locale: Locale
 ) {
-  const targetLines = targets.map(
-    (target) => `目标 ${target.label}（${target.dnsType}）：${target.ip}`
+  const targetLines = targets.map((target) =>
+    locale === "zh-CN"
+      ? `目标 ${target.label}（${target.dnsType}）：${target.ip}`
+      : `Target ${target.label} (${target.dnsType}): ${target.ip}`
   )
 
   return [
-    `域名：${domain}`,
+    locale === "zh-CN" ? `域名：${domain}` : `Domain: ${domain}`,
     ...targetLines,
     ...sources.map((source) => {
       const records = source.records.length ? source.records.join(", ") : "-"
-      const error = source.error ? `（${source.error}）` : ""
-      return `${source.name} ${source.dnsType}：${formatSourceStatus(source.status)} → ${records}${error}`
+      const localSource = localizeDnsSourceResult(source, locale)
+      const error = localSource.error
+        ? locale === "zh-CN"
+          ? `（${localSource.error}）`
+          : ` (${localSource.error})`
+        : ""
+      const separator = locale === "zh-CN" ? "：" : ": "
+      return `${localSource.name} ${source.dnsType}${separator}${formatSourceStatus(source.status, locale)} → ${records}${error}`
     }),
   ].join("\n")
 }
@@ -193,6 +221,7 @@ export async function GET(request: Request) {
   const auth = requireAdmin(request)
   if (!auth.ok) return auth.response
 
+  const locale = resolveLocaleFromRequest(request)
   const db = getDb()
   const rows = db
     .prepare(`SELECT id, ip, node_ipv4, node_ipv6 FROM nodes`)
@@ -213,7 +242,7 @@ export async function GET(request: Request) {
         return {
           id: row.id,
           dns_status: "skip" as const,
-          detail: "订阅地址不是域名，跳过 DNS 检查",
+          detail: formatSkipDetail("订阅地址不是域名", locale),
           sources: [] as DnsSourceResult[],
         }
       }
@@ -223,7 +252,7 @@ export async function GET(request: Request) {
         return {
           id: row.id,
           dns_status: "skip" as const,
-          detail: `${targetResult.detail}，跳过 DNS 检查`,
+          detail: formatSkipDetail(targetResult.detail, locale),
           sources: [] as DnsSourceResult[],
         }
       }
@@ -232,7 +261,7 @@ export async function GET(request: Request) {
         return {
           id: row.id,
           dns_status: "skip" as const,
-          detail: "未填写公网 IPv4 或 IPv6，跳过 DNS 检查",
+          detail: formatSkipDetail("未填写公网 IPv4 或 IPv6", locale),
           sources: [] as DnsSourceResult[],
         }
       }
@@ -249,8 +278,10 @@ export async function GET(request: Request) {
       return {
         id: row.id,
         dns_status: dnsStatus,
-        detail: buildDetail(row.ip, targetResult.targets, sources),
-        sources,
+        detail: buildDetail(row.ip, targetResult.targets, sources, locale),
+        sources: sources.map((source) =>
+          localizeDnsSourceResult(source, locale)
+        ),
       }
     }
   )
@@ -272,5 +303,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, data: statusMap })
+  return localizedJson(request, { ok: true, data: statusMap })
 }

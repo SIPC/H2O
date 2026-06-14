@@ -1,5 +1,10 @@
 export type AgentTaskOutputType = "text" | "json" | "logs"
 
+export type AgentTaskOutputTranslator = (
+  key: string,
+  params?: Record<string, unknown>
+) => string
+
 export type AgentLogEntry = {
   raw: string
   prefix?: string
@@ -100,38 +105,58 @@ function isRecord(input: unknown): input is Record<string, unknown> {
   return Boolean(input && typeof input === "object" && !Array.isArray(input))
 }
 
-const taskJsonKeyLabel: Record<string, string> = {
-  current_version: "当前版本",
-  latest_version: "最新版本",
-  updated: "是否已更新",
-  restart_required: "需要重启",
-  skipped_reason: "跳过原因",
-  output: "输出",
-  revision: "配置版本",
-  hash: "配置哈希",
-  path: "路径",
-  status: "状态",
-  lines: "日志行数",
+const taskJsonKeyLabelKey: Record<string, string> = {
+  current_version: "logs.agentTasks.output.key.currentVersion",
+  latest_version: "logs.agentTasks.output.key.latestVersion",
+  updated: "logs.agentTasks.output.key.updated",
+  restart_required: "logs.agentTasks.output.key.restartRequired",
+  skipped_reason: "logs.agentTasks.output.key.skippedReason",
+  output: "logs.agentTasks.output.key.output",
+  revision: "logs.agentTasks.output.key.revision",
+  hash: "logs.agentTasks.output.key.hash",
+  path: "logs.agentTasks.output.key.path",
+  status: "logs.agentTasks.output.key.status",
+  lines: "logs.agentTasks.output.key.lines",
 }
 
-const taskJsonValueLabel: Record<string, string> = {
-  running: "运行中",
-  stopped: "已停止",
-  failed: "异常",
-  unknown: "未知",
+const taskJsonValueLabelKey: Record<string, string> = {
+  running: "logs.agentTasks.output.value.running",
+  stopped: "logs.agentTasks.output.value.stopped",
+  failed: "logs.agentTasks.output.value.failed",
+  unknown: "logs.agentTasks.output.value.unknown",
 }
 
-function localizeTaskJson(input: unknown): unknown {
-  if (Array.isArray(input)) return input.map(localizeTaskJson)
+const taskTextLabelKey: Record<string, string> = {
+  "任务超时：超过 1 小时未完成": "logs.agentTasks.output.error.timeout",
+}
+
+function translateTaskOutputLabel(
+  t: AgentTaskOutputTranslator | undefined,
+  key: string | undefined,
+  fallback: string
+) {
+  if (!t || !key) return fallback
+  const translated = t(key)
+  return translated === key ? fallback : translated
+}
+
+function localizeTaskJson(
+  input: unknown,
+  t?: AgentTaskOutputTranslator
+): unknown {
+  if (Array.isArray(input))
+    return input.map((item) => localizeTaskJson(item, t))
   if (isRecord(input)) {
     return Object.fromEntries(
       Object.entries(input).map(([key, value]) => [
-        taskJsonKeyLabel[key] ?? key,
-        localizeTaskJson(value),
+        translateTaskOutputLabel(t, taskJsonKeyLabelKey[key], key),
+        localizeTaskJson(value, t),
       ])
     )
   }
-  if (typeof input === "string") return taskJsonValueLabel[input] ?? input
+  if (typeof input === "string") {
+    return translateTaskOutputLabel(t, taskJsonValueLabelKey[input], input)
+  }
   return input
 }
 
@@ -277,7 +302,8 @@ export function formatServiceLogs(logs: string): string {
 
 export function parseAgentTaskOutput(
   result: string | null,
-  error?: string | null
+  error?: string | null,
+  t?: AgentTaskOutputTranslator
 ): AgentTaskOutput | null {
   const raw = result || error
   if (!raw) return null
@@ -312,18 +338,22 @@ export function parseAgentTaskOutput(
         logEntries,
       }
     }
-    return { type: "text", value: parsed }
+    return {
+      type: "text",
+      value: translateTaskOutputLabel(t, taskTextLabelKey[parsed], parsed),
+    }
   }
 
   return {
     type: "json",
-    value: JSON.stringify(localizeTaskJson(parsed), null, 2),
+    value: JSON.stringify(localizeTaskJson(parsed, t), null, 2),
   }
 }
 
 export function renderAgentTaskOutput(
   result: string | null,
-  error?: string | null
+  error?: string | null,
+  t?: AgentTaskOutputTranslator
 ): string {
-  return parseAgentTaskOutput(result, error)?.value ?? ""
+  return parseAgentTaskOutput(result, error, t)?.value ?? ""
 }

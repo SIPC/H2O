@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { cleanupExpiredLogsBySetting, getLogsDb } from "@/lib/logs-db"
@@ -107,5 +107,8 @@ export async function GET(request: Request) {
     )
     .all(...values, pageSize, offset)
 
-  return NextResponse.json({ ok: true, data: { rows, total, page, pageSize } })
+  return localizedJson(request, {
+    ok: true,
+    data: { rows, total, page, pageSize },
+  })
 }

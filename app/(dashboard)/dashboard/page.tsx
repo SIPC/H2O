@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Line, LineChart, XAxis } from "recharts"
 
 import { useConfirm } from "@/components/confirm-provider"
+import { useI18n } from "@/components/i18n-provider"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
@@ -38,10 +39,10 @@ type SubscriptionRow = {
   renewal_period_days: number | null
 }
 
-const TRAFFIC_BILLING_LABEL: Record<TrafficBillingMode, string> = {
-  tx_rx: "上行 + 下行",
-  tx: "仅上行",
-  rx: "仅下行",
+const TRAFFIC_BILLING_LABEL_KEY: Record<TrafficBillingMode, string> = {
+  tx_rx: "adminBasic.trafficBilling.txRx",
+  tx: "adminBasic.trafficBilling.tx",
+  rx: "adminBasic.trafficBilling.rx",
 }
 
 function normalizeTrafficBillingMode(
@@ -50,18 +51,22 @@ function normalizeTrafficBillingMode(
   return value === "tx" || value === "rx" ? value : "tx_rx"
 }
 
-function formatTrafficBillingMode(value: string | null | undefined) {
-  return TRAFFIC_BILLING_LABEL[normalizeTrafficBillingMode(value)]
+function trafficBillingModeKey(value: string | null | undefined) {
+  return TRAFFIC_BILLING_LABEL_KEY[normalizeTrafficBillingMode(value)]
 }
 
-function nextRenewalDate(row: SubscriptionRow): string | null {
+function nextRenewalDate(
+  row: SubscriptionRow,
+  t: (key: string, params?: Record<string, unknown>) => string,
+  locale: string
+): string | null {
   if (row.auto_renew !== 1 || !row.renewal_period_days) return null
   const anchor = new Date(row.renewal_anchor ?? row.start_time).getTime()
   if (!Number.isFinite(anchor)) return null
   const next = new Date(anchor + row.renewal_period_days * 24 * 60 * 60 * 1000)
   // 如果计算出的下次重置时间已过，说明还没有触发续订检查，显示 "即将重置"
-  if (next.getTime() <= Date.now()) return "即将重置"
-  return next.toLocaleDateString()
+  if (next.getTime() <= Date.now()) return t("userDashboard.renewal.resetSoon")
+  return next.toLocaleDateString(locale)
 }
 
 type SubUrls = {
@@ -86,15 +91,10 @@ type TrafficOverview = {
   hourly: TrafficHour[]
 }
 
-const TOTAL_CHART_CONFIG = {
-  totalBytes: {
-    label: "今日用量",
-    theme: {
-      light: "#171717",
-      dark: "#ffffff",
-    },
-  },
-} satisfies ChartConfig
+const MONO_CHART_THEME = {
+  light: "#171717",
+  dark: "#ffffff",
+} as const
 
 function getLocalDateString(): string {
   const now = new Date()
@@ -180,6 +180,7 @@ async function fetchDashboardData() {
 
 export default function DashboardPage() {
   const { confirm, alert } = useConfirm()
+  const { locale, t } = useI18n()
   const [rows, setRows] = useState<SubscriptionRow[]>([])
   const [sub, setSub] = useState<SubUrls | null>(null)
   const [loading, setLoading] = useState(true)
@@ -207,6 +208,16 @@ export default function DashboardPage() {
   }, [rows, referenceNow])
 
   const hasValidSub = validSubs.length > 0
+
+  const totalChartConfig = useMemo<ChartConfig>(
+    () => ({
+      totalBytes: {
+        label: t("userDashboard.chart.todayUsage"),
+        theme: MONO_CHART_THEME,
+      },
+    }),
+    [t]
+  )
 
   const traffic = useMemo(() => {
     const total = validSubs.reduce(
@@ -267,17 +278,17 @@ export default function DashboardPage() {
     } catch {
       // 浏览器拒绝剪贴板访问时引导用户手动复制 readOnly 输入框里的内容
       await alert({
-        title: "复制失败",
-        description: "浏览器拒绝了剪贴板访问，请在输入框中手动选中并复制。",
+        title: t("userDashboard.copyFailed.title"),
+        description: t("userDashboard.copyFailed.description"),
       })
     }
   }
 
   async function resetToken() {
     const ok = await confirm({
-      title: "重置节点登录 Key？",
-      description: "当前订阅链接会立即失效，已连接的节点需要重新导入。",
-      confirmText: "重置",
+      title: t("userDashboard.resetToken.confirmTitle"),
+      description: t("userDashboard.resetToken.confirmDescription"),
+      confirmText: t("common.reset"),
       variant: "destructive",
     })
     if (!ok) return
@@ -288,8 +299,8 @@ export default function DashboardPage() {
     const json = await response.json()
     if (!response.ok || !json.ok) {
       await alert({
-        title: "重置失败",
-        description: json?.error?.message ?? "请稍后重试",
+        title: t("userDashboard.resetToken.failedTitle"),
+        description: json?.error?.message ?? t("common.retryLater"),
         variant: "destructive",
       })
       return
@@ -322,9 +333,9 @@ export default function DashboardPage() {
     return (
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
         <div>
-          <h1 className="text-2xl font-bold">我的订阅</h1>
+          <h1 className="text-2xl font-bold">{t("userDashboard.title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            流量概览、订阅管理与今日趋势
+            {t("userDashboard.description")}
           </p>
         </div>
 
@@ -373,9 +384,9 @@ export default function DashboardPage() {
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-6">
       {/* 页面标题 */}
       <div>
-        <h1 className="text-2xl font-bold">我的订阅</h1>
+        <h1 className="text-2xl font-bold">{t("userDashboard.title")}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          流量概览、订阅管理与今日趋势
+          {t("userDashboard.description")}
         </p>
       </div>
 
@@ -384,7 +395,9 @@ export default function DashboardPage() {
         {/* 剩余流量卡 */}
         <Card className="overflow-hidden border-border/70">
           <CardContent className="flex h-full flex-col p-4">
-            <p className="text-sm text-muted-foreground">剩余流量</p>
+            <p className="text-sm text-muted-foreground">
+              {t("userDashboard.remainingTraffic")}
+            </p>
             {hasValidSub ? (
               <>
                 <div className="mb-1 flex items-baseline gap-1.5">
@@ -396,7 +409,10 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <p className="mb-2 text-xs text-muted-foreground">
-                  {`已用 ${formatBytes(traffic.used)}（${(100 - traffic.percent).toFixed(1)}%）`}
+                  {t("userDashboard.usedSummary", {
+                    used: formatBytes(traffic.used),
+                    percent: (100 - traffic.percent).toFixed(1),
+                  })}
                 </p>
                 <div className="mt-auto h-2 w-full overflow-hidden rounded-full bg-muted">
                   <div
@@ -410,7 +426,9 @@ export default function DashboardPage() {
                 <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight text-muted-foreground">
                   —
                 </p>
-                <p className="text-xs text-muted-foreground">暂无有效订阅</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("userDashboard.noValidSubscription")}
+                </p>
               </>
             )}
           </CardContent>
@@ -419,7 +437,9 @@ export default function DashboardPage() {
         {/* 今日流量卡 */}
         <Card className="overflow-hidden border-border/70">
           <CardContent className="relative flex h-full flex-col p-4">
-            <p className="text-sm text-muted-foreground">今日流量</p>
+            <p className="text-sm text-muted-foreground">
+              {t("userDashboard.todayTraffic")}
+            </p>
             {hasValidSub ? (
               <>
                 <p
@@ -433,10 +453,12 @@ export default function DashboardPage() {
                 <p className="mt-1 mb-1 text-[40px] leading-none font-semibold tracking-tight tabular-nums">
                   {formatBytes(todayTotal)}
                 </p>
-                <p className="mb-2 text-xs text-muted-foreground">较前一天</p>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  {t("userDashboard.previousDay")}
+                </p>
                 <div className="mt-auto">
                   <ChartContainer
-                    config={TOTAL_CHART_CONFIG}
+                    config={totalChartConfig}
                     className="aspect-auto h-14 w-full"
                   >
                     <LineChart
@@ -501,7 +523,9 @@ export default function DashboardPage() {
                 <p className="mt-1 text-[40px] leading-none font-semibold tracking-tight text-muted-foreground">
                   —
                 </p>
-                <p className="text-xs text-muted-foreground">暂无有效订阅</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("userDashboard.noValidSubscription")}
+                </p>
               </>
             )}
           </CardContent>
@@ -512,12 +536,12 @@ export default function DashboardPage() {
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            订阅链接
+            {t("userDashboard.subscriptionLink.title")}
           </CardTitle>
         </CardHeader>
         <CardContent className="relative space-y-2 p-4 pt-0">
           <p className="text-xs text-muted-foreground">
-            Clash Verge / Nekobox / v2rayN 等主流客户端均可直接导入
+            {t("userDashboard.subscriptionLink.description")}
           </p>
           <div
             aria-hidden={!hasValidSub}
@@ -540,6 +564,9 @@ export default function DashboardPage() {
                 type="button"
                 variant="outline"
                 size="icon"
+                aria-label={t(
+                  "userDashboard.subscriptionLink.toggleVisibility"
+                )}
                 onClick={() => setUrlMasked((v) => !v)}
               >
                 {urlMasked ? (
@@ -554,23 +581,27 @@ export default function DashboardPage() {
                 disabled={!sub}
                 onClick={() => sub && void copy(sub.url)}
               >
-                {copied ? "已复制" : "复制"}
+                {copied
+                  ? t("userDashboard.subscriptionLink.copied")
+                  : t("userDashboard.subscriptionLink.copy")}
               </Button>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => void resetToken()}
               >
-                重置
+                {t("userDashboard.subscriptionLink.reset")}
               </Button>
             </div>
           </div>
           {!hasValidSub ? (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="rounded-md border bg-background/80 px-4 py-2 text-center text-sm shadow-sm backdrop-blur">
-                <p className="font-medium">当前暂无有效订阅</p>
+                <p className="font-medium">
+                  {t("userDashboard.subscriptionLink.noValidTitle")}
+                </p>
                 <p className="text-xs text-muted-foreground">
-                  请联系管理员开通套餐后再使用订阅链接
+                  {t("userDashboard.subscriptionLink.noValidDescription")}
                 </p>
               </div>
             </div>
@@ -582,26 +613,26 @@ export default function DashboardPage() {
       <Card>
         <CardHeader className="p-4 pb-1">
           <CardTitle className="text-base leading-none font-semibold">
-            我的订阅
+            {t("userDashboard.table.title")}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Table>
             <THead>
               <TR>
-                <TH>ID</TH>
-                <TH>套餐</TH>
-                <TH>流量上限</TH>
-                <TH>已用流量</TH>
-                <TH>计费方式</TH>
-                <TH>重置时间</TH>
-                <TH>状态</TH>
-                <TH>到期时间</TH>
+                <TH>{t("userDashboard.table.id")}</TH>
+                <TH>{t("userDashboard.table.plan")}</TH>
+                <TH>{t("userDashboard.table.trafficLimit")}</TH>
+                <TH>{t("userDashboard.table.usedTraffic")}</TH>
+                <TH>{t("userDashboard.table.billingMode")}</TH>
+                <TH>{t("userDashboard.table.resetTime")}</TH>
+                <TH>{t("userDashboard.table.status")}</TH>
+                <TH>{t("userDashboard.table.expiresAt")}</TH>
               </TR>
             </THead>
             <TBody>
               {rows.map((row) => {
-                const nextRenew = nextRenewalDate(row)
+                const nextRenew = nextRenewalDate(row, t, locale)
                 return (
                   <TR key={row.id}>
                     <TD>{row.id}</TD>
@@ -610,13 +641,20 @@ export default function DashboardPage() {
                     <TD>{formatBytes(row.used_traffic_bytes)}</TD>
                     <TD>
                       <Badge className="border bg-transparent text-foreground">
-                        {formatTrafficBillingMode(row.traffic_billing_mode)}
+                        {t(trafficBillingModeKey(row.traffic_billing_mode))}
                       </Badge>
                     </TD>
                     <TD className="text-xs">
                       {nextRenew ? (
-                        <span title={`每 ${row.renewal_period_days} 天重置`}>
-                          {row.renewal_period_days} 天 · {nextRenew}
+                        <span
+                          title={t("userDashboard.renewal.title", {
+                            days: row.renewal_period_days,
+                          })}
+                        >
+                          {t("userDashboard.renewal.schedule", {
+                            days: row.renewal_period_days,
+                            next: nextRenew,
+                          })}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">—</span>
@@ -633,16 +671,16 @@ export default function DashboardPage() {
                         }
                       >
                         {row.status === "active"
-                          ? "启用"
+                          ? t("adminBasic.status.enabled")
                           : row.status === "blocked"
-                            ? "封禁"
-                            : "过期"}
+                            ? t("adminBasic.status.blocked")
+                            : t("adminBasic.status.expired")}
                       </Badge>
                     </TD>
                     <TD>
                       {new Date(row.expire_time).getFullYear() >= 9999
                         ? "—"
-                        : new Date(row.expire_time).toLocaleString()}
+                        : new Date(row.expire_time).toLocaleString(locale)}
                     </TD>
                   </TR>
                 )

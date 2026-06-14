@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import {
   validateAcmeDnsConfig,
@@ -123,7 +123,8 @@ export async function PATCH(
   const nodeId = Number(id)
 
   if (!Number.isInteger(nodeId) || nodeId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "节点ID不合法" } },
       { status: 400 }
     )
@@ -147,7 +148,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId, name: nodeName || body.name || null },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: nodeNameError },
@@ -185,7 +187,8 @@ export async function PATCH(
         reason: "INVALID_PORT",
         detail: { nodeId, port: body.port ?? null },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -230,7 +233,8 @@ export async function PATCH(
         reason: "UNSUPPORTED_OBFS",
         detail: { nodeId, obfs: obfsInput },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -282,7 +286,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId, nodeIpv4: body.nodeIpv4 ?? null },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: nodeIpv4.message },
@@ -306,7 +311,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId, nodeIpv6: body.nodeIpv6 ?? null },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: nodeIpv6.message },
@@ -334,7 +340,8 @@ export async function PATCH(
         reason: "INVALID_NODE_PORT",
         detail: { nodeId, nodePort: body.nodePort },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_NODE_PORT", message: resolvedNode.error },
@@ -414,7 +421,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId, field: "acmeCa" },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: acmeCa.message },
@@ -447,7 +455,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId, field: "acmeDns" },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: acmeDns.message },
@@ -490,7 +499,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId, field: "geoOverride" },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: geoOverride.message },
@@ -538,7 +548,8 @@ export async function PATCH(
       reason: "NOT_FOUND",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NOT_FOUND", message: "节点不存在" } },
       { status: 404 }
     )
@@ -561,7 +572,8 @@ export async function PATCH(
           duplicateNodeId: duplicateNode.id,
         },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: { code: "INVALID_PAYLOAD", message: "节点名称已存在" },
@@ -601,7 +613,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { nodeId, obfs: nextObfs },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -638,7 +651,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId, obfs: nextObfs },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -779,7 +793,8 @@ export async function PATCH(
         reason: networkConfig.code ?? "INVALID_PAYLOAD",
         detail: { nodeId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -848,7 +863,8 @@ export async function PATCH(
       reason: "INVALID_TRAFFIC",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_TRAFFIC", message: hostTrafficLimit.message },
@@ -870,7 +886,8 @@ export async function PATCH(
       reason: "INVALID_TRAFFIC",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_TRAFFIC", message: hostTrafficUsed.message },
@@ -892,7 +909,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -917,7 +935,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: hostTrafficCycle.message },
@@ -939,7 +958,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: {
@@ -964,7 +984,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: hostTrafficAnchor.message },
@@ -1011,7 +1032,8 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { nodeId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         {
           ok: false,
           error: {
@@ -1135,7 +1157,8 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       {
         ok: false,
         error: { code: "INVALID_PAYLOAD", message: "没有可更新字段" },
@@ -1212,7 +1235,8 @@ export async function PATCH(
       reason: "NOT_FOUND",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "NOT_FOUND", message: "节点不存在" } },
       { status: 404 }
     )
@@ -1231,7 +1255,7 @@ export async function PATCH(
     detail: { nodeId, nodeName: target?.name ?? null, fields: changedFields },
   })
 
-  return NextResponse.json({ ok: true, data: { id: nodeId } })
+  return localizedJson(request, { ok: true, data: { id: nodeId } })
 }
 
 export async function DELETE(
@@ -1246,7 +1270,8 @@ export async function DELETE(
   const nodeId = Number(id)
 
   if (!Number.isInteger(nodeId) || nodeId <= 0) {
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "INVALID_ID", message: "节点ID不合法" } },
       { status: 400 }
     )
@@ -1271,7 +1296,8 @@ export async function DELETE(
         reason: "NOT_FOUND",
         detail: { nodeId },
       })
-      return NextResponse.json(
+      return localizedJson(
+        request,
         { ok: false, error: { code: "NOT_FOUND", message: "节点不存在" } },
         { status: 404 }
       )
@@ -1285,7 +1311,7 @@ export async function DELETE(
       reason: "OK",
       detail: { nodeId, nodeName: target?.name ?? null },
     })
-    return NextResponse.json({ ok: true, data: { id: nodeId } })
+    return localizedJson(request, { ok: true, data: { id: nodeId } })
   } catch {
     writeAdminEvent({
       event: "NODE_DELETE",
@@ -1295,7 +1321,8 @@ export async function DELETE(
       reason: "DELETE_FAILED",
       detail: { nodeId },
     })
-    return NextResponse.json(
+    return localizedJson(
+      request,
       { ok: false, error: { code: "DELETE_FAILED", message: "节点删除失败" } },
       { status: 400 }
     )

@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
@@ -16,8 +16,17 @@ type OutboundProfileBody = {
   config?: unknown
 }
 
-function jsonError(code: string, message: string, status: number) {
-  return NextResponse.json({ ok: false, error: { code, message } }, { status })
+function jsonError(
+  request: Request,
+  code: string,
+  message: string,
+  status: number
+) {
+  return localizedJson(
+    request,
+    { ok: false, error: { code, message } },
+    { status }
+  )
 }
 
 function parseId(id: string) {
@@ -35,7 +44,8 @@ export async function PATCH(
   const ip = getClientIp(request)
   const { id } = await params
   const profileId = parseId(id)
-  if (!profileId) return jsonError("INVALID_ID", "出站配置 ID 不合法", 400)
+  if (!profileId)
+    return jsonError(request, "INVALID_ID", "出站配置 ID 不合法", 400)
 
   const body = (await request.json()) as OutboundProfileBody
   const updates: string[] = []
@@ -67,7 +77,7 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { profileId, error: validation.error },
       })
-      return jsonError("INVALID_PAYLOAD", validation.error, 400)
+      return jsonError(request, "INVALID_PAYLOAD", validation.error, 400)
     }
 
     const aclReferenceErrors = findAclReferenceErrorsForOutboundProfile({
@@ -85,7 +95,7 @@ export async function PATCH(
         reason: "INVALID_PAYLOAD",
         detail: { profileId, error: message },
       })
-      return jsonError("INVALID_PAYLOAD", message, 400)
+      return jsonError(request, "INVALID_PAYLOAD", message, 400)
     }
 
     updates.push("config = ?", "config_hash = ?")
@@ -103,7 +113,7 @@ export async function PATCH(
       reason: "INVALID_PAYLOAD",
       detail: { profileId },
     })
-    return jsonError("INVALID_PAYLOAD", "没有可更新字段", 400)
+    return jsonError(request, "INVALID_PAYLOAD", "没有可更新字段", 400)
   }
 
   updates.push("revision = revision + 1", "updated_at = datetime('now')")
@@ -111,7 +121,9 @@ export async function PATCH(
   try {
     db.exec("BEGIN")
     const result = db
-      .prepare(`UPDATE outbound_profiles SET ${updates.join(", ")} WHERE id = ?`)
+      .prepare(
+        `UPDATE outbound_profiles SET ${updates.join(", ")} WHERE id = ?`
+      )
       .run(...values, profileId)
 
     if (result.changes === 0) {
@@ -124,15 +136,16 @@ export async function PATCH(
         reason: "NOT_FOUND",
         detail: { profileId },
       })
-      return jsonError("NOT_FOUND", "出站配置不存在", 404)
+      return jsonError(request, "NOT_FOUND", "出站配置不存在", 404)
     }
 
-    const affectedNodeIds = body.config !== undefined
-      ? bumpNodesForRoutingChange({
-          database: db,
-          outboundProfileId: profileId,
-        })
-      : []
+    const affectedNodeIds =
+      body.config !== undefined
+        ? bumpNodesForRoutingChange({
+            database: db,
+            outboundProfileId: profileId,
+          })
+        : []
 
     db.exec("COMMIT")
 
@@ -155,7 +168,7 @@ export async function PATCH(
       },
     })
 
-    return NextResponse.json({ ok: true, data: { id: profileId } })
+    return localizedJson(request, { ok: true, data: { id: profileId } })
   } catch {
     try {
       db.exec("ROLLBACK")
@@ -170,7 +183,7 @@ export async function PATCH(
       reason: "UPDATE_FAILED",
       detail: { profileId },
     })
-    return jsonError("UPDATE_FAILED", "出站配置更新失败", 400)
+    return jsonError(request, "UPDATE_FAILED", "出站配置更新失败", 400)
   }
 }
 
@@ -184,7 +197,8 @@ export async function DELETE(
   const ip = getClientIp(request)
   const { id } = await params
   const profileId = parseId(id)
-  if (!profileId) return jsonError("INVALID_ID", "出站配置 ID 不合法", 400)
+  if (!profileId)
+    return jsonError(request, "INVALID_ID", "出站配置 ID 不合法", 400)
 
   const db = getDb()
   const target = db
@@ -192,7 +206,9 @@ export async function DELETE(
     .get(profileId) as { name: string } | undefined
 
   const used = db
-    .prepare(`SELECT COUNT(*) AS c FROM acl_profiles WHERE outbound_profile_id = ?`)
+    .prepare(
+      `SELECT COUNT(*) AS c FROM acl_profiles WHERE outbound_profile_id = ?`
+    )
     .get(profileId) as { c: number } | undefined
   if (used && used.c > 0) {
     writeAdminEvent({
@@ -204,6 +220,7 @@ export async function DELETE(
       detail: { profileId, name: target?.name ?? null, usedBy: used.c },
     })
     return jsonError(
+      request,
       "PROFILE_IN_USE",
       "仍有 ACL 策略引用该出站配置，无法删除",
       400
@@ -211,7 +228,9 @@ export async function DELETE(
   }
 
   try {
-    const result = db.prepare(`DELETE FROM outbound_profiles WHERE id = ?`).run(profileId)
+    const result = db
+      .prepare(`DELETE FROM outbound_profiles WHERE id = ?`)
+      .run(profileId)
     if (result.changes === 0) {
       writeAdminEvent({
         event: "OUTBOUND_PROFILE_DELETE",
@@ -221,7 +240,7 @@ export async function DELETE(
         reason: "NOT_FOUND",
         detail: { profileId },
       })
-      return jsonError("NOT_FOUND", "出站配置不存在", 404)
+      return jsonError(request, "NOT_FOUND", "出站配置不存在", 404)
     }
 
     writeAdminEvent({
@@ -232,7 +251,7 @@ export async function DELETE(
       reason: "OK",
       detail: { profileId, name: target?.name ?? null },
     })
-    return NextResponse.json({ ok: true, data: { id: profileId } })
+    return localizedJson(request, { ok: true, data: { id: profileId } })
   } catch {
     writeAdminEvent({
       event: "OUTBOUND_PROFILE_DELETE",
@@ -242,6 +261,6 @@ export async function DELETE(
       reason: "DELETE_FAILED",
       detail: { profileId },
     })
-    return jsonError("DELETE_FAILED", "出站配置删除失败", 400)
+    return jsonError(request, "DELETE_FAILED", "出站配置删除失败", 400)
   }
 }

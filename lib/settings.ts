@@ -1,4 +1,5 @@
 import { DEFAULT_ACME_CA_PROVIDER } from "@/lib/acme-config"
+import { DEFAULT_LOCALE } from "@/lib/i18n/locales"
 import { getDb } from "@/lib/db"
 
 // 站点级设置，key-value 单表，值用 JSON.stringify/parse 存取
@@ -27,6 +28,7 @@ export const SETTING_KEYS = {
   telegramNotifyAgentTaskFailed: "telegram_notify_agent_task_failed",
   telegramNodeOfflineThresholdMinutes:
     "telegram_node_offline_threshold_minutes",
+  uiLanguage: "ui_language",
   subscriptionRuleConfig: "subscription_rule_config",
 } as const
 
@@ -57,6 +59,7 @@ export const SETTING_DEFAULTS = {
   [SETTING_KEYS.telegramNotifyHostTrafficExceeded]: true,
   [SETTING_KEYS.telegramNotifyAgentTaskFailed]: true,
   [SETTING_KEYS.telegramNodeOfflineThresholdMinutes]: 5,
+  [SETTING_KEYS.uiLanguage]: DEFAULT_LOCALE,
 } satisfies Partial<Record<SettingKey, unknown>>
 
 export const SENSITIVE_SETTING_KEYS: SettingKey[] = [
@@ -71,6 +74,7 @@ export const PUBLIC_SETTING_KEYS: SettingKey[] = [
   SETTING_KEYS.registrationEnabled,
   SETTING_KEYS.loginEnabled,
   SETTING_KEYS.turnstileSiteKey,
+  SETTING_KEYS.uiLanguage,
 ]
 
 function parseValue<T>(raw: string, fallback: T): T {

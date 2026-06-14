@@ -1,11 +1,12 @@
-import { NextResponse } from "next/server"
+import { localizedJson } from "@/lib/i18n/api-response"
 
 import packageJson from "@/package.json"
 import { requireAdmin } from "@/lib/auth"
 import { getDb } from "@/lib/db"
 
 function getCurrentVersion() {
-  const raw = typeof packageJson.version === "string" ? packageJson.version : "0.0.0"
+  const raw =
+    typeof packageJson.version === "string" ? packageJson.version : "0.0.0"
   const normalized = raw.trim().replace(/^v/i, "")
   return normalized || "0.0.0"
 }
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
       }
     | undefined
 
-  return NextResponse.json({
+  return localizedJson(request, {
     ok: true,
     data: {
       user: auth.user,
