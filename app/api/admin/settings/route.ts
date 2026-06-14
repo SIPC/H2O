@@ -12,6 +12,14 @@ import {
   type SettingKey,
 } from "@/lib/settings"
 import {
+  normalizeTelegramBotToken,
+  normalizeTelegramChatId,
+  normalizeTelegramMessageThreadId,
+  validateTelegramBotToken,
+  validateTelegramChatId,
+  validateTelegramMessageThreadId,
+} from "@/lib/telegram"
+import {
   createTurnstileSettingsProof,
   getClientIp,
   verifyTurnstileSettingsProof,
@@ -23,6 +31,8 @@ const SENSITIVE_KEYS = new Set<SettingKey>(SENSITIVE_SETTING_KEYS)
 
 const STATS_RETENTION_DAYS_MIN = 1
 const STATS_RETENTION_DAYS_MAX = 365
+const TELEGRAM_OFFLINE_THRESHOLD_MIN = 1
+const TELEGRAM_OFFLINE_THRESHOLD_MAX = 1440
 const TURNSTILE_VERIFY_TOKEN_FIELD = "turnstileVerifyToken"
 const TURNSTILE_VERIFY_SITE_KEY_FIELD = "turnstileVerifySiteKey"
 const TURNSTILE_VERIFY_SECRET_KEY_FIELD = "turnstileVerifySecretKey"
@@ -195,6 +205,35 @@ export async function PATCH(request: Request) {
         )
       }
     }
+
+    if (settingKey === SETTING_KEYS.telegramNodeOfflineThresholdMinutes) {
+      const value = body[key]
+      if (
+        typeof value !== "number" ||
+        !Number.isInteger(value) ||
+        value < TELEGRAM_OFFLINE_THRESHOLD_MIN ||
+        value > TELEGRAM_OFFLINE_THRESHOLD_MAX
+      ) {
+        writeAdminEvent({
+          event: "SETTINGS_UPDATE",
+          actor: auth.user,
+          ip,
+          success: false,
+          reason: "INVALID_PAYLOAD",
+          detail: { key, value },
+        })
+        return NextResponse.json(
+          {
+            ok: false,
+            error: {
+              code: "INVALID_PAYLOAD",
+              message: `${key} 必须是 ${TELEGRAM_OFFLINE_THRESHOLD_MIN}~${TELEGRAM_OFFLINE_THRESHOLD_MAX} 的整数`,
+            },
+          },
+          { status: 400 }
+        )
+      }
+    }
   }
 
   const currentSettings = getAllSettings()
@@ -228,6 +267,60 @@ export async function PATCH(request: Request) {
   }
   if (body[SETTING_KEYS.acmeCaUrl] !== undefined) {
     body[SETTING_KEYS.acmeCaUrl] = nextAcmeCa.url
+  }
+
+  const nextTelegramEnabled = Boolean(
+    body[SETTING_KEYS.telegramNotificationsEnabled] ??
+    currentSettings[SETTING_KEYS.telegramNotificationsEnabled]
+  )
+  const nextTelegramBotToken = normalizeTelegramBotToken(
+    body[SETTING_KEYS.telegramBotToken] ??
+      currentSettings[SETTING_KEYS.telegramBotToken]
+  )
+  const nextTelegramChatId = normalizeTelegramChatId(
+    body[SETTING_KEYS.telegramChatId] ??
+      currentSettings[SETTING_KEYS.telegramChatId]
+  )
+  const nextTelegramThreadId = normalizeTelegramMessageThreadId(
+    body[SETTING_KEYS.telegramMessageThreadId] ??
+      currentSettings[SETTING_KEYS.telegramMessageThreadId]
+  )
+
+  if (
+    !validateTelegramBotToken(nextTelegramBotToken) ||
+    !validateTelegramChatId(nextTelegramChatId) ||
+    !validateTelegramMessageThreadId(nextTelegramThreadId) ||
+    (nextTelegramEnabled && (!nextTelegramBotToken || !nextTelegramChatId))
+  ) {
+    writeAdminEvent({
+      event: "SETTINGS_UPDATE",
+      actor: auth.user,
+      ip,
+      success: false,
+      reason: "INVALID_PAYLOAD",
+      detail: { key: "telegram" },
+    })
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: "INVALID_PAYLOAD",
+          message:
+            "Telegram 通知配置不合法；启用时必须填写合法 Bot Token 和 Chat ID",
+        },
+      },
+      { status: 400 }
+    )
+  }
+
+  if (body[SETTING_KEYS.telegramBotToken] !== undefined) {
+    body[SETTING_KEYS.telegramBotToken] = nextTelegramBotToken
+  }
+  if (body[SETTING_KEYS.telegramChatId] !== undefined) {
+    body[SETTING_KEYS.telegramChatId] = nextTelegramChatId
+  }
+  if (body[SETTING_KEYS.telegramMessageThreadId] !== undefined) {
+    body[SETTING_KEYS.telegramMessageThreadId] = nextTelegramThreadId
   }
 
   const currentTurnstileSiteKey = String(

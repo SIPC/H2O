@@ -227,6 +227,45 @@ function ensureForwardCompatibleColumns(database: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_node_acl_bindings_acl ON node_acl_bindings(acl_profile_id);
     CREATE INDEX IF NOT EXISTS idx_node_deploy_tokens_expires ON node_deploy_tokens(expires_at);
     CREATE INDEX IF NOT EXISTS idx_node_deploy_tokens_node_created ON node_deploy_tokens(node_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS notification_states (
+      key TEXT PRIMARY KEY,
+      event TEXT NOT NULL,
+      subject_type TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      state TEXT NOT NULL,
+      last_detail TEXT,
+      last_notified_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notification_states_subject
+      ON notification_states(subject_type, subject_id);
+
+    CREATE TABLE IF NOT EXISTS notification_outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      channel TEXT NOT NULL,
+      event TEXT NOT NULL,
+      level TEXT NOT NULL DEFAULT 'info',
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      target TEXT,
+      subject_type TEXT,
+      subject_id TEXT,
+      status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','sending','sent','failed','cancelled')),
+      attempts INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      detail TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      sent_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notification_outbox_status_next
+      ON notification_outbox(status, next_attempt_at, id);
+    CREATE INDEX IF NOT EXISTS idx_notification_outbox_created
+      ON notification_outbox(created_at);
   `)
 }
 

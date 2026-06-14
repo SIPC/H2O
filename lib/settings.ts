@@ -15,6 +15,18 @@ export const SETTING_KEYS = {
   acmeCaProvider: "acme_ca_provider",
   acmeCaUrl: "acme_ca_url",
   geoipEnabled: "geoip_enabled",
+  telegramNotificationsEnabled: "telegram_notifications_enabled",
+  telegramBotToken: "telegram_bot_token",
+  telegramChatId: "telegram_chat_id",
+  telegramMessageThreadId: "telegram_message_thread_id",
+  telegramNotifyNodeStatus: "telegram_notify_node_status",
+  telegramNotifyHy2Status: "telegram_notify_hy2_status",
+  telegramNotifySubscriptionTrafficExceeded:
+    "telegram_notify_subscription_traffic_exceeded",
+  telegramNotifyHostTrafficExceeded: "telegram_notify_host_traffic_exceeded",
+  telegramNotifyAgentTaskFailed: "telegram_notify_agent_task_failed",
+  telegramNodeOfflineThresholdMinutes:
+    "telegram_node_offline_threshold_minutes",
   subscriptionRuleConfig: "subscription_rule_config",
 } as const
 
@@ -35,11 +47,22 @@ export const SETTING_DEFAULTS = {
   [SETTING_KEYS.acmeCaProvider]: DEFAULT_ACME_CA_PROVIDER,
   [SETTING_KEYS.acmeCaUrl]: "",
   [SETTING_KEYS.geoipEnabled]: true,
+  [SETTING_KEYS.telegramNotificationsEnabled]: false,
+  [SETTING_KEYS.telegramBotToken]: "",
+  [SETTING_KEYS.telegramChatId]: "",
+  [SETTING_KEYS.telegramMessageThreadId]: "",
+  [SETTING_KEYS.telegramNotifyNodeStatus]: true,
+  [SETTING_KEYS.telegramNotifyHy2Status]: true,
+  [SETTING_KEYS.telegramNotifySubscriptionTrafficExceeded]: true,
+  [SETTING_KEYS.telegramNotifyHostTrafficExceeded]: true,
+  [SETTING_KEYS.telegramNotifyAgentTaskFailed]: true,
+  [SETTING_KEYS.telegramNodeOfflineThresholdMinutes]: 5,
 } satisfies Partial<Record<SettingKey, unknown>>
 
 export const SENSITIVE_SETTING_KEYS: SettingKey[] = [
   SETTING_KEYS.turnstileSecretKey,
   SETTING_KEYS.cloudflareApiToken,
+  SETTING_KEYS.telegramBotToken,
 ]
 
 // 暴露给未登录前端的 key（用于首页/登录/注册页隐藏入口，不泄露内部策略）

@@ -111,6 +111,7 @@ const adminSubMenus: AdminSubMenu[] = [
     title: "日志审计",
     items: [
       { title: "事件日志", href: "/admin/event-logs" },
+      { title: "通知历史", href: "/admin/notifications" },
       { title: "认证日志", href: "/admin/auth-logs" },
       { title: "上报日志", href: "/admin/report-logs" },
       { title: "Agent 队列", href: "/admin/agent-tasks" },
@@ -155,9 +156,11 @@ function getBreadcrumbs(pathname: string): Crumb[] {
 function SidebarUserMenu({
   user,
   onLogout,
+  onNotifications,
 }: {
   user: SessionUser
   onLogout: () => void
+  onNotifications: () => void
 }) {
   const { isMobile } = useSidebar()
   const initial = user.username.trim().charAt(0).toUpperCase() || "H"
@@ -191,7 +194,7 @@ function SidebarUserMenu({
             sideOffset={4}
             className="min-w-48"
           >
-            <DropdownMenuItem onSelect={() => toast.info("暂无通知")}>
+            <DropdownMenuItem onSelect={onNotifications}>
               <Bell className="size-4" />
               <span>通知</span>
             </DropdownMenuItem>
@@ -486,7 +489,17 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             </SidebarContent>
 
             <SidebarFooter className="p-2 pt-1">
-              <SidebarUserMenu user={user} onLogout={() => void logout()} />
+              <SidebarUserMenu
+                user={user}
+                onLogout={() => void logout()}
+                onNotifications={() => {
+                  if (user.role === "admin") {
+                    router.push("/admin/notifications")
+                    return
+                  }
+                  toast.info("暂无通知")
+                }}
+              />
             </SidebarFooter>
           </Sidebar>
 

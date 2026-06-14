@@ -12,6 +12,7 @@ const LOG_RETENTION_DAYS_MAX = 365
 const LOG_CLEANUP_INTERVAL_MS = 60 * 60 * 1000
 
 let db: DatabaseSync | null = null
+let schemaMigrated = false
 let lastLogCleanupAt = 0
 
 function ensureDbDirectory(filePath: string) {
@@ -51,6 +52,27 @@ function migrate(database: DatabaseSync) {
 
     CREATE INDEX IF NOT EXISTS idx_event_logs_created ON event_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_event_logs_event ON event_logs(event);
+
+    CREATE TABLE IF NOT EXISTS notification_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      channel TEXT NOT NULL,
+      event TEXT NOT NULL,
+      level TEXT NOT NULL DEFAULT 'info',
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      target TEXT,
+      subject_type TEXT,
+      subject_id TEXT,
+      success INTEGER NOT NULL CHECK(success IN (0,1)),
+      reason TEXT,
+      detail TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notification_logs_created ON notification_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_notification_logs_channel_created ON notification_logs(channel, created_at);
+    CREATE INDEX IF NOT EXISTS idx_notification_logs_event_created ON notification_logs(event, created_at);
+    CREATE INDEX IF NOT EXISTS idx_notification_logs_level_created ON notification_logs(level, created_at);
 
     CREATE TABLE IF NOT EXISTS agent_traffic_reports (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +125,7 @@ function migrate(database: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_agent_traffic_user_logs_flow_window ON agent_traffic_user_logs(success, reason, created_at, node_id, username);
   `)
   maskExistingAgentAuthPaths(database)
+  schemaMigrated = true
 }
 
 function maskExistingAgentAuthPaths(database: DatabaseSync) {
@@ -123,7 +146,10 @@ function maskExistingAgentAuthPaths(database: DatabaseSync) {
 }
 
 export function getLogsDb() {
-  if (db) return db
+  if (db) {
+    if (!schemaMigrated) migrate(db)
+    return db
+  }
   ensureDbDirectory(LOGS_DB_PATH)
   db = new DatabaseSync(LOGS_DB_PATH)
   db.exec("PRAGMA foreign_keys = ON")
@@ -183,6 +209,70 @@ export type AgentTrafficUserLogFields = {
   success: boolean
   reason: string
   detail?: string | null
+}
+
+export type NotificationLogFields = {
+  channel: string
+  event: string
+  level?: string
+  title: string
+  message: string
+  target?: string | null
+  subject_type?: string | null
+  subject_id?: string | number | null
+  success: boolean
+  reason?: string | null
+  detail?: string | Record<string, unknown> | null
+}
+
+function stringifyNotificationDetail(
+  detail: NotificationLogFields["detail"]
+): string | null {
+  if (detail === undefined || detail === null || detail === "") return null
+  if (typeof detail === "string") return detail
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return String(detail)
+  }
+}
+
+// 通知历史入口：仅记录投递结果和摘要，不记录 bot token 等敏感值
+export function writeNotificationLog(fields: NotificationLogFields): void {
+  const database = getLogsDb()
+  database
+    .prepare(
+      `INSERT INTO notification_logs(
+        channel, event, level, title, message, target,
+        subject_type, subject_id, success, reason, detail
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      fields.channel,
+      fields.event,
+      fields.level ?? "info",
+      fields.title,
+      fields.message,
+      fields.target ?? null,
+      fields.subject_type ?? null,
+      fields.subject_id === undefined || fields.subject_id === null
+        ? null
+        : String(fields.subject_id),
+      fields.success ? 1 : 0,
+      fields.reason ?? null,
+      stringifyNotificationDetail(fields.detail)
+    )
+  cleanupExpiredLogsBySetting()
+}
+
+export function writeNotificationLogSafely(
+  fields: NotificationLogFields
+): void {
+  try {
+    writeNotificationLog(fields)
+  } catch (error) {
+    console.error("write notification log failed", error)
+  }
 }
 
 // 节点认证日志入口（由 Hysteria2 /api/node/auth 调用）
@@ -317,7 +407,7 @@ function normalizeRetentionDays(value: unknown): number {
     : LOG_RETENTION_DAYS_DEFAULT
 }
 
-// 事件日志、认证日志、上报日志统一跟随 stats_retention_days 清理
+// 事件日志、通知历史、认证日志、上报日志统一跟随 stats_retention_days 清理
 export function cleanupExpiredLogs(retentionDays: number): void {
   const modifier = `-${normalizeRetentionDays(retentionDays)} day`
   const database = getLogsDb()
@@ -341,6 +431,12 @@ export function cleanupExpiredLogs(retentionDays: number): void {
     database
       .prepare(
         `DELETE FROM agent_traffic_user_logs
+         WHERE created_at < datetime('now', ?)`
+      )
+      .run(modifier)
+    database
+      .prepare(
+        `DELETE FROM notification_logs
          WHERE created_at < datetime('now', ?)`
       )
       .run(modifier)

@@ -12,6 +12,12 @@ import {
   writeAgentTrafficLogs,
   writeAuthLog,
 } from "@/lib/logs-db"
+import {
+  enqueueHostTrafficExceededNotification,
+  enqueueSubscriptionTrafficExceededNotification,
+  markNotificationState,
+  processNotificationOutboxSafely,
+} from "@/lib/notifications"
 import { getBillableTrafficBytes } from "@/lib/plan-traffic"
 import { readJsonWithLimit, RequestBodyTooLargeError } from "@/lib/request-body"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
@@ -497,6 +503,16 @@ export async function POST(
       ).toISOString()
 
       renewSub.run(newAnchor, sub.id)
+      markNotificationState(db, {
+        event: "SUBSCRIPTION_TRAFFIC_EXCEEDED",
+        subjectType: "subscription",
+        subjectId: sub.id,
+        state: "ok",
+        detail: {
+          subscription_id: sub.id,
+          renewal_anchor: newAnchor,
+        },
+      })
     }
 
     for (const [username, stat] of traffic) {
@@ -690,6 +706,31 @@ export async function POST(
           success: false,
           reason: "TRAFFIC_EXCEEDED",
         })
+        if (activeSub.used_traffic_bytes <= activeSub.traffic_limit_bytes) {
+          markNotificationState(db, {
+            event: "SUBSCRIPTION_TRAFFIC_EXCEEDED",
+            subjectType: "subscription",
+            subjectId: activeSub.id,
+            state: "ok",
+            detail: {
+              subscription_id: activeSub.id,
+              used_traffic_bytes: activeSub.used_traffic_bytes,
+              traffic_limit_bytes: activeSub.traffic_limit_bytes,
+            },
+          })
+        }
+        enqueueSubscriptionTrafficExceededNotification(db, {
+          nodeId: node.id,
+          nodeName: node.name,
+          userId: user.id,
+          username: user.username,
+          subscriptionId: activeSub.id,
+          usedBytes: activeSub.used_traffic_bytes,
+          nextUsageBytes: nextUsage,
+          limitBytes: activeSub.traffic_limit_bytes,
+          billableDeltaBytes: billableDelta,
+          billingMode: activeSub.traffic_billing_mode,
+        })
       } else if (delta > 0) {
         updateSubUsage.run(nextUsage, activeSub.id)
         subscriptionTxDelta += deltaTx
@@ -724,7 +765,52 @@ export async function POST(
     if (nodeTxDelta > 0 || nodeRxDelta > 0) {
       upsertHourlyStats.run(nodeTxDelta, nodeRxDelta)
       upsertNodeHourly.run(node.id, nodeTxDelta, nodeRxDelta)
-      addNodeHostTrafficUsage(db, node.id, nodeTxDelta, nodeRxDelta)
+      const hostUsage = addNodeHostTrafficUsage(
+        db,
+        node.id,
+        nodeTxDelta,
+        nodeRxDelta
+      )
+      if (hostUsage?.crossedLimit) {
+        markNotificationState(db, {
+          event: "HOST_TRAFFIC_EXCEEDED",
+          subjectType: "node_host_traffic",
+          subjectId: node.id,
+          state: "ok",
+          detail: {
+            node_id: node.id,
+            node_name: node.name,
+            host_traffic_used_bytes: hostUsage.beforeUsedBytes,
+            host_traffic_limit_bytes: hostUsage.limitBytes,
+          },
+        })
+        enqueueHostTrafficExceededNotification(db, {
+          nodeId: node.id,
+          nodeName: node.name,
+          usedBytes: hostUsage.beforeUsedBytes,
+          nextUsageBytes: hostUsage.afterUsedBytes,
+          limitBytes: hostUsage.limitBytes,
+          deltaBytes: hostUsage.deltaBytes,
+          billingMode: hostUsage.billingMode,
+        })
+      } else if (
+        hostUsage &&
+        hostUsage.limitBytes > 0 &&
+        !hostUsage.overLimit
+      ) {
+        markNotificationState(db, {
+          event: "HOST_TRAFFIC_EXCEEDED",
+          subjectType: "node_host_traffic",
+          subjectId: node.id,
+          state: "ok",
+          detail: {
+            node_id: node.id,
+            node_name: node.name,
+            host_traffic_used_bytes: hostUsage.afterUsedBytes,
+            host_traffic_limit_bytes: hostUsage.limitBytes,
+          },
+        })
+      }
     } else {
       ensureNodeHostTrafficPeriod(db, node.id)
     }
@@ -816,6 +902,8 @@ export async function POST(
     },
     userLogs: agentUserLogs,
   })
+
+  void processNotificationOutboxSafely(db)
 
   return NextResponse.json({
     ok: true,

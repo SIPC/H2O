@@ -11,6 +11,11 @@ import {
 } from "@/lib/agent-control"
 import { getDb } from "@/lib/db"
 import { ensureIpGeoCached, normalizePublicIp } from "@/lib/ip-geo"
+import {
+  enqueueAgentTaskFailedNotification,
+  enqueueHy2StatusNotification,
+  processNotificationOutboxSafely,
+} from "@/lib/notifications"
 import { readTextWithLimit, RequestBodyTooLargeError } from "@/lib/request-body"
 import { getSetting, SETTING_KEYS } from "@/lib/settings"
 
@@ -54,6 +59,10 @@ type ClaimedTask = {
   id: number
   type: string
   payload: string | null
+}
+
+type ExistingAgentState = {
+  hy2_status: string | null
 }
 
 function jsonError(code: string, message: string, status: number) {
@@ -301,6 +310,15 @@ export async function POST(
 
     markTimedOutAgentTasks({ database: db, nodeId: node.id })
 
+    const existingState = db
+      .prepare(
+        `SELECT hy2_status
+         FROM node_agent_state
+         WHERE node_id = ?
+         LIMIT 1`
+      )
+      .get(node.id) as ExistingAgentState | undefined
+
     db.prepare(
       `INSERT INTO node_agent_state(
          node_id, last_seen_at, agent_version, hostname, os, arch, service_manager,
@@ -358,10 +376,31 @@ export async function POST(
       publicIp
     )
 
+    if (hy2Status !== null) {
+      const previousHy2Status = existingState?.hy2_status ?? null
+      enqueueHy2StatusNotification(db, {
+        nodeId: node.id,
+        nodeName: node.name,
+        oldStatus: previousHy2Status,
+        newStatus: hy2Status,
+        hostname,
+        hy2Version,
+        lastError,
+        notifyOnInitial:
+          previousHy2Status !== null && previousHy2Status !== hy2Status,
+      })
+    }
+
     const updateTask = db.prepare(
       `UPDATE node_agent_tasks
        SET status = ?, result = ?, error = ?, finished_at = datetime('now'), updated_at = datetime('now')
        WHERE id = ? AND node_id = ? AND status = 'claimed'`
+    )
+    const selectTaskType = db.prepare(
+      `SELECT type
+       FROM node_agent_tasks
+       WHERE id = ? AND node_id = ?
+       LIMIT 1`
     )
 
     for (const item of taskResults) {
@@ -369,13 +408,27 @@ export async function POST(
         typeof item.id === "number" && Number.isInteger(item.id) ? item.id : 0
       const status = normalizeTaskResultStatus(item.status)
       if (id <= 0 || status === false) continue
-      updateTask.run(
+      const task = selectTaskType.get(id, node.id) as
+        | { type: string | null }
+        | undefined
+      const resultText = stringifyJsonValue(item.result, 16384)
+      const errorText = stringifyJsonValue(item.error, 4096)
+      const updateResult = updateTask.run(
         status,
-        stringifyJsonValue(item.result, 16384),
-        stringifyJsonValue(item.error, 4096),
+        resultText,
+        errorText,
         id,
         node.id
       )
+      if (status === "failed" && updateResult.changes > 0) {
+        enqueueAgentTaskFailedNotification(db, {
+          nodeId: node.id,
+          nodeName: node.name,
+          taskId: id,
+          taskType: task?.type ?? null,
+          error: errorText,
+        })
+      }
     }
 
     db.exec("COMMIT")
@@ -383,6 +436,8 @@ export async function POST(
     db.exec("ROLLBACK")
     return jsonError("INTERNAL", "处理失败", 500)
   }
+
+  void processNotificationOutboxSafely(db)
 
   if (publicIp && getSetting(SETTING_KEYS.geoipEnabled, true)) {
     // GeoIP 解析失败不影响 Agent 控制面同步。

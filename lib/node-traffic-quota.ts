@@ -395,14 +395,17 @@ export function addNodeHostTrafficUsage(
   rxBytes: number
 ) {
   const row = ensureNodeHostTrafficPeriod(database, nodeId)
-  if (!row) return
+  if (!row) return null
 
-  const deltaBytes = getBilledTrafficDelta(
-    normalizeBillingMode(row.host_traffic_billing_mode),
-    txBytes,
-    rxBytes
+  const billingMode = normalizeBillingMode(row.host_traffic_billing_mode)
+  const deltaBytes = getBilledTrafficDelta(billingMode, txBytes, rxBytes)
+  if (deltaBytes <= 0) return null
+
+  const limitBytes = normalizeNonNegativeInteger(row.host_traffic_limit_bytes)
+  const beforeUsedBytes = normalizeNonNegativeInteger(
+    row.host_traffic_used_bytes
   )
-  if (deltaBytes <= 0) return
+  const afterUsedBytes = beforeUsedBytes + deltaBytes
 
   database
     .prepare(
@@ -412,6 +415,19 @@ export function addNodeHostTrafficUsage(
          AND COALESCE(host_traffic_limit_bytes, 0) > 0`
     )
     .run(deltaBytes, nodeId)
+
+  return {
+    billingMode,
+    deltaBytes,
+    limitBytes,
+    beforeUsedBytes,
+    afterUsedBytes,
+    crossedLimit:
+      limitBytes > 0 &&
+      beforeUsedBytes <= limitBytes &&
+      afterUsedBytes > limitBytes,
+    overLimit: limitBytes > 0 && afterUsedBytes > limitBytes,
+  }
 }
 
 export function buildNodeHostTrafficSummary(row: HostTrafficRow) {
