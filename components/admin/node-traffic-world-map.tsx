@@ -9,7 +9,7 @@ import {
   type PointerEvent,
   type WheelEvent,
 } from "react"
-import { useRouter } from "next/navigation"
+
 import { Minus, Plus, RotateCcw } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -20,7 +20,6 @@ import {
   Sheet,
   SheetContent,
   SheetDescription,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
@@ -710,12 +709,6 @@ function getNodeSummary(country: NodeTrafficMapCountry) {
     .join(" / ")
 }
 
-function buildCountryHref(country: NodeTrafficMapCountry) {
-  const code = safeCountryCode(country.countryCode)
-  if (!code) return "/admin/nodes"
-  return `/admin/nodes?country=${encodeURIComponent(code)}`
-}
-
 function getNodeGeoLabel(node: NodeTrafficMapNode) {
   const source = node.geoSource === "manual" ? "手动覆盖" : "GeoIP"
   const coordinate =
@@ -1027,12 +1020,10 @@ function FlowTrafficReportSheet({
   flow,
   open,
   onOpenChange,
-  onOpenTargetNodes,
 }: {
   flow: NodeTrafficMapFlow | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onOpenTargetNodes: (flow: NodeTrafficMapFlow) => void
 }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -1204,14 +1195,6 @@ function FlowTrafficReportSheet({
             </div>
           </div>
         ) : null}
-
-        {flow ? (
-          <SheetFooter className="border-t bg-background/95">
-            <Button onClick={() => onOpenTargetNodes(flow)}>
-              查看目标地区节点
-            </Button>
-          </SheetFooter>
-        ) : null}
       </SheetContent>
     </Sheet>
   )
@@ -1222,13 +1205,11 @@ function CountryTrafficReportSheet({
   data,
   open,
   onOpenChange,
-  onOpenNodes,
 }: {
   country: NodeTrafficMapCountry | null
   data: NodeTrafficMapData
   open: boolean
   onOpenChange: (open: boolean) => void
-  onOpenNodes: (country: NodeTrafficMapCountry) => void
 }) {
   const totalShare = country
     ? getPercent(country.totalBytes, data.totalBytes)
@@ -1433,12 +1414,6 @@ function CountryTrafficReportSheet({
               </div>
             </div>
           </div>
-        ) : null}
-
-        {country ? (
-          <SheetFooter className="border-t bg-background/95">
-            <Button onClick={() => onOpenNodes(country)}>查看该地区节点</Button>
-          </SheetFooter>
         ) : null}
       </SheetContent>
     </Sheet>
@@ -2797,7 +2772,6 @@ function getInitialGlobeFocus(data: NodeTrafficMapData) {
 }
 
 function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
-  const router = useRouter()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const rendererRef = useRef<GlobeWebGlRenderer | null>(null)
@@ -2948,16 +2922,6 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
   function handleFlowReportOpenChange(open: boolean) {
     setFlowReportOpen(open)
     if (!open) setReportFlow(null)
-  }
-
-  function openCountryNodes(country: NodeTrafficMapCountry) {
-    router.push(buildCountryHref(country))
-  }
-
-  function openFlowTargetNodes(flow: NodeTrafficMapFlow) {
-    router.push(
-      `/admin/nodes?country=${encodeURIComponent(flow.targetCountryCode)}`
-    )
   }
 
   function resetGlobe() {
@@ -3321,13 +3285,11 @@ function GlobeTrafficMap({ data }: { data: NodeTrafficMapData }) {
         data={data}
         open={reportOpen}
         onOpenChange={handleReportOpenChange}
-        onOpenNodes={openCountryNodes}
       />
       <FlowTrafficReportSheet
         flow={reportFlow}
         open={flowReportOpen}
         onOpenChange={handleFlowReportOpenChange}
-        onOpenTargetNodes={openFlowTargetNodes}
       />
 
       <canvas
@@ -3464,7 +3426,6 @@ function FlatWorldTrafficMap({
   large: boolean
   canvas: boolean
 }) {
-  const router = useRouter()
   const [hoveredCode, setHoveredCode] = useState<string | null>(null)
   const [viewBox, setViewBox] = useState<CanvasViewBox>(DEFAULT_CANVAS_VIEWBOX)
   const [dragging, setDragging] = useState(false)
@@ -3528,10 +3489,6 @@ function FlatWorldTrafficMap({
   function handleReportOpenChange(open: boolean) {
     setReportOpen(open)
     if (!open) setReportCountry(null)
-  }
-
-  function openCountryNodes(country: NodeTrafficMapCountry) {
-    router.push(buildCountryHref(country))
   }
 
   const resetViewport = useCallback(() => {
@@ -3834,7 +3791,6 @@ function FlatWorldTrafficMap({
         data={data}
         open={reportOpen}
         onOpenChange={handleReportOpenChange}
-        onOpenNodes={openCountryNodes}
       />
 
       {canvas ? (
@@ -3982,7 +3938,7 @@ export function NodeTrafficWorldMap({
   const map = <WorldTrafficMap data={data} large={large} canvas={canvas} />
   const footer = (
     <div className="flex flex-col gap-2 text-xs text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
-      <p>悬停查看地区流量，点击有颜色的地块跳转到对应国家/地区节点。</p>
+      <p>悬停查看地区流量，点击有颜色的地块查看对应国家/地区报告。</p>
       {topCountries.length > 0 ? (
         <p className="truncate">
           Top：

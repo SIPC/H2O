@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import Link from "next/link"
+
 import {
   closestCenter,
   DndContext,
@@ -2773,22 +2773,12 @@ function NodeForm({
   )
 }
 
-function getCountryFilterFromLocation() {
-  if (typeof window === "undefined") return null
-  return normalizeCountryFilter(
-    new URLSearchParams(window.location.search).get("country")
-  )
-}
-
 export default function AdminNodesPage() {
   const { confirm, alert } = useConfirm()
-  const [countryFilter, setCountryFilter] = useState<string | null>(
-    getCountryFilterFromLocation
-  )
-  const countryFilterOption = getCountryOption(countryFilter)
   const [rows, setRows] = useState<NodeRow[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [countryFilter, setCountryFilter] = useState<string | null>(null)
   const [sortingMode, setSortingMode] = useState(false)
   const [draggingNodeId, setDraggingNodeId] = useState<number | null>(null)
   const [savingOrder, setSavingOrder] = useState(false)
@@ -2975,25 +2965,43 @@ export default function AdminNodesPage() {
     })
   )
 
-  useEffect(() => {
-    const syncCountryFilter = () =>
-      setCountryFilter(getCountryFilterFromLocation())
-    window.addEventListener("popstate", syncCountryFilter)
-    window.addEventListener("pushstate", syncCountryFilter)
-    window.addEventListener("replacestate", syncCountryFilter)
-    return () => {
-      window.removeEventListener("popstate", syncCountryFilter)
-      window.removeEventListener("pushstate", syncCountryFilter)
-      window.removeEventListener("replacestate", syncCountryFilter)
+  const countryFilters = useMemo(() => {
+    const filters = new Map<
+      string,
+      { code: string; name: string; count: number }
+    >()
+    for (const row of rows) {
+      const code = normalizeCountryFilter(row.geo_country_code)
+      if (!code) continue
+
+      const option = getCountryOption(code)
+      const name = row.geo_country_name?.trim() || option?.name || code
+      const existing = filters.get(code)
+      if (existing) {
+        existing.count += 1
+        if (existing.name === code && name !== code) existing.name = name
+        continue
+      }
+      filters.set(code, { code, name, count: 1 })
     }
-  }, [])
-  const visibleRows = useMemo(() => {
-    if (!countryFilter) return rows
-    return rows.filter(
-      (row) => normalizeCountryFilter(row.geo_country_code) === countryFilter
+
+    return Array.from(filters.values()).sort(
+      (a, b) => b.count - a.count || a.name.localeCompare(b.name, "zh-CN")
     )
-  }, [countryFilter, rows])
-  const activeSortingMode = sortingMode && !countryFilter
+  }, [rows])
+  const effectiveCountryFilter = countryFilter
+    ? countryFilters.find((item) => item.code === countryFilter)
+    : null
+  const visibleRows = useMemo(() => {
+    if (!effectiveCountryFilter) return rows
+    return rows.filter(
+      (row) =>
+        normalizeCountryFilter(row.geo_country_code) ===
+        effectiveCountryFilter.code
+    )
+  }, [effectiveCountryFilter, rows])
+  const activeSortingMode = sortingMode && !effectiveCountryFilter
+  const countryFilterLabel = effectiveCountryFilter?.name ?? null
   const visibleOnlineCount = visibleRows.filter((row) =>
     isFresh(row.last_report_at)
   ).length
@@ -4251,10 +4259,9 @@ export default function AdminNodesPage() {
           <div>
             <h1 className="text-2xl font-bold">节点管理</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {countryFilter ? (
+              {effectiveCountryFilter ? (
                 <>
-                  {countryFilterOption?.name ?? countryFilter} ·{" "}
-                  {visibleRows.length}/{rows.length} 个节点
+                  {countryFilterLabel} · 该地区有 {visibleRows.length} 个节点
                 </>
               ) : (
                 <>共 {rows.length} 个节点</>
@@ -4266,59 +4273,95 @@ export default function AdminNodesPage() {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setHideIp((v) => !v)}
-              title={hideIp ? "显示 IP" : "隐藏 IP"}
-            >
-              {hideIp ? (
-                <EyeOff className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
-            </Button>
-            <Button
-              variant={activeSortingMode ? "default" : "outline"}
-              size="icon-sm"
-              onClick={toggleSortingMode}
-              disabled={
-                loading ||
-                visibleRows.length < 2 ||
-                savingOrder ||
-                Boolean(countryFilter)
-              }
-              title={
-                countryFilter
-                  ? "国家筛选下暂不支持排序"
-                  : activeSortingMode
-                    ? "完成排序"
-                    : "进入排序模式"
-              }
-            >
-              <ArrowUpDown className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => void handleRefresh()}
-              disabled={refreshing || savingOrder || activeSortingMode}
-              title={
-                activeSortingMode
-                  ? "排序模式下暂不刷新"
-                  : savingOrder
-                    ? "正在保存排序"
-                    : "刷新节点数据"
-              }
-            >
-              <RefreshCw
-                className={cn(
-                  "h-4 w-4",
-                  (refreshing || savingOrder) && "animate-spin"
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {countryFilters.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-end gap-1 pr-1 sm:pr-2">
+                {countryFilters.map((country) => {
+                  const active = effectiveCountryFilter?.code === country.code
+                  const flagUrl = getCountryFlagUrl(country.code)
+                  return (
+                    <Button
+                      key={country.code}
+                      type="button"
+                      variant={active ? "default" : "outline"}
+                      size="icon"
+                      onClick={() =>
+                        setCountryFilter(active ? null : country.code)
+                      }
+                      disabled={savingOrder || sortingMode}
+                      title={`${active ? "取消筛选" : "筛选"}${country.name}节点（${country.count} 个）`}
+                      aria-label={`${active ? "取消筛选" : "筛选"}${country.name}节点`}
+                    >
+                      {flagUrl ? (
+                        <span
+                          aria-hidden="true"
+                          className="inline-block h-3 w-4 rounded-xs bg-cover bg-center shadow-sm"
+                          style={{ backgroundImage: `url(${flagUrl})` }}
+                        />
+                      ) : (
+                        <span className="text-[10px] font-semibold">
+                          {country.code}
+                        </span>
+                      )}
+                    </Button>
+                  )
+                })}
+              </div>
+            ) : null}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => setHideIp((v) => !v)}
+                title={hideIp ? "显示 IP" : "隐藏 IP"}
+              >
+                {hideIp ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
                 )}
-              />
-            </Button>
+              </Button>
+              <Button
+                variant={activeSortingMode ? "default" : "outline"}
+                size="icon"
+                onClick={toggleSortingMode}
+                disabled={
+                  loading ||
+                  visibleRows.length < 2 ||
+                  savingOrder ||
+                  Boolean(effectiveCountryFilter)
+                }
+                title={
+                  effectiveCountryFilter
+                    ? "国家筛选下暂不支持排序"
+                    : activeSortingMode
+                      ? "完成排序"
+                      : "进入排序模式"
+                }
+              >
+                <ArrowUpDown className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => void handleRefresh()}
+                disabled={refreshing || savingOrder || activeSortingMode}
+                title={
+                  activeSortingMode
+                    ? "排序模式下暂不刷新"
+                    : savingOrder
+                      ? "正在保存排序"
+                      : "刷新节点数据"
+                }
+              >
+                <RefreshCw
+                  className={cn(
+                    "h-4 w-4",
+                    (refreshing || savingOrder) && "animate-spin"
+                  )}
+                />
+              </Button>
+            </div>
             <Button
               onClick={() => setCreateOpen(true)}
               disabled={activeSortingMode || savingOrder}
@@ -4328,19 +4371,6 @@ export default function AdminNodesPage() {
             </Button>
           </div>
         </div>
-
-        {countryFilter ? (
-          <div className="flex flex-col gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-muted-foreground">
-              正在查看 {countryFilterOption?.name ?? countryFilter} 节点
-            </span>
-            <Button asChild variant="outline" size="sm">
-              <Link href="/admin/nodes" onClick={() => setCountryFilter(null)}>
-                清除筛选
-              </Link>
-            </Button>
-          </div>
-        ) : null}
 
         {/* 节点卡片网格 */}
         {loading ? (
@@ -4375,7 +4405,7 @@ export default function AdminNodesPage() {
             <p className="mt-1 text-xs">
               {rows.length === 0
                 ? "点击右上角「添加节点」创建第一个节点"
-                : "当前国家/地区没有可显示的节点"}
+                : `当前没有 ${countryFilterLabel ?? "该国家/地区"} 节点`}
             </p>
           </Card>
         ) : activeSortingMode ? (
