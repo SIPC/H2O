@@ -2975,7 +2975,7 @@ export default function AdminNodesPage() {
       if (!code) continue
 
       const option = getCountryOption(code)
-      const name = row.geo_country_name?.trim() || option?.name || code
+      const name = option?.name || row.geo_country_name?.trim() || code
       const existing = filters.get(code)
       if (existing) {
         existing.count += 1
