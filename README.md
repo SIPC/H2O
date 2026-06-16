@@ -44,6 +44,7 @@ Hysteria 2 Ops - 一站式管理你的 Hysteria2 节点
 - [x] 全局流量统计页
 - [x] 用户端流量统计卡片
 - [x] 套餐/订阅分配
+- [x] Hysteria2 HTTP 用户验证
 
 
 ## Star History
